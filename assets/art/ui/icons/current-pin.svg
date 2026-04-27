@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 96" role="img" aria-labelledby="title desc">
+  <title id="title">Current position pin</title>
+  <desc id="desc">Current position marker for the SPCG map.</desc>
+  <defs>
+    <linearGradient id="pin" x1="24" y1="8" x2="58" y2="78" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe08b"/>
+      <stop offset="1" stop-color="#df8e3e"/>
+    </linearGradient>
+  </defs>
+  <path d="M40 88c-3-15-24-29-24-52C16 22 27 10 40 10s24 12 24 26c0 23-21 37-24 52z" fill="url(#pin)"/>
+  <circle cx="40" cy="36" r="12" fill="#fffaf0"/>
+  <path d="M40 26l3 7 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z" fill="#df8e3e"/>
+</svg>

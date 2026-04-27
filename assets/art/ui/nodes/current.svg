@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title desc">
+  <title id="title">Current level node</title>
+  <desc id="desc">Current SPCG level node with warm glow.</desc>
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="45%" r="50%">
+      <stop offset="0" stop-color="#fff2a8" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#f2b552" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="20" y1="10" x2="76" y2="84" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe08b"/>
+      <stop offset="1" stop-color="#df8e3e"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="8" stdDeviation="6" flood-color="#6d461d" flood-opacity="0.24"/>
+    </filter>
+  </defs>
+  <circle cx="48" cy="48" r="45" fill="url(#glow)"/>
+  <circle cx="48" cy="48" r="34" fill="url(#gold)" filter="url(#shadow)"/>
+  <circle cx="48" cy="48" r="27" fill="none" stroke="#fff7d7" stroke-width="5" opacity="0.85"/>
+  <path d="M48 20l7 16 17 2-13 11 4 17-15-9-15 9 4-17-13-11 17-2z" fill="#fffaf0"/>
+</svg>

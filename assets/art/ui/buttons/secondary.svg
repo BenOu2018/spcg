@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 64" role="img" aria-labelledby="title desc">
+  <title id="title">Secondary button</title>
+  <desc id="desc">Quiet SPCG secondary button background.</desc>
+  <defs>
+    <linearGradient id="fill" x1="20" y1="6" x2="198" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fffaf0"/>
+      <stop offset="1" stop-color="#e8f0e3"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-30%" width="120%" height="170%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#5d4b2d" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect x="6" y="6" width="208" height="52" rx="14" fill="url(#fill)" filter="url(#shadow)"/>
+  <rect x="9.5" y="9.5" width="201" height="45" rx="11" fill="none" stroke="#8da98e" stroke-width="3" opacity="0.5"/>
+  <path d="M30 20c42-5 92-5 142 0" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.55"/>
+</svg>

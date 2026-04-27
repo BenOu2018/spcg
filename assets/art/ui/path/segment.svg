@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 28" role="img" aria-labelledby="title desc">
+  <title id="title">Map path segment</title>
+  <desc id="desc">Dotted path segment for SPCG level map.</desc>
+  <path d="M10 16c22-13 42 9 63-3 13-8 23-8 37 0" fill="none" stroke="#8f7a55" stroke-width="7" stroke-linecap="round" stroke-dasharray="1 16" opacity="0.7"/>
+  <path d="M10 16c22-13 42 9 63-3 13-8 23-8 37 0" fill="none" stroke="#fff4cf" stroke-width="3" stroke-linecap="round" stroke-dasharray="1 16" opacity="0.6"/>
+</svg>

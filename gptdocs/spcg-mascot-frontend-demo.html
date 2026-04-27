@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SPCG mascot frontend demo</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #fff8ea;
+      --panel: rgba(255, 252, 242, 0.92);
+      --panel-strong: #fffdf6;
+      --ink: #2f281d;
+      --muted: #7a6f5c;
+      --sage: #6f9a79;
+      --teal: #244c52;
+      --editor: #17282c;
+      --editor-soft: #20373c;
+      --amber: #f2b552;
+      --caramel: #df8e3e;
+      --line: rgba(73, 55, 31, 0.12);
+      --shadow: 0 18px 50px rgba(70, 48, 22, 0.16);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 15% 10%, rgba(245, 199, 112, 0.28), transparent 30%),
+        radial-gradient(circle at 84% 6%, rgba(122, 162, 144, 0.28), transparent 28%),
+        linear-gradient(145deg, #f7edd8, #e8f0e3 62%, #f6e4c4);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+    }
+
+    .app {
+      position: relative;
+      width: min(1440px, 96vw);
+      aspect-ratio: 16 / 9;
+      min-height: 680px;
+      overflow: hidden;
+      border: 1px solid rgba(88, 65, 34, 0.14);
+      border-radius: 22px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.36), transparent 28%),
+        var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    .hills,
+    .hills::before,
+    .hills::after {
+      position: absolute;
+      right: -8%;
+      left: -8%;
+      height: 190px;
+      border-radius: 50% 50% 0 0;
+      content: "";
+      pointer-events: none;
+    }
+
+    .hills {
+      top: 56px;
+      background: rgba(121, 164, 124, 0.2);
+      transform: rotate(-2deg);
+    }
+
+    .hills::before {
+      top: 34px;
+      background: rgba(97, 138, 103, 0.16);
+      transform: rotate(4deg);
+    }
+
+    .hills::after {
+      top: 76px;
+      background: rgba(70, 120, 101, 0.12);
+      transform: rotate(-1deg);
+    }
+
+    .topbar {
+      position: relative;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 76px;
+      padding: 0 28px;
+      border-bottom: 1px solid rgba(93, 72, 38, 0.12);
+      background: rgba(255, 252, 242, 0.7);
+      backdrop-filter: blur(12px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .logo {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      place-items: center;
+      border-radius: 14px;
+      background: #243f42;
+      color: #ffe7aa;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+
+    .brand p,
+    .pill span {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 38px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.6);
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: var(--amber);
+      box-shadow: 0 0 0 5px rgba(242, 181, 82, 0.16);
+    }
+
+    .main {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      grid-template-columns: minmax(320px, 31%) 1fr;
+      gap: 18px;
+      height: calc(100% - 76px);
+      padding: 18px;
+    }
+
+    .task,
+    .workbench {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--panel);
+      box-shadow: 0 10px 28px rgba(75, 52, 25, 0.08);
+      backdrop-filter: blur(10px);
+    }
+
+    .task {
+      display: flex;
+      flex-direction: column;
+      padding: 22px 22px 164px;
+    }
+
+    .section-label {
+      color: var(--sage);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .task h2 {
+      margin: 8px 0 16px;
+      font-size: 26px;
+      letter-spacing: 0;
+    }
+
+    .story {
+      margin: 0 0 18px;
+      color: #5d513f;
+      font-size: 15px;
+      line-height: 1.75;
+    }
+
+    .spec {
+      display: grid;
+      gap: 10px;
+      margin-top: 6px;
+    }
+
+    .spec-card {
+      padding: 13px 14px;
+      border: 1px solid rgba(111, 154, 121, 0.22);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.48);
+    }
+
+    .spec-card b {
+      display: block;
+      margin-bottom: 6px;
+      color: #355c46;
+      font-size: 13px;
+    }
+
+    .spec-card p,
+    .spec-card code {
+      margin: 0;
+      color: #6a5c48;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .hint {
+      margin-top: auto;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: rgba(242, 181, 82, 0.17);
+      color: #745225;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .workbench {
+      display: grid;
+      grid-template-rows: auto 1fr 168px;
+      overflow: hidden;
+      background: rgba(255, 253, 246, 0.84);
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.42);
+    }
+
+    .tabs {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .tab {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 34px;
+      padding: 0 14px;
+      border-radius: 10px;
+      background: #244c52;
+      color: #f9f2df;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .tab::before {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: #80d09a;
+      content: "";
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    button {
+      height: 36px;
+      border: 0;
+      border-radius: 11px;
+      padding: 0 15px;
+      background: #edf4e9;
+      color: #365c43;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 18px rgba(54, 92, 67, 0.13);
+    }
+
+    .primary {
+      background: var(--amber);
+      color: #3d2810;
+    }
+
+    .editor {
+      display: grid;
+      grid-template-columns: 56px 1fr;
+      min-height: 0;
+      background: var(--editor);
+      color: #dfefe9;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: clamp(12px, 1.12vw, 15px);
+      line-height: 1.75;
+    }
+
+    .lines {
+      padding: 18px 12px;
+      background: rgba(0, 0, 0, 0.16);
+      color: rgba(223, 239, 233, 0.36);
+      text-align: right;
+      user-select: none;
+    }
+
+    pre {
+      margin: 0;
+      overflow: hidden;
+      padding: 18px 20px;
+      white-space: pre-wrap;
+    }
+
+    .kw { color: #f2c66b; }
+    .type { color: #7fd0c4; }
+    .num { color: #f09b76; }
+    .com { color: #78949a; }
+    .fn { color: #a5d985; }
+
+    .results {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      padding: 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      background: var(--editor-soft);
+    }
+
+    .result-card {
+      min-width: 0;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.06);
+      padding: 14px;
+      color: #d8ebe5;
+    }
+
+    .result-card b {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      color: #ffe3a0;
+      font-size: 13px;
+    }
+
+    .result-card b::before {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #80d09a;
+      content: "";
+    }
+
+    .result-card code {
+      color: #d8ebe5;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .mascot-zone {
+      position: absolute;
+      z-index: 5;
+      left: 6px;
+      bottom: -4px;
+      width: min(260px, 19vw);
+      min-width: 190px;
+      transform-origin: 50% 100%;
+      pointer-events: none;
+    }
+
+    .focus-beam {
+      position: absolute;
+      left: 150px;
+      bottom: 154px;
+      width: 420px;
+      height: 120px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(242, 181, 82, 0.3), rgba(242, 181, 82, 0));
+      filter: blur(8px);
+      opacity: 0;
+      transform: rotate(-8deg);
+      transition: opacity 300ms ease;
+      pointer-events: none;
+    }
+
+    .dog {
+      width: 100%;
+      height: auto;
+      overflow: visible;
+      filter: drop-shadow(0 18px 20px rgba(74, 42, 18, 0.18));
+    }
+
+    .dog-asset {
+      display: block;
+      width: 100%;
+      height: auto;
+      filter: drop-shadow(0 18px 20px rgba(74, 42, 18, 0.18));
+      transform-origin: 50% 92%;
+    }
+
+    .mascot-stage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1;
+    }
+
+    .blink-mask {
+      display: none;
+      position: absolute;
+      width: 18%;
+      height: 8%;
+      border-radius: 999px;
+      background: #f4d294;
+      opacity: 0;
+      transform: scaleY(0.2);
+      transform-origin: 50% 50%;
+      animation: blinkOverlay 3.4s ease-in-out infinite;
+      filter: blur(0.2px);
+    }
+
+    .blink-mask.left {
+      left: 35.2%;
+      top: 39.2%;
+      rotate: -4deg;
+    }
+
+    .blink-mask.right {
+      left: 58.2%;
+      top: 37.6%;
+      rotate: 4deg;
+    }
+
+    .eye-glint {
+      display: none;
+      position: absolute;
+      width: 8%;
+      height: 8%;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(255, 238, 148, 0.95), rgba(255, 210, 87, 0));
+      opacity: 0;
+      filter: blur(1px);
+      transition: opacity 260ms ease;
+      animation: glow 1.25s ease-in-out infinite alternate;
+    }
+
+    .eye-glint.left {
+      left: 38%;
+      top: 40%;
+    }
+
+    .eye-glint.right {
+      left: 61%;
+      top: 38.5%;
+    }
+
+    .mascot-zone > svg.dog {
+      display: none;
+    }
+
+    .dog #mascot {
+      transform-box: fill-box;
+      transform-origin: 50% 82%;
+      animation: breathe 3.2s ease-in-out infinite;
+    }
+
+    .dog #tail {
+      transform-box: fill-box;
+      transform-origin: 16% 52%;
+      animation: wag 1.35s ease-in-out infinite;
+    }
+
+    .dog #face {
+      transform-box: fill-box;
+      transform-origin: center;
+      transition: transform 260ms ease;
+    }
+
+    .dog #head {
+      transform-box: fill-box;
+      transform-origin: 50% 72%;
+      transition: transform 300ms ease;
+    }
+
+    .dog .eye-shine {
+      opacity: 0;
+      transform-box: fill-box;
+      transform-origin: center;
+      transition: opacity 260ms ease;
+    }
+
+    .coding .mascot-zone {
+      transform: none;
+    }
+
+    .coding .focus-beam {
+      opacity: 1;
+    }
+
+    .coding .dog #head {
+      transform: rotate(5deg) translate(8px, 2px);
+    }
+
+    .coding .dog #face {
+      transform: translate(12px, 0);
+    }
+
+    .coding .dog #tail {
+      animation-duration: 0.95s;
+    }
+
+    .coding .dog .eye-shine {
+      opacity: 1;
+      animation: glow 1.2s ease-in-out infinite alternate;
+    }
+
+    .coding .dog-asset {
+      transform: none;
+    }
+
+    .coding .eye-glint {
+      opacity: 1;
+    }
+
+    .state-bubble {
+      position: absolute;
+      z-index: 6;
+      left: 172px;
+      bottom: 136px;
+      padding: 9px 12px;
+      border: 1px solid rgba(242, 181, 82, 0.42);
+      border-radius: 999px;
+      background: rgba(255, 250, 235, 0.9);
+      color: #7a5121;
+      font-size: 13px;
+      font-weight: 800;
+      box-shadow: 0 10px 24px rgba(82, 49, 16, 0.12);
+      transition: transform 260ms ease, color 260ms ease;
+    }
+
+    .coding .state-bubble {
+      color: #315f4a;
+      transform: translateX(18px);
+    }
+
+    @keyframes bob {
+      0%, 100% { translate: 0 0; }
+      50% { translate: 0 -7px; }
+    }
+
+    @keyframes breathe {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.018, 0.986); }
+    }
+
+    @keyframes mascotImageBreathe {
+      0%, 100% { scale: 1; }
+      50% { scale: 1.018 0.986; }
+    }
+
+    @keyframes blinkOverlay {
+      0%, 30%, 36%, 78%, 84%, 100% {
+        opacity: 0;
+        transform: scaleY(0.2);
+      }
+      33%, 81% {
+        opacity: 0.92;
+        transform: scaleY(1);
+      }
+    }
+
+    @keyframes wag {
+      0%, 100% { transform: rotate(-6deg); }
+      50% { transform: rotate(11deg); }
+    }
+
+    @keyframes glow {
+      from { filter: drop-shadow(0 0 2px rgba(255, 226, 128, 0.4)); }
+      to { filter: drop-shadow(0 0 9px rgba(255, 226, 128, 0.9)); }
+    }
+
+    @media (max-width: 900px) {
+      .app {
+        width: 100vw;
+        min-height: 100vh;
+        border-radius: 0;
+      }
+
+      .main {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+      }
+
+      .task {
+        min-height: 260px;
+        padding-bottom: 90px;
+      }
+
+      .mascot-zone {
+        width: 150px;
+        min-width: 150px;
+      }
+
+      .state-bubble {
+        left: 118px;
+        bottom: 86px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app" id="app">
+    <div class="hills"></div>
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">S</div>
+        <div>
+          <h1>SPCG</h1>
+          <p>算法学习平台 · 编程过关演示</p>
+        </div>
+      </div>
+      <div class="status">
+        <div class="pill"><span>第 3 关</span><b>两个袋子的秘密</b></div>
+        <div class="pill"><span>当前位置</span><i class="dot"></i></div>
+        <div class="pill"><span>目的地</span><b>镜湖小径</b></div>
+      </div>
+    </header>
+
+    <section class="main">
+      <aside class="task">
+        <span class="section-label">任务题目</span>
+        <h2>两个袋子的秘密</h2>
+        <p class="story">
+          小镇的仓库里有两个袋子，分别装着不同数量的星星石。请写一段程序，读取两个整数，
+          输出交换后的结果。
+        </p>
+        <div class="spec">
+          <div class="spec-card">
+            <b>输入</b>
+            <p>一行两个整数 a 和 b。</p>
+          </div>
+          <div class="spec-card">
+            <b>输出</b>
+            <p>交换后的 b 和 a。</p>
+          </div>
+          <div class="spec-card">
+            <b>样例</b>
+            <code>输入: 3 8<br />输出: 8 3</code>
+          </div>
+        </div>
+        <div class="hint">提示：可以用一个临时变量，也可以思考更简洁的写法。</div>
+      </aside>
+
+      <section class="workbench">
+        <div class="toolbar">
+          <div class="tabs">
+            <div class="tab">代码编辑器</div>
+          </div>
+          <div class="actions">
+            <button type="button" id="toggle">开始做题</button>
+            <button type="button">运行</button>
+            <button type="button" class="primary">提交</button>
+          </div>
+        </div>
+        <div class="editor">
+          <div class="lines">1<br />2<br />3<br />4<br />5<br />6<br />7<br />8<br />9<br />10<br />11</div>
+          <pre><span class="kw">#include</span> &lt;iostream&gt;
+<span class="kw">using namespace</span> std;
+
+<span class="type">int</span> <span class="fn">main</span>() {
+    <span class="type">int</span> a, b;
+    cin &gt;&gt; a &gt;&gt; b;
+    <span class="type">int</span> temp = a; <span class="com">// 保存第一个袋子</span>
+    a = b;
+    b = temp;
+    cout &lt;&lt; a &lt;&lt; <span class="num">" "</span> &lt;&lt; b;
+}</pre>
+        </div>
+        <div class="results">
+          <div class="result-card">
+            <b>测试结果</b>
+            <code>样例 1 通过<br />运行时间 3ms<br />内存 1.2MB</code>
+          </div>
+          <div class="result-card">
+            <b>提示</b>
+            <code>小狗正在看你的代码。变量交换的步骤已经很清楚了。</code>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <div class="focus-beam"></div>
+    <div class="state-bubble" id="bubble">可爱待机</div>
+    <div class="mascot-zone">
+      <div class="mascot-stage">
+        <img class="dog-asset" src="../assets/art/characters/dog-tiger-protagonist/cute.svg" alt="SPCG 小狗吉祥物" />
+        <span class="blink-mask left"></span>
+        <span class="blink-mask right"></span>
+        <span class="eye-glint left"></span>
+        <span class="eye-glint right"></span>
+      </div>
+      <svg class="dog" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-hidden="true">
+        <defs>
+          <filter id="paperShadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#4a2a12" flood-opacity="0.18"/>
+          </filter>
+          <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#4a2a12" flood-opacity="0.14"/>
+          </filter>
+          <linearGradient id="furMain" x1="146" y1="84" x2="370" y2="424" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#f7c879"/>
+            <stop offset="0.55" stop-color="#e79c49"/>
+            <stop offset="1" stop-color="#c97833"/>
+          </linearGradient>
+          <linearGradient id="furLight" x1="154" y1="146" x2="334" y2="404" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#fff3d7"/>
+            <stop offset="1" stop-color="#f7d59c"/>
+          </linearGradient>
+          <linearGradient id="earInner" x1="118" y1="112" x2="180" y2="236" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#f7a6a0"/>
+            <stop offset="1" stop-color="#e5786d"/>
+          </linearGradient>
+        </defs>
+        <ellipse cx="256" cy="446" rx="128" ry="26" fill="#5a3518" opacity="0.1"/>
+        <g id="mascot" filter="url(#paperShadow)">
+          <g id="tail" filter="url(#softShadow)">
+            <path d="M354 330c54-6 82-42 68-76-11-27-45-31-64-8 23-3 38 12 31 28-8 21-40 28-69 24z" fill="url(#furMain)"/>
+            <path d="M388 255c19 4 28 18 20 34" fill="none" stroke="#7a3d1d" stroke-width="14" stroke-linecap="round" opacity="0.55"/>
+            <path d="M364 294c21 2 38-5 46-17" fill="none" stroke="#7a3d1d" stroke-width="12" stroke-linecap="round" opacity="0.45"/>
+            <path d="M420 254c-8-18-31-24-48-9 18-1 27 8 25 18z" fill="#fff3d7"/>
+          </g>
+          <g id="body">
+            <path d="M156 316c0-66 40-112 100-112s100 46 100 112c0 71-42 116-100 116s-100-45-100-116z" fill="url(#furMain)"/>
+            <path d="M194 326c0-50 25-84 62-84s62 34 62 84c0 52-25 86-62 86s-62-34-62-86z" fill="url(#furLight)" opacity="0.96"/>
+            <ellipse cx="198" cy="428" rx="34" ry="24" fill="#f7d59c"/>
+            <ellipse cx="314" cy="428" rx="34" ry="24" fill="#f7d59c"/>
+            <path d="M176 368c-29 13-44 36-35 52 9 17 37 13 57-12z" fill="#d9823b"/>
+            <path d="M336 368c29 13 44 36 35 52-9 17-37 13-57-12z" fill="#d9823b"/>
+          </g>
+          <g id="head">
+            <path d="M128 112c-32 2-56 31-50 65 5 30 31 53 65 61 13-43 25-83 44-114-18-9-39-13-59-12z" fill="url(#furMain)"/>
+            <path d="M384 112c32 2 56 31 50 65-5 30-31 53-65 61-13-43-25-83-44-114 18-9 39-13 59-12z" fill="url(#furMain)"/>
+            <path d="M113 141c-15 10-20 32-9 48 8 12 23 21 43 27 6-23 14-45 25-66-21-11-43-15-59-9z" fill="url(#earInner)" opacity="0.86"/>
+            <path d="M399 141c15 10 20 32 9 48-8 12-23 21-43 27-6-23-14-45-25-66 21-11 43-15 59-9z" fill="url(#earInner)" opacity="0.86"/>
+            <path d="M126 218c0-78 50-132 130-132s130 54 130 132c0 79-50 128-130 128s-130-49-130-128z" fill="url(#furMain)"/>
+            <path d="M172 238c0-48 34-82 84-82s84 34 84 82c0 53-34 86-84 86s-84-33-84-86z" fill="url(#furLight)" opacity="0.96"/>
+            <g id="tiger-hints" fill="#7a3d1d" opacity="0.7">
+              <path d="M237 115c3 19 9 36 19 50 10-14 16-31 19-50-12-5-26-5-38 0z"/>
+              <path d="M204 129c10 18 22 31 37 39-4-20-10-36-18-50-7 2-14 6-19 11z"/>
+              <path d="M308 118c-8 14-14 30-18 50 15-8 27-21 37-39-5-5-12-9-19-11z"/>
+              <path d="M162 236c18 0 33 4 45 13-12 8-28 10-48 6z"/>
+              <path d="M350 249c12-9 27-13 45-13l3 19c-20 4-36 2-48-6z"/>
+            </g>
+            <g id="face">
+              <ellipse cx="211" cy="217" rx="23" ry="28" fill="#3a2414"/>
+              <ellipse cx="301" cy="217" rx="23" ry="28" fill="#3a2414"/>
+              <circle cx="218" cy="207" r="7" fill="#fff7df"/>
+              <circle cx="308" cy="207" r="7" fill="#fff7df"/>
+              <circle class="eye-shine" cx="224" cy="225" r="8" fill="#ffe78a"/>
+              <circle class="eye-shine" cx="314" cy="225" r="8" fill="#ffe78a"/>
+              <path d="M236 258c7-10 33-10 40 0-3 11-11 17-20 17s-17-6-20-17z" fill="#4a2a12"/>
+              <path d="M217 286c13 18 64 18 78 0" fill="none" stroke="#4a2a12" stroke-width="8" stroke-linecap="round"/>
+              <path d="M244 286l-7 14 15-2z" fill="#fff8ea"/>
+              <path d="M270 286l7 14-15-2z" fill="#fff8ea"/>
+              <circle cx="179" cy="262" r="16" fill="#f09376" opacity="0.32"/>
+              <circle cx="333" cy="262" r="16" fill="#f09376" opacity="0.32"/>
+            </g>
+          </g>
+        </g>
+      </svg>
+    </div>
+  </main>
+
+  <script>
+    const app = document.getElementById("app");
+    const toggle = document.getElementById("toggle");
+    const bubble = document.getElementById("bubble");
+
+    toggle.addEventListener("click", () => {
+      const coding = app.classList.toggle("coding");
+      toggle.textContent = coding ? "结束做题" : "开始做题";
+      bubble.textContent = coding ? "认真思考" : "可爱待机";
+    });
+  </script>
+</body>
+</html>

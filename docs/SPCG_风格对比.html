@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>SPCG 主界面风格对比</title>
+<style>
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: #faf8f3;
+    color: #1a1a1a;
+    margin: 0;
+    padding: 32px 24px;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; }
+  h1 {
+    font-size: 26px;
+    margin: 0 0 6px;
+    font-weight: 500;
+  }
+  .lead {
+    color: #666;
+    font-size: 14px;
+    margin-bottom: 28px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+  @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: white;
+    border: 1px solid #e8e3d8;
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .card .img {
+    background: #f5f1ea;
+    padding: 0;
+    line-height: 0;
+  }
+  .card .img img, .card .img object {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .card .body {
+    padding: 18px 20px 22px;
+  }
+  .label {
+    font-size: 11px;
+    color: #888;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+  }
+  .name {
+    font-size: 18px;
+    font-weight: 500;
+    margin: 0 0 10px;
+  }
+  .palette { display: flex; gap: 6px; margin: 10px 0 14px; }
+  .palette span {
+    width: 26px; height: 26px; border-radius: 6px;
+    border: 1px solid rgba(0,0,0,0.06);
+  }
+  .row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    margin: 5px 0;
+    color: #555;
+  }
+  .row b { color: #1a1a1a; font-weight: 500; }
+  .pros, .cons {
+    font-size: 12px;
+    margin-top: 8px;
+    line-height: 1.7;
+  }
+  .pros b { color: #2d6a4f; }
+  .cons b { color: #9d3535; }
+  .badge {
+    display: inline-block;
+    background: #fef3c7;
+    color: #92400e;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 6px;
+    font-weight: 500;
+  }
+  footer {
+    margin-top: 40px;
+    padding: 22px 24px;
+    background: #fff;
+    border-radius: 12px;
+    border: 1px solid #e8e3d8;
+    font-size: 14px;
+    color: #444;
+  }
+  footer h3 { margin: 0 0 10px; font-size: 16px; }
+  footer ol { margin: 8px 0 0; padding-left: 22px; }
+  footer ol li { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>SPCG 主界面风格对比 · v0.1</h1>
+  <div class="lead">三种差异明显的方向 mockup。请重点感受 <b>色调、构图、情绪</b>，不要看 SVG 的细节质感。</div>
+
+  <div class="grid">
+
+    <div class="card">
+      <div class="img"><img src="style_A_shinkai.svg" alt="新海诚式"></div>
+      <div class="body">
+        <div class="label">方向 A</div>
+        <div class="name">新海诚 · 黄昏雾镇</div>
+        <div class="palette">
+          <span style="background:#2c3e6b" title="深蓝"></span>
+          <span style="background:#7c5d8a" title="雾紫"></span>
+          <span style="background:#e0967e" title="落霞橘"></span>
+          <span style="background:#f4c89a" title="暖光黄"></span>
+          <span style="background:#d97757" title="狐狸橘"></span>
+        </div>
+        <div class="row"><span>色调</span><b>冷暖反差强</b></div>
+        <div class="row"><span>情绪</span><b>诗意感伤</b></div>
+        <div class="row"><span>识别度</span><b>★★★★★</b></div>
+        <div class="row"><span>耐看度</span><b>★★★</b></div>
+        <div class="pros"><b>优点</b>：戏剧性强、容易出爆款 KV、辨识度高</div>
+        <div class="cons"><b>风险</b>：饱和度偏高、长时间使用可能情绪疲劳</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="img"><img src="style_B_ghibli.svg" alt="吉卜力式"></div>
+      <div class="body">
+        <div class="label">方向 B<span class="badge">推荐</span></div>
+        <div class="name">吉卜力 · 晨雾村落</div>
+        <div class="palette">
+          <span style="background:#f4ebd3" title="米白"></span>
+          <span style="background:#9bb888" title="雾松绿"></span>
+          <span style="background:#7a9b6a" title="深松绿"></span>
+          <span style="background:#e0a980" title="狐狸暖"></span>
+          <span style="background:#ffe289" title="灯笼黄"></span>
+        </div>
+        <div class="row"><span>色调</span><b>暖中带绿</b></div>
+        <div class="row"><span>情绪</span><b>温暖踏实</b></div>
+        <div class="row"><span>识别度</span><b>★★★★</b></div>
+        <div class="row"><span>耐看度</span><b>★★★★★</b></div>
+        <div class="pros"><b>优点</b>：色彩压力最小、最适合长时间陪伴、家长接受度高、与算法的安静气质契合</div>
+        <div class="cons"><b>风险</b>：美术功力不到位时容易看起来普通</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="img"><img src="style_C_geometric.svg" alt="纪念碑谷式"></div>
+      <div class="body">
+        <div class="label">方向 C</div>
+        <div class="name">纪念碑谷 · 几何之境</div>
+        <div class="palette">
+          <span style="background:#a89bb8" title="雾紫"></span>
+          <span style="background:#d8b8c2" title="薄樱粉"></span>
+          <span style="background:#f4d6c4" title="米桃"></span>
+          <span style="background:#bfd4c8" title="薄荷"></span>
+          <span style="background:#e8a87c" title="暖橘"></span>
+        </div>
+        <div class="row"><span>色调</span><b>冷淡通透</b></div>
+        <div class="row"><span>情绪</span><b>冷静思考</b></div>
+        <div class="row"><span>识别度</span><b>★★★★</b></div>
+        <div class="row"><span>耐看度</span><b>★★★★</b></div>
+        <div class="pros"><b>优点</b>：与"算法 = 抽象结构"内核最匹配、最不过时、高级关卡可视化天然契合</div>
+        <div class="cons"><b>风险</b>：缺少角色温度、10 岁左右孩子可能觉得冷</div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>
+    <h3>我的综合建议</h3>
+    <ol>
+      <li><b>主产品基础调性</b>：方向 B（吉卜力） — 温暖、广谱、耐看，适合作为长期陪伴的学习产品</li>
+      <li><b>品牌物料 / 高年级算法可视化</b>：借鉴方向 C（几何）的元素 — 树/图/DP 状态转移天然契合几何风</li>
+      <li><b>章节过场动画</b>：偶尔用方向 A（新海诚）的天空感 — 重要章节用一次，印象深刻</li>
+    </ol>
+    <p style="margin-top:14px;color:#555;font-size:13px;">
+      请你和团队过一遍，告诉我：①  哪个方向第一感觉最对？②  有什么元素想保留 / 想去掉？③  团队内有人能画概念图，还是要请外部美术？
+    </p>
+  </footer>
+</div>
+</body>
+</html>

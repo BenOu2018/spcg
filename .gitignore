@@ -27,6 +27,7 @@ pnpm-debug.log*
 problem-bank/reports/*.json
 problem-bank/
 lesson/
+docs/
 
 # Supabase local runtime
 supabase/.branches/

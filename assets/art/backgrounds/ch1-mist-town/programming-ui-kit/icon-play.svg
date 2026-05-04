@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Play icon</title>
+  <desc id="desc">Play icon for run button.</desc>
+  <path d="M22 15v34c0 4 4 6 7 4l25-17c3-2 3-6 0-8L29 11c-3-2-7 0-7 4z" fill="#ffffff"/>
+</svg>

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" role="img" aria-labelledby="title desc">
+  <title id="title">Current level node</title>
+  <desc id="desc">Current programming level node.</desc>
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#dcffd0"/>
+      <stop offset="1" stop-color="#74c957"/>
+    </radialGradient>
+    <filter id="shadow" x="-35%" y="-35%" width="170%" height="170%">
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#8dff6a" flood-opacity="0.85"/>
+      <feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#000000" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+  <circle cx="36" cy="36" r="27" fill="url(#glow)" filter="url(#shadow)"/>
+  <circle cx="36" cy="36" r="21" fill="none" stroke="#f7fff0" stroke-width="4" opacity="0.86"/>
+  <text x="36" y="45" text-anchor="middle" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="800">1</text>
+</svg>

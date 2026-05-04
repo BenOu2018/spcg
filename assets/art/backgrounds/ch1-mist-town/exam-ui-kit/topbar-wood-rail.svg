@@ -1,0 +1,28 @@
+<svg width="1600" height="96" viewBox="0 0 1600 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="wood" x1="0" y1="0" x2="0" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2B2119"/>
+      <stop offset=".45" stop-color="#1B130E"/>
+      <stop offset="1" stop-color="#332116"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1600" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6A4528"/>
+      <stop offset=".18" stop-color="#D19B50"/>
+      <stop offset=".5" stop-color="#F2D08A"/>
+      <stop offset=".82" stop-color="#A36C36"/>
+      <stop offset="1" stop-color="#5B3923"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(792 44) scale(760 60)">
+      <stop stop-color="#7A4A25" stop-opacity=".34"/>
+      <stop offset="1" stop-color="#0C0806" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <path d="M26 8H1574C1585 8 1594 17 1594 28V68C1594 79 1585 88 1574 88H26C15 88 6 79 6 68V28C6 17 15 8 26 8Z" fill="url(#wood)"/>
+  <path d="M26 8H1574C1585 8 1594 17 1594 28V68C1594 79 1585 88 1574 88H26C15 88 6 79 6 68V28C6 17 15 8 26 8Z" fill="url(#glow)"/>
+  <path d="M28 8H1572C1584 8 1594 18 1594 30V66C1594 78 1584 88 1572 88H28C16 88 6 78 6 66V30C6 18 16 8 28 8Z" stroke="url(#gold)" stroke-width="3"/>
+  <path d="M38 20H1562" stroke="#FFF3D2" stroke-opacity=".12" stroke-width="2" stroke-linecap="round"/>
+  <path d="M42 76H1558" stroke="#000" stroke-opacity=".42" stroke-width="3" stroke-linecap="round"/>
+  <path d="M84 8L42 48L84 88M1516 8L1558 48L1516 88" stroke="#D19B50" stroke-opacity=".45" stroke-width="2"/>
+  <circle cx="54" cy="48" r="5" fill="#D19B50" fill-opacity=".76"/>
+  <circle cx="1546" cy="48" r="5" fill="#D19B50" fill-opacity=".76"/>
+</svg>

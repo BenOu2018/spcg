@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Expand icon</title>
+  <desc id="desc">Expand icon for editor toolbar.</desc>
+  <path d="M22 12H12v10M42 12h10v10M22 52H12V42M42 52h10V42" fill="none" stroke="#fff4d6" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M12 12l15 15M52 12 37 27M12 52l15-15M52 52 37 37" stroke="#fff4d6" stroke-width="5" stroke-linecap="round"/>
+</svg>

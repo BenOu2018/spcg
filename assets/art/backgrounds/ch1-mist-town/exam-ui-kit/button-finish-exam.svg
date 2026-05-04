@@ -1,0 +1,14 @@
+<svg width="230" height="74" viewBox="0 0 230 74" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="finishFill" x1="0" y1="0" x2="0" y2="74" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C88C3D"/>
+      <stop offset=".55" stop-color="#815124"/>
+      <stop offset="1" stop-color="#543018"/>
+    </linearGradient>
+  </defs>
+  <path d="M20 8H210L224 37L210 66H20L6 37L20 8Z" fill="url(#finishFill)"/>
+  <path d="M20 8H210L224 37L210 66H20L6 37L20 8Z" stroke="#FFF3D2" stroke-opacity=".58" stroke-width="3"/>
+  <path d="M18 16H212" stroke="#FFF3D2" stroke-opacity=".16" stroke-width="2" stroke-linecap="round"/>
+  <path d="M46 38L57 49L80 25" stroke="#FFF3D2" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="95" y="45" fill="#FFF3D2" font-size="23" font-weight="850" font-family="Georgia, Times New Roman, PingFang SC, serif">Finish Match</text>
+</svg>

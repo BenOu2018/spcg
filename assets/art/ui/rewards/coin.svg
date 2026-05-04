@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>金币</title>
+  <defs>
+    <linearGradient id="coinFill" x1="16" y1="10" x2="48" y2="54" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe8a3"/>
+      <stop offset="0.52" stop-color="#f2b84b"/>
+      <stop offset="1" stop-color="#a96f19"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="24" fill="url(#coinFill)" stroke="#714a13" stroke-width="3"/>
+  <circle cx="32" cy="32" r="16" fill="none" stroke="#fff2bf" stroke-width="3" opacity=".85"/>
+  <path d="M32 19v26M23 28c2.3-4.4 15.7-4.4 18 0M23 36c2.3 4.4 15.7 4.4 18 0" fill="none" stroke="#6f4410" stroke-width="4" stroke-linecap="round"/>
+</svg>

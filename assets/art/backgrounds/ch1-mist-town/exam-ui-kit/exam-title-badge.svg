@@ -1,0 +1,27 @@
+<svg width="464" height="88" viewBox="0 0 464 88" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="titleFill" x1="0" y1="0" x2="0" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3A2719"/>
+      <stop offset=".5" stop-color="#21140D"/>
+      <stop offset="1" stop-color="#4A2D17"/>
+    </linearGradient>
+    <linearGradient id="titleEdge" x1="0" y1="0" x2="464" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5A3922"/>
+      <stop offset=".24" stop-color="#E0AD61"/>
+      <stop offset=".5" stop-color="#FFF1B9"/>
+      <stop offset=".77" stop-color="#A46A36"/>
+      <stop offset="1" stop-color="#573620"/>
+    </linearGradient>
+  </defs>
+  <path d="M28 8H436L456 44L436 80H28L8 44L28 8Z" fill="url(#titleFill)"/>
+  <path d="M28 8H436L456 44L436 80H28L8 44L28 8Z" stroke="url(#titleEdge)" stroke-width="3"/>
+  <path d="M40 20H424" stroke="#FFF3D2" stroke-opacity=".14" stroke-width="2" stroke-linecap="round"/>
+  <path d="M52 70H412" stroke="#000" stroke-opacity=".35" stroke-width="3" stroke-linecap="round"/>
+  <path d="M77 18L104 28V47C104 61 92 70 77 75C62 70 50 61 50 47V28L77 18Z" fill="#F2B552" stroke="#FFF3D2" stroke-opacity=".55" stroke-width="2"/>
+  <path d="M66 47L73 54L89 36" stroke="#2A2016" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M116 44H138M340 44H420" stroke="#A8793D" stroke-opacity=".6" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="126" cy="44" r="4" fill="#F2B552"/>
+  <circle cx="350" cy="44" r="4" fill="#F2B552"/>
+  <text x="150" y="38" fill="#FFF3D2" font-size="25" font-weight="850" font-family="Inter, PingFang SC, sans-serif">SPCG Ranked Match</text>
+  <text x="151" y="61" fill="#CDB78A" font-size="14" font-family="Inter, PingFang SC, sans-serif">Level test paper · Coding challenge</text>
+</svg>

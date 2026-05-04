@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="熔岩直线逃离">
+  <rect width="1280" height="720" fill="#111827"/>
+  <rect x="96" y="96" width="1088" height="528" rx="20" fill="none" stroke="#f97316" stroke-width="8"/>
+  <text x="130" y="178" fill="#fde68a" font-family="Arial, 'Noto Sans SC', sans-serif" font-size="54" font-weight="700">熔岩直线逃离</text>
+  <text x="130" y="252" fill="#e5e7eb" font-family="Arial, 'Noto Sans SC', sans-serif" font-size="32">一维状态 BFS</text>
+  <g transform="translate(150 352)" fill="none" stroke="#f97316" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="0" cy="0" r="34" fill="#f97316" opacity="0.95"/>
+    <path d="M52 0 H210"/>
+    <circle cx="270" cy="0" r="34" fill="#f97316" opacity="0.72"/>
+    <path d="M322 0 H480"/>
+    <circle cx="540" cy="0" r="34" fill="#f97316" opacity="0.48"/>
+    <path d="M592 0 H750"/>
+    <circle cx="810" cy="0" r="34" fill="#f97316" opacity="0.28"/>
+  </g>
+  <text x="130" y="540" fill="#f9fafb" font-family="Arial, 'Noto Sans SC', sans-serif" font-size="44" font-weight="700">LINE BFS</text>
+  <text x="130" y="586" fill="#9ca3af" font-family="Arial, 'Noto Sans SC', sans-serif" font-size="24">import placeholder asset</text>
+</svg>

@@ -1,0 +1,17 @@
+<svg width="380" height="76" viewBox="0 0 380 76" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="monitorFill" x1="0" y1="0" x2="0" y2="76" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#17343B"/>
+      <stop offset=".5" stop-color="#0A171B"/>
+      <stop offset="1" stop-color="#1F160F"/>
+    </linearGradient>
+  </defs>
+  <path d="M24 7H356L374 38L356 69H24L6 38L24 7Z" fill="url(#monitorFill)" fill-opacity=".94"/>
+  <path d="M24 7H356L374 38L356 69H24L6 38L24 7Z" stroke="#A8793D" stroke-opacity=".76" stroke-width="2"/>
+  <path d="M31 29H57V49H31V29Z" fill="#79C96F"/>
+  <path d="M57 36L70 30V50L57 44V36Z" fill="#79C96F"/>
+  <text x="84" y="45" fill="#79C96F" font-size="18" font-weight="850" font-family="Inter, PingFang SC, sans-serif">Camera On</text>
+  <circle cx="223" cy="38" r="7" fill="#FF5A4F"/>
+  <text x="238" y="45" fill="#FF5A4F" font-size="18" font-weight="850" font-family="Inter, PingFang SC, sans-serif">Recording</text>
+  <path d="M348 33L356 41L364 33" stroke="#CDB78A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,17 @@
+<svg width="326" height="72" viewBox="0 0 326 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="statusFill" x1="0" y1="0" x2="0" y2="72" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#332419"/>
+      <stop offset=".52" stop-color="#17100C"/>
+      <stop offset="1" stop-color="#2D1C12"/>
+    </linearGradient>
+  </defs>
+  <path d="M24 7H302L320 36L302 65H24L6 36L24 7Z" fill="url(#statusFill)"/>
+  <path d="M24 7H302L320 36L302 65H24L6 36L24 7Z" stroke="#A8793D" stroke-opacity=".75" stroke-width="2"/>
+  <circle cx="42" cy="36" r="17" fill="#19353D" stroke="#F2B552" stroke-opacity=".5" stroke-width="2"/>
+  <path d="M34 36H50M42 28V44" stroke="#FFF3D2" stroke-width="3" stroke-linecap="round"/>
+  <path d="M158 17V55" stroke="#A8793D" stroke-opacity=".35" stroke-width="2"/>
+  <text x="70" y="31" fill="#CDB78A" font-size="13" font-family="Inter, PingFang SC, sans-serif">Question</text>
+  <text x="70" y="53" fill="#FFF3D2" font-size="22" font-weight="850" font-family="Inter, PingFang SC, sans-serif">03 / 12</text>
+  <text x="186" y="44" fill="#F2B552" font-size="23" font-weight="850" font-family="Menlo, monospace">01:28:36</text>
+</svg>

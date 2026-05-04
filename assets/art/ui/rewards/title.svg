@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>称谓</title>
+  <path d="M14 13h36v30c0 5-4 9-9 9H23c-5 0-9-4-9-9V13Z" fill="#fff6cf" stroke="#594a2c" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M20 21h24M20 30h24M20 39h15" stroke="#7d6741" stroke-width="3" stroke-linecap="round"/>
+  <path d="M42 42 52 52M52 42 42 52" stroke="#d99b2a" stroke-width="4" stroke-linecap="round"/>
+  <path d="M14 13 22 7h20l8 6" fill="#f2d275" stroke="#594a2c" stroke-width="3" stroke-linejoin="round"/>
+</svg>

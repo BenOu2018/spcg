@@ -2,7 +2,7 @@
 
 > 负责：算法老师 + AI 协同（Stephen 主导）
 > 起跑日：Day 1
-> 交付：12 个关卡 .md 文件 + 测试用例
+> 交付：12 个关卡 .md 文件 + 每题 20 个测试样例 + 三步提示 + 题解 + 题解视频链接 + 官方 AC 代码
 
 ---
 
@@ -16,7 +16,7 @@ Day 1：老师定 12 关基础信息
        ↓
 Day 2：第 1 关老师亲笔写完整内容
   - 作为 AI 模板的"金标准"
-  - 包括题面、5-10 测试用例、starter code
+  - 包括题面、20 个测试样例、三步提示、题解、题解视频链接、starter code、官方 AC 代码
        ↓
 Day 3-5：AI 批量生成 11 关草稿
   - 用第 1 关做 few-shot 示例
@@ -27,7 +27,7 @@ Day 6-12：老师 review 11 关
   - 改题面、补 case、调难度、改童化语气
        ↓
 Day 13-15：批量入库
-  - scripts/seed-levels.ts 解析 .md → INSERT levels
+  - scripts/import-levels.ts 解析 .md → 校验 → UPSERT levels
   - 配合 03 工作流验证 DB
 ```
 
@@ -68,6 +68,18 @@ chapterId: ch1-mist-town
 order: 1
 title: 早安雾镇
 knowledgePoint: 输出 cout
+difficulty:
+  spcgLevel: 1
+  levelLabel: SPCG 1级
+  stars: 1
+  label: 入门
+  lglevel: null
+assets:
+  - id: statement-main
+    type: image
+    url: /assets/problems/ch1-mist-town/ch1-01/statement-main.png
+    alt: 早安雾镇题目图片
+    caption: null
 language: cpp
 timeLimitMs: 1000
 memoryLimitMb: 64
@@ -77,14 +89,31 @@ guardianId: null
 story: null
 passOutProblemId: null
 
-visibleCases:
-  - input: ""
+testCases:
+  # 固定 20 组；2-3 组 public，其余 hidden
+  - id: case-01
+    visibility: public
+    input: ""
     expectedOutput: "早安雾镇！\n"
+  # ...
 
-hiddenCases:
-  - input: ""
-    expectedOutput: "早安雾镇！\n"
-  # 5-10 组隐藏用例
+hints:
+  - step: 1
+    title: 先找目标
+    content: 题目没有输入，先确认要输出哪句话。
+  - step: 2
+    title: 使用 cout
+    content: 用 cout 输出双引号里的文字。
+  - step: 3
+    title: 完全一样
+    content: 文字和标点要与题目一致。
+
+solution:
+  explanation: "..."
+  keyPoints: ["..."]
+  complexity: { time: O(1), memory: O(1) }
+
+solutionVideoUrl: /video/solutions/ch1-mist-town/ch1-01.mp4
 
 starterCode: |
   #include <iostream>
@@ -93,11 +122,19 @@ starterCode: |
       // 在这里写下你的代码
       return 0;
   }
+
+officialCode: |
+  #include <iostream>
+  using namespace std;
+  int main() {
+      cout << "早安雾镇！" << endl;
+      return 0;
+  }
 ---
 
 # 任务描述
 
-帮犬虎小狗对着镜子大声说一声 `早安雾镇！`
+帮犬虎对着镜子大声说一声 `早安雾镇！`
 
 ## 输入格式
 
@@ -133,7 +170,7 @@ starterCode: |
 
 - 知识点：{knowledgePoint}
 - 关卡名：{title}
-- 难度：GESP 1 级第 {order}/12 关
+- 难度：SPCG 1 级第 {order}/12 关
 - 风格参考：见下方"金标准样例"
 
 ## 金标准样例（第 1 关，老师亲写）
@@ -146,10 +183,13 @@ starterCode: |
 
 1. **题面用孩子能理解的语言**——避免"求解" "计算" 这类正式词
 2. **故事化**——把题目包装成日常情境（早晨的、做饭的、上学路上的）
-3. **5-10 组 hiddenCases**——覆盖：基本情况、边界值（0、负数、最大值）、特殊输入
-4. **公开样例**只给 1-3 个，最简单的
-5. **starterCode** 必须能编译（含 main 函数和必要 include）
-6. **不要**写 guardianId / story / passOutProblemId（v0.1 留 null）
+3. **difficulty 必填**——含 `spcgLevel / levelLabel / stars / label / lglevel`；`spcgLevel` 为 1-10，`levelLabel` 必须对应 `SPCG N级`
+4. **assets 必填**——每题 1 张题目图片，文件放 `assets/problems/{chapterId}/{levelId}/`，数据库只保存链接
+5. **20 组 testCases**——2-3 组 public，其余 hidden；覆盖基本情况、边界值、特殊输入
+6. **公开样例**只给 1-3 个，最简单的
+7. **starterCode / officialCode** 必须能编译（含 main 函数和必要 include）
+8. **solutionVideoUrl** 只保存链接；视频文件统一放 `assets/video/solutions/`
+9. **不要**写 guardianId / story / passOutProblemId（v0.1 留 null）
 
 ## 输出
 
@@ -170,7 +210,7 @@ starterCode: |
   - 最大输入（接近 int 上限 / 数组上限）
   - 特殊情况（负数、零、相等）
   - "陷阱"输入（学生容易忽略的）
-- [ ] 时间限制合理吗？1 秒对 GESP 1 级是否过紧？
+- [ ] 时间限制合理吗？1 秒对 SPCG 1 级是否过紧？
 - [ ] starter code 能直接编译吗？有没有语法错误？
 - [ ] 难度比上一关稍高吗？跳跃太大了吗？
 
@@ -211,7 +251,12 @@ starterCode: |
 ## 验收标准
 
 - [ ] 12 关全部 .md 文件就位
-- [ ] 每关至少 5 个 hiddenCases
+- [ ] 每关正好 20 个 testCases
+- [ ] 每关正好 3 个 hints
+- [ ] 每关有 difficulty，且难度梯度合理
+- [ ] 每关有 `assets` 题目图片，Markdown 正文已插入同一链接
+- [ ] 每关有最终题解和官方 AC 代码
+- [ ] 每关有 `solutionVideoUrl` 或明确填 `null`
 - [ ] 每关 starter code 能编译
 - [ ] 老师在每关签字（commit message 标 `reviewed-by: <name>`）
 - [ ] AI 草稿 vs 老师定稿的 diff 留档（用于优化下一批 prompt）

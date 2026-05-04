@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SPCG Algorithm Demo Template</title>
+  <style>
+    :root {
+      --bg: #0b1d22;
+      --teal: #10242a;
+      --teal-2: #19353d;
+      --cyan: #77dde7;
+      --paper: #fff3d2;
+      --ink: #2f281d;
+      --muted: #8fa6a9;
+      --amber: #f2b552;
+      --green: #79c96f;
+      --red: #ff7d68;
+      --line: rgba(119, 221, 231, 0.34);
+      --shadow: rgba(0, 0, 0, 0.34);
+      font-family: Inter, "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at 52% 14%, #21464a 0, #0b1d22 46%, #071419 100%);
+      color: var(--paper);
+    }
+
+    .demo-shell {
+      width: min(100vw, 1440px);
+      height: min(100vh, 900px);
+      min-height: 720px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-rows: 72px 1fr 96px;
+      gap: 14px;
+      padding: 18px;
+    }
+
+    .topbar,
+    .step-panel,
+    .stage-wrap,
+    .trace-panel,
+    .controlbar {
+      border: 1px solid var(--line);
+      box-shadow: 0 18px 36px var(--shadow);
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      background: rgba(16, 36, 42, 0.9);
+      border-radius: 18px;
+    }
+
+    .brand {
+      font-weight: 900;
+      letter-spacing: .08em;
+      font-size: 28px;
+      color: var(--paper);
+    }
+
+    .lesson-title {
+      display: grid;
+      gap: 2px;
+      text-align: center;
+    }
+
+    .lesson-title strong {
+      font-size: 20px;
+      color: var(--paper);
+    }
+
+    .lesson-title span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .close-button {
+      width: 44px;
+      height: 44px;
+      border: 0;
+      border-radius: 14px;
+      background: #19353d;
+      color: var(--paper);
+      font-size: 26px;
+      cursor: pointer;
+    }
+
+    .content {
+      display: grid;
+      grid-template-columns: minmax(230px, 22%) minmax(560px, 1fr) minmax(250px, 22%);
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .step-panel {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 12px;
+      padding: 16px;
+      background: rgba(255, 243, 210, 0.94);
+      border-color: rgba(242, 181, 82, 0.7);
+      border-radius: 18px;
+      color: var(--ink);
+      min-width: 0;
+    }
+
+    .panel-kicker {
+      font-size: 13px;
+      font-weight: 800;
+      color: #7a5c26;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+
+    .steps {
+      display: grid;
+      gap: 10px;
+      align-content: start;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .step-item {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 10px;
+      align-items: start;
+      padding: 12px;
+      min-height: 76px;
+      border-radius: 14px;
+      border: 1px solid rgba(107, 90, 58, 0.22);
+      background: rgba(255, 255, 255, 0.28);
+    }
+
+    .step-item.is-active {
+      background: #fff8df;
+      border-color: var(--amber);
+      box-shadow: inset 0 0 0 2px rgba(242, 181, 82, .35);
+    }
+
+    .step-item.is-done {
+      opacity: .82;
+    }
+
+    .step-item img {
+      width: 26px;
+      height: 26px;
+    }
+
+    .step-copy strong {
+      display: block;
+      font-size: 15px;
+      line-height: 1.25;
+    }
+
+    .step-copy span {
+      display: block;
+      margin-top: 4px;
+      color: #6b5a3a;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .stage-wrap {
+      position: relative;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      border-radius: 22px;
+      background: rgba(16, 36, 42, 0.82);
+      min-width: 0;
+    }
+
+    .stage-frame {
+      position: absolute;
+      inset: 18px;
+      width: calc(100% - 36px);
+      height: calc(100% - 36px);
+      object-fit: fill;
+      pointer-events: none;
+    }
+
+    .demo-video {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      max-height: 100%;
+      border: 0;
+      border-radius: 16px;
+      background: #10242a;
+    }
+
+    .trace-panel {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 14px;
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(13, 31, 37, 0.88);
+      min-width: 0;
+    }
+
+    .watch-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .watch {
+      padding: 10px;
+      border: 1px solid rgba(119, 221, 231, .24);
+      border-radius: 12px;
+      background: rgba(25, 53, 61, .72);
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+    }
+
+    .watch span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .watch strong {
+      font-size: 22px;
+      color: var(--amber);
+    }
+
+    .code-trace {
+      display: grid;
+      gap: 8px;
+      padding: 14px;
+      border-radius: 14px;
+      background: #08191f;
+      overflow: auto;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .code-line {
+      padding: 6px 8px;
+      border-radius: 8px;
+      color: #cde2e2;
+      white-space: nowrap;
+    }
+
+    .code-line.is-active {
+      color: #10242a;
+      background: var(--amber);
+      font-weight: 800;
+    }
+
+    .controlbar {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 18px;
+      align-items: center;
+      padding: 14px 18px;
+      border-radius: 18px;
+      background: rgba(16, 36, 42, 0.9);
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .icon-button {
+      padding: 0;
+      border: 0;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .icon-button img {
+      display: block;
+      width: 52px;
+      height: 52px;
+    }
+
+    .icon-button.play img {
+      width: 64px;
+      height: 64px;
+    }
+
+    .timeline {
+      position: relative;
+      height: 14px;
+      border-radius: 99px;
+      background: rgba(255, 243, 210, .18);
+      overflow: visible;
+    }
+
+    .timeline-fill {
+      width: 34%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--cyan), var(--amber));
+    }
+
+    .timeline img {
+      position: absolute;
+      left: calc(34% - 18px);
+      top: -11px;
+      width: 36px;
+      height: 36px;
+    }
+
+    .timecode {
+      color: var(--paper);
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 14px;
+    }
+
+    @media (max-width: 960px) {
+      .demo-shell {
+        height: auto;
+        min-height: 100vh;
+        grid-template-rows: 72px auto 88px;
+      }
+
+      .content {
+        grid-template-columns: 1fr;
+      }
+
+      .step-panel,
+      .trace-panel {
+        min-height: 220px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="demo-shell" data-demo-id="ch1-07-breakfast-purchase">
+    <header class="topbar">
+      <div class="brand">SPCG</div>
+      <div class="lesson-title">
+        <strong>第 7 关 早餐采购单</strong>
+        <span>双分支 if-else · 算总价、判断够不够、输出差额</span>
+      </div>
+      <button class="close-button" aria-label="关闭">×</button>
+    </header>
+
+    <section class="content">
+      <aside class="step-panel" aria-label="讲解步骤">
+        <div>
+          <div class="panel-kicker">Steps</div>
+          <h1 style="margin: 6px 0 0; font-size: 22px;">先看条件，再选分支</h1>
+        </div>
+        <div class="steps" id="steps"></div>
+      </aside>
+
+      <section class="stage-wrap" aria-label="算法演示视频">
+        <img class="stage-frame" src="ui-elements/video-frame.svg" alt="" />
+        <video class="demo-video" id="demoVideo" controls poster="../algorithm-video-ui-review-v1.png">
+          <source src="../../../../../video/solutions/ch1-mist-town/ch1-07.mp4" type="video/mp4" />
+        </video>
+      </section>
+
+      <aside class="trace-panel" aria-label="代码追踪">
+        <div>
+          <div class="panel-kicker">Trace</div>
+          <h2 style="margin: 6px 0 0; font-size: 20px;">变量观察</h2>
+        </div>
+        <div class="watch-grid">
+          <div class="watch"><span>cost</span><strong id="watchCost">?</strong></div>
+          <div class="watch"><span>coins</span><strong id="watchCoins">10</strong></div>
+          <div class="watch"><span>state</span><strong id="watchState">?</strong></div>
+          <div class="watch"><span>diff</span><strong id="watchDiff">?</strong></div>
+        </div>
+        <div class="code-trace" id="codeTrace">
+          <div class="code-line">cost = buns * 3 + milk * 4 + apples * 2;</div>
+          <div class="code-line">if (coins >= cost) {</div>
+          <div class="code-line">  cout &lt;&lt; "Enough" &lt;&lt; endl;</div>
+          <div class="code-line">  cout &lt;&lt; coins - cost &lt;&lt; endl;</div>
+          <div class="code-line">} else {</div>
+          <div class="code-line">  cout &lt;&lt; "Need" &lt;&lt; endl;</div>
+          <div class="code-line">  cout &lt;&lt; cost - coins &lt;&lt; endl;</div>
+          <div class="code-line">}</div>
+        </div>
+      </aside>
+    </section>
+
+    <footer class="controlbar">
+      <div class="controls">
+        <button class="icon-button" aria-label="上一步"><img src="ui-elements/step-button-prev.svg" alt="" /></button>
+        <button class="icon-button play" aria-label="播放"><img src="ui-elements/step-button-play.svg" alt="" /></button>
+        <button class="icon-button" aria-label="下一步"><img src="ui-elements/step-button-next.svg" alt="" /></button>
+        <button class="icon-button" aria-label="重播"><img src="ui-elements/step-button-replay.svg" alt="" /></button>
+      </div>
+      <div class="timeline" aria-label="播放进度">
+        <div class="timeline-fill" id="timelineFill"></div>
+        <img src="ui-elements/timeline-knob.svg" alt="" id="timelineKnob" />
+      </div>
+      <div class="timecode"><span id="currentTime">00:00</span> / <span id="duration">00:40</span></div>
+    </footer>
+  </main>
+
+  <script>
+    const syncPoints = [
+      { time: 0, title: "读输入", note: "三种早餐数量和带的钱。", vars: ["?", "10", "?", "?"], line: 0 },
+      { time: 5.2, title: "算总价", note: "单价相乘后相加。", vars: ["9", "10", "?", "?"], line: 0 },
+      { time: 10.6, title: "判断条件", note: "coins >= cost 决定走哪边。", vars: ["9", "10", "Enough", "?"], line: 1 },
+      { time: 16.1, title: "Enough 分支", note: "够钱时输出剩余雾币。", vars: ["9", "10", "Enough", "1"], line: 2 },
+      { time: 22.0, title: "Need 分支", note: "不够时输出还差多少。", vars: ["9", "8", "Need", "1"], line: 5 },
+      { time: 27.6, title: "写成代码", note: "两个分支只能执行其中一个。", vars: ["cost", "coins", "state", "diff"], line: 1 },
+      { time: 33.2, title: "进入 IDE", note: "照三步把代码补完整。", vars: ["9", "10", "Enough", "1"], line: 7 }
+    ];
+
+    const steps = document.getElementById("steps");
+    steps.innerHTML = syncPoints.map((step, index) => `
+      <article class="step-item" data-step="${index}">
+        <img src="ui-elements/step-dot-idle.svg" alt="" />
+        <div class="step-copy"><strong>${index + 1}. ${step.title}</strong><span>${step.note}</span></div>
+      </article>
+    `).join("");
+
+    const demoVideo = document.getElementById("demoVideo");
+    const watchIds = ["watchCost", "watchCoins", "watchState", "watchDiff"];
+    const codeLines = Array.from(document.querySelectorAll(".code-line"));
+    const currentTime = document.getElementById("currentTime");
+    const duration = document.getElementById("duration");
+    const fill = document.getElementById("timelineFill");
+    const knob = document.getElementById("timelineKnob");
+
+    function fmt(sec) {
+      const s = Math.max(0, Math.floor(sec || 0));
+      return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+    }
+
+    function activeStep(time) {
+      let active = 0;
+      for (let i = 0; i < syncPoints.length; i += 1) {
+        if (time >= syncPoints[i].time) active = i;
+      }
+      return active;
+    }
+
+    function renderState(time = 0) {
+      const active = activeStep(time);
+      document.querySelectorAll(".step-item").forEach((item, index) => {
+        item.classList.toggle("is-active", index === active);
+        item.classList.toggle("is-done", index < active);
+        const img = item.querySelector("img");
+        img.src = index < active ? "ui-elements/step-dot-done.svg" : index === active ? "ui-elements/step-dot-active.svg" : "ui-elements/step-dot-idle.svg";
+      });
+
+      syncPoints[active].vars.forEach((value, index) => {
+        document.getElementById(watchIds[index]).textContent = value;
+      });
+
+      codeLines.forEach((line, index) => line.classList.toggle("is-active", index === syncPoints[active].line));
+      const total = demoVideo.duration || 40;
+      const pct = Math.min(100, Math.max(0, (time / total) * 100));
+      currentTime.textContent = fmt(time);
+      duration.textContent = fmt(total);
+      fill.style.width = `${pct}%`;
+      knob.style.left = `calc(${pct}% - 18px)`;
+    }
+
+    demoVideo.addEventListener("timeupdate", () => renderState(demoVideo.currentTime));
+    demoVideo.addEventListener("loadedmetadata", () => renderState(demoVideo.currentTime));
+    renderState(0);
+  </script>
+</body>
+</html>

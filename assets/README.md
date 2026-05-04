@@ -8,7 +8,7 @@
 |---|---|
 | `_style-bible/` | 风格圣经：5 张锚点图 + sref 编号 + 色板。**这是其它一切出图的"参考标准"** |
 | `art/backgrounds/` | 章节大背景插画（每章 1 张主图 + PSD 分层） |
-| `art/characters/dog-tiger-protagonist/` | 主角犬虎小狗的 SVG 立绘与状态素材 |
+| `art/characters/dog-tiger-protagonist/` | 主角犬虎的 SVG 立绘与状态素材 |
 | `art/characters/fox-protagonist/` | 旧主角目录，暂保留兼容历史文档，正式实现优先使用 dog-tiger-protagonist |
 | `art/characters/cat-master/` | 算法导师·白猫先生立绘 |
 | `art/characters/wolf-wanderer/` | 游学者狼隼（v0.3 才用） |

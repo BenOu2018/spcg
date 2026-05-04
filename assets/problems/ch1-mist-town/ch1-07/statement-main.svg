@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">ch1-07 statement image</title>
+  <desc id="desc">Breakfast items and coins for an if else purchase check.</desc>
+  <rect width="960" height="540" fill="#f3dfad"/>
+  <rect y="350" width="960" height="190" fill="#8bb778"/>
+  <rect x="150" y="130" width="660" height="260" rx="26" fill="#fff8dc" stroke="#9d7442" stroke-width="8"/>
+  <circle cx="280" cy="245" r="58" fill="#c97b4a"/>
+  <rect x="400" y="188" width="92" height="120" rx="18" fill="#7aaed6"/>
+  <circle cx="590" cy="246" r="52" fill="#d9584f"/>
+  <path d="M585 180 C606 168 632 170 650 188" fill="none" stroke="#4d7d43" stroke-width="10" stroke-linecap="round"/>
+  <g fill="#f0b64b" stroke="#9d7442" stroke-width="6">
+    <circle cx="235" cy="430" r="28"/>
+    <circle cx="302" cy="430" r="28"/>
+    <circle cx="369" cy="430" r="28"/>
+  </g>
+  <text x="480" y="464" text-anchor="middle" font-family="Arial, sans-serif" font-size="30" font-weight="700" fill="#2d261b">if money >= cost</text>
+</svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Redo icon</title>
+  <desc id="desc">Redo icon for editor toolbar.</desc>
+  <path d="M37 20 49 32 37 44" fill="none" stroke="#fff4d6" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M47 32H23c-8 0-13 5-13 12" fill="none" stroke="#fff4d6" stroke-width="6" stroke-linecap="round"/>
+</svg>

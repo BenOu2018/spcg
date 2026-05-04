@@ -1,0 +1,22 @@
+{
+  "id": "ch1-07-breakfast-purchase-demo",
+  "title": "早餐采购单：双分支 if-else",
+  "levelId": "ch1-07",
+  "videoAsset": "/video/solutions/ch1-mist-town/ch1-07.mp4",
+  "layout": {
+    "topbar": "SPCG brand + chapter/level title + close",
+    "left": "step list, current step highlighted",
+    "center": "16:9 Manim video canvas",
+    "right": "variable watch + code trace",
+    "bottom": "prev/play/next/replay + timeline"
+  },
+  "syncPoints": [
+    { "time": 0, "step": "读输入", "variables": { "cost": "?", "coins": "10", "state": "?", "diff": "?" }, "activeCodeLine": 0 },
+    { "time": 5.2, "step": "算总价", "variables": { "cost": "9", "coins": "10", "state": "?", "diff": "?" }, "activeCodeLine": 0 },
+    { "time": 10.6, "step": "判断条件", "variables": { "cost": "9", "coins": "10", "state": "Enough", "diff": "?" }, "activeCodeLine": 1 },
+    { "time": 16.1, "step": "Enough 分支", "variables": { "cost": "9", "coins": "10", "state": "Enough", "diff": "1" }, "activeCodeLine": 2 },
+    { "time": 22, "step": "Need 分支", "variables": { "cost": "9", "coins": "8", "state": "Need", "diff": "1" }, "activeCodeLine": 5 },
+    { "time": 27.6, "step": "写成代码", "variables": { "cost": "cost", "coins": "coins", "state": "state", "diff": "diff" }, "activeCodeLine": 1 },
+    { "time": 33.2, "step": "进入 IDE", "variables": { "cost": "9", "coins": "10", "state": "Enough", "diff": "1" }, "activeCodeLine": 7 }
+  ]
+}

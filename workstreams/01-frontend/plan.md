@@ -10,21 +10,23 @@
 
 | 层 | 选型 |
 |---|---|
-| 框架 | Next.js 14（App Router）+ TypeScript |
-| 样式 | Tailwind CSS（无 shadcn 也行，按需用） |
-| 编辑器 | Monaco Editor（`@monaco-editor/react`） |
-| 状态 | Zustand |
+| 框架 | Next.js 16.2 + React 19 + TypeScript |
+| 样式 | v0.1 先用全局 CSS；Tailwind 可在 UI 稳定后再引入 |
+| 编辑器 | v0.1 先用 textarea 包装；Monaco 在真实提交流程稳定后接入 |
+| 状态 | React 本地状态；跨页复杂状态出现后再加 Zustand |
 | 后端通信 | Supabase JS SDK（包含 Realtime） |
-| 开发期假数据 | MSW（Mock Service Worker） |
+| 开发期假数据 | `apps/web/lib/mock-data.ts` + `shared/judge.ts` |
 | 动效 | CSS transitions + `transform`（不上 Framer Motion） |
 | 部署 | Vercel |
+
+说明：原计划中的 Next.js 14 在 2026-04-27 的 npm audit 中存在高危 advisory；实际实现升到 Next 16.2.4，并用 npm override 固定 `postcss@8.5.10`，当前生产依赖 audit 为 0 漏洞。
 
 ---
 
 ## 页面结构
 
 ```
-/                    → 落地页 + "开始学习" 按钮
+/                    → 训练台首页 + 当前关入口 + 地图概览
 /auth/sign-in        → Supabase Auth UI
 /auth/sign-up        → Supabase Auth UI（含家长邮箱字段）
 /map                 → 雾镇地图（12 节点）
@@ -42,9 +44,17 @@
 | `<LevelNode />` | 单个 SVG 节点，支持 locked / unlocked / current / completed 星级状态 | 已支持 `passedOut?: boolean` |
 | `<MascotAvatar />` | 犬虎主角 SVG，CSS `transform: translate(x, y)` 位移 | 未来可换 Lottie 或骨骼动画 |
 | `<TaskCard />` | IDE 左侧任务卡 | 接受 `guardian?: Guardian`（v0.1 为 null） |
-| `<CodeEditor />` | Monaco 包装，C++ 模式 | 未来支持 Python 切换 |
+| `<CodeWorkspace />` | C++ 输入区 + 提交按钮 + 本地 verdict 展示 | 后续替换为 Monaco + 真 `submit-code` |
 | `<TestResults />` | verdict 展示 + 童化文案 | 接受 `personalityKey?: string` |
 | `<ProgressBar />` | 12 关进度条 | 升级为三星制时改 prop |
+
+## 当前实现
+
+- `apps/web` 已建立 Next.js App Router 应用
+- `/`、`/map`、`/level/[id]`、`/me`、`/auth/sign-in`、`/auth/sign-up` 已有首版页面
+- `/level/[id]` 当前使用 `shared/judge.ts` 的 mock verdict，支持 AC / WA / CE / RE / TLE 前端反馈
+- 地图使用 `assets/art/backgrounds/ch1-mist-town/main-review-v1.png`、犬虎角色 SVG、12 个 node positions
+- 当前仍未接 Supabase Auth / Realtime；下一步替换 mock 数据源
 
 ---
 
@@ -72,18 +82,18 @@ Supabase Realtime: submissions where id=?
 
 ### Week 1
 - Day 1：等 02 工作流出 types.ts
-- Day 2：Next.js 脚手架 + Tailwind + Vercel 部署 + Supabase 客户端配置
-- Day 3：Monaco 集成 + 4 个页面骨架（暂用 MSW Mock 数据）
+- Day 2：Next.js 脚手架 + 依赖安全审计 + 基础页面骨架
+- Day 3：textarea 版 C++ 输入区 + 本地 mock verdict
 - Day 4-5：地图页节点布局（按 node-positions.json） + 主角位移动效
 
 ### Week 2
-- Day 6-7：IDE 页完整流程（写代码 → 提交 → 等待 → 显示结果）
+- Day 6-7：IDE 页替换为真 `submit-code` 调用（写代码 → 提交 → 等待 → 显示结果）
 - Day 8：Realtime 订阅接入（替换轮询）
 - Day 9：进度页 + 路由守卫（未登录跳 /auth/sign-in）
-- Day 10：MSW Mock 切真 API，端到端跑通
+- Day 10：mock 数据切真 API，端到端跑通
 
 ### Week 3
-- Day 11-12：素材入库（PNG 全部就位） + UI 美化
+- Day 11-12：Monaco 动态加载 + UI 美化
 - Day 13-14：文案接入（错误反馈、UI 字符串）
 - Day 15：联调 + 修 bug
 
@@ -123,7 +133,7 @@ supabase
 | LCP（首屏最大内容） | ≤ 2.5s |
 | TTI（可交互） | ≤ 3.5s |
 | 主地图 PNG | ≤ 1.5MB（用 main-web.png） |
-| Monaco 首次加载 | ≤ 800KB（动态 import） |
+| Monaco 首次加载 | ≤ 800KB（动态 import，接入后再测） |
 | 总 JS 首屏 | ≤ 300KB（gzipped） |
 
 ---
@@ -143,10 +153,10 @@ supabase
 
 ## 验收标准
 
-- [ ] 12 节点正确显示 + 状态切换无 bug
-- [ ] C++ 代码可编辑 + 提交 + 看到 verdict
+- [x] 12 节点首版显示 + 状态切换规则落地
+- [x] C++ 代码可编辑 + 本地 mock 提交 + 看到 verdict
 - [ ] 通关后主角自动位移到下一节点
-- [ ] 进度持久化（刷新不丢失）
+- [ ] 进度持久化（刷新不丢失；需 Supabase progress）
 - [ ] 5 个内测孩子能独立完成第 1 关
 - [ ] LCP ≤ 2.5s
 - [ ] 移动端不报错（不要求适配）

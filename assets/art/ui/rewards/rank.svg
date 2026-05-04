@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>段位</title>
+  <path d="M32 6 52 16v15c0 13-8 23-20 27C20 54 12 44 12 31V16L32 6Z" fill="#d9eef5" stroke="#294b58" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M32 13 44 19v12c0 8-5 15-12 18-7-3-12-10-12-18V19l12-6Z" fill="#6db7c9"/>
+  <path d="m32 18 4 9 10 1-7 7 2 10-9-5-9 5 2-10-7-7 10-1 4-9Z" fill="#ffe082" stroke="#6b5017" stroke-width="2" stroke-linejoin="round"/>
+</svg>

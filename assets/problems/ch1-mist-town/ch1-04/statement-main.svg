@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">ch1-04 statement image</title>
+  <desc id="desc">A clock tower showing start and end times for a minutes calculation.</desc>
+  <rect width="960" height="540" fill="#dde8d0"/>
+  <rect y="380" width="960" height="160" fill="#79a982"/>
+  <g transform="translate(365 80)">
+    <rect x="50" y="150" width="160" height="280" rx="12" fill="#8d6a4b"/>
+    <path d="M30 160 L130 60 L230 160 Z" fill="#c47e3d"/>
+    <circle cx="130" cy="210" r="56" fill="#fff8dc" stroke="#3b352c" stroke-width="8"/>
+    <line x1="130" y1="210" x2="130" y2="176" stroke="#3b352c" stroke-width="8" stroke-linecap="round"/>
+    <line x1="130" y1="210" x2="164" y2="210" stroke="#3b352c" stroke-width="8" stroke-linecap="round"/>
+    <rect x="88" y="300" width="84" height="130" rx="10" fill="#4f3d2e"/>
+  </g>
+  <rect x="155" y="408" width="650" height="66" rx="16" fill="#fff8dc" stroke="#8d6a4b" stroke-width="6"/>
+  <text x="480" y="451" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#2d261b">end minutes - start minutes</text>
+</svg>

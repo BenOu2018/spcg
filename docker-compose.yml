@@ -1,0 +1,124 @@
+services:
+  spcg-postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: spcg
+      POSTGRES_USER: spcg
+      POSTGRES_PASSWORD: spcg
+    ports:
+      - "5432:5432"
+    volumes:
+      - spcg-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spcg -d spcg"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  web:
+    image: node:22-alpine
+    working_dir: /workspace
+    command: sh -c "npm install && npm run db:migrate && npm run web:dev"
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://spcg:spcg@spcg-postgres:5432/spcg
+      DATABASE_POOL_MAX: "10"
+      AUTH_SECRET: spcg-local-auth-secret-change-in-production
+      AUTH_URL: http://localhost:3000
+      NEXTAUTH_URL: http://localhost:3000
+      SUBMISSION_RATE_LIMIT_SECONDS: "3"
+      SPCG_ADMIN_PREVIEW: "false"
+      JUDGE0_BASE_URL: http://judge0-server:2358
+      SPCG_DEFAULT_LANGUAGE: auto
+      SPCG_DEFAULT_CPP_STANDARD: c++14
+      JUDGE0_C_LANGUAGE_ID: "50"
+      JUDGE0_CPP_LANGUAGE_ID: "54"
+      JUDGE0_PYTHON3_LANGUAGE_ID: "71"
+      JUDGE0_CASE_CONCURRENCY: "4"
+      JUDGE0_DISABLE_CGROUPS: "true"
+      JUDGE0_MIN_MEMORY_LIMIT_KB: "512000"
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      MINIMAX_API_MODE: ${MINIMAX_API_MODE:-anthropic}
+      MINIMAX_BASE_URL: ${MINIMAX_BASE_URL:-https://api.minimaxi.com/anthropic}
+      MINIMAX_MODEL: ${MINIMAX_MODEL:-MiniMax-M2.7}
+      MINIMAX_CODE_HELP_ENABLED: ${MINIMAX_CODE_HELP_ENABLED:-true}
+      MINIMAX_CODE_HELP_TIMEOUT_MS: ${MINIMAX_CODE_HELP_TIMEOUT_MS:-45000}
+      JUDGE_WORKER_AUTOSTART: "false"
+    volumes:
+      - .:/workspace
+      - web-node-modules:/workspace/node_modules
+    depends_on:
+      spcg-postgres:
+        condition: service_healthy
+      judge0-server:
+        condition: service_started
+
+  judge-worker:
+    image: node:22-alpine
+    working_dir: /workspace
+    command: sh -c "npm install && npm run judge:worker"
+    environment:
+      DATABASE_URL: postgres://spcg:spcg@spcg-postgres:5432/spcg
+      JUDGE0_BASE_URL: http://judge0-server:2358
+      SPCG_DEFAULT_LANGUAGE: auto
+      SPCG_DEFAULT_CPP_STANDARD: c++14
+      JUDGE0_C_LANGUAGE_ID: "50"
+      JUDGE0_CPP_LANGUAGE_ID: "54"
+      JUDGE0_PYTHON3_LANGUAGE_ID: "71"
+      JUDGE0_CASE_CONCURRENCY: "4"
+      JUDGE0_DISABLE_CGROUPS: "true"
+      JUDGE0_MIN_MEMORY_LIMIT_KB: "512000"
+      JUDGE_WORKER_POLL_MS: "100"
+      JUDGE_WORKER_CONCURRENCY: "1"
+    volumes:
+      - .:/workspace
+      - web-node-modules:/workspace/node_modules
+    depends_on:
+      spcg-postgres:
+        condition: service_healthy
+      judge0-server:
+        condition: service_started
+
+  judge0-server:
+    image: judge0/judge0:latest
+    platform: linux/amd64
+    privileged: true
+    ports:
+      - "2358:2358"
+    volumes:
+      - ./infra/judge0/judge0.conf:/judge0.conf:ro
+    depends_on:
+      - judge0-db
+      - judge0-redis
+    restart: unless-stopped
+
+  judge0-worker:
+    image: judge0/judge0:latest
+    platform: linux/amd64
+    command: ["./scripts/workers"]
+    privileged: true
+    volumes:
+      - ./infra/judge0/judge0.conf:/judge0.conf:ro
+    depends_on:
+      - judge0-db
+      - judge0-redis
+    restart: unless-stopped
+
+  judge0-db:
+    image: postgres:16.2
+    env_file: infra/judge0/judge0.conf
+    volumes:
+      - judge0-postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  judge0-redis:
+    image: redis:7.2.4
+    command: ["bash", "-c", "docker-entrypoint.sh --appendonly no --requirepass \"$${REDIS_PASSWORD}\""]
+    env_file: infra/judge0/judge0.conf
+    restart: unless-stopped
+
+volumes:
+  spcg-postgres-data:
+  judge0-postgres-data:
+  web-node-modules:

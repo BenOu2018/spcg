@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 760" role="img" aria-labelledby="title desc">
+  <title id="title">Task panel frame</title>
+  <desc id="desc">Paper-like task panel frame for the left problem sidebar.</desc>
+  <defs>
+    <linearGradient id="paper" x1="40" y1="0" x2="340" y2="760" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff8df"/>
+      <stop offset="1" stop-color="#f1dfb7"/>
+    </linearGradient>
+    <filter id="shadow" x="-12%" y="-8%" width="124%" height="116%">
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#2f1d0b" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect x="18" y="18" width="344" height="724" rx="18" fill="url(#paper)" filter="url(#shadow)"/>
+  <rect x="26" y="26" width="328" height="708" rx="13" fill="none" stroke="#8f7041" stroke-width="4" opacity="0.52"/>
+  <path d="M48 48c70-14 210-13 284 0M46 712c74 16 210 16 288 0" fill="none" stroke="#d8bd82" stroke-width="3" opacity="0.6"/>
+  <g fill="#7a5a2f" opacity="0.42">
+    <circle cx="34" cy="34" r="6"/><circle cx="346" cy="34" r="6"/><circle cx="34" cy="726" r="6"/><circle cx="346" cy="726" r="6"/>
+  </g>
+</svg>

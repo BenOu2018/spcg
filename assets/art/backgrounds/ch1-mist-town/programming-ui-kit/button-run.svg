@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 76" role="img" aria-labelledby="title desc">
+  <title id="title">Run button</title>
+  <desc id="desc">Green run button for the programming page.</desc>
+  <defs>
+    <linearGradient id="fill" x1="18" y1="8" x2="202" y2="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#96dc68"/>
+      <stop offset="1" stop-color="#428d37"/>
+    </linearGradient>
+    <filter id="shadow" x="-12%" y="-30%" width="124%" height="170%">
+      <feDropShadow dx="0" dy="6" stdDeviation="5" flood-color="#1a3e17" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  <rect x="8" y="8" width="204" height="60" rx="12" fill="url(#fill)" filter="url(#shadow)"/>
+  <rect x="12" y="12" width="196" height="52" rx="9" fill="none" stroke="#d9ffc4" stroke-width="3" opacity="0.45"/>
+  <path d="M58 25v26l22-13z" fill="#ffffff"/>
+  <text x="128" y="47" text-anchor="middle" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="800">Run</text>
+</svg>

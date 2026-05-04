@@ -46,7 +46,7 @@ const JUDGE0 = {
 Edge Function `submit-code` 内部：
 
   ┌─────────────────────────┐
-  │ 1. 拉 hidden_cases       │ ← from DB (level_id)
+  │ 1. 拉 test_cases         │ ← from DB (完整 20 个 case)
   └─────────┬───────────────┘
             │
   ┌─────────▼───────────────┐
@@ -81,6 +81,13 @@ Edge Function `submit-code` 内部：
 
 ## verdict 聚合逻辑
 
+当前本地可回归实现：
+
+- `shared/judge.ts`：Node/前端通用的 verdict 聚合与 mock 判题
+- `scripts/check-judge.ts`：覆盖 AC / WA / CE / RE / TLE、输出 trim、CE errorDetail
+- `supabase/functions/_shared/judge0.ts`：Edge Function 内的 Judge0 调用、mock 模式、429 retry、verdict 聚合
+- 验证命令：`npm run judge:check`
+
 ```typescript
 type CaseResult = {
   status: { id: number; description: string }  // Judge0 返回
@@ -101,8 +108,14 @@ function aggregateVerdict(
   let result: Verdict['result'] = 'AC'
   let errorDetail: string | undefined
 
-  for (let i = 0; i < cases.length; i++) {
+  for (let i = 0; i < expected.length; i++) {
     const c = cases[i]
+    if (!c) {
+      result = 'RE'
+      errorDetail = 'Judge result missing for test case'
+      failedCaseIndex = i
+      break
+    }
     const ms = Math.round(parseFloat(c.time) * 1000)
     maxTime = Math.max(maxTime, ms)
 
@@ -135,7 +148,7 @@ function aggregateVerdict(
   return {
     result,
     passedCases: passed,
-    totalCases: cases.length,
+    totalCases: expected.length,
     maxRuntimeMs: maxTime,
     failedCaseIndex,
     childFriendlyMessage: '',  // 下一步填
@@ -152,7 +165,7 @@ function aggregateVerdict(
 
 ```yaml
 CE:
-  - "小狗还没看懂这段代码哎——是不是哪里少了符号？"
+  - "犬虎还没看懂这段代码哎——是不是哪里少了符号？"
   - "代码读不通呢，再看看是不是括号或分号忘了？"
   - "好像有个字写错了，再仔细瞧瞧第 {line} 行附近？"
 RE:
@@ -197,7 +210,7 @@ function pickChildMessage(verdict: Verdict): string {
 
 ### Week 1
 - Day 3：申请 RapidAPI key + curl 跑通一段 C++ Hello World
-- Day 4-5：Edge Function 接入 Judge0（先单 case 跑通）
+- Day 4-5：Edge Function 接入 Judge0（先单 case 跑通）；本地 mock/verdict 回归先行完成
 
 ### Week 2
 - Day 6-7：批量 case 跑通 + verdict 聚合
@@ -225,9 +238,9 @@ function pickChildMessage(verdict: Verdict): string {
 
 ## 验收标准
 
-- [ ] 提交一段简单 C++ 代码（如 1+2 = 3），3 秒内拿到 AC
-- [ ] 错代码能正确报 CE / WA / TLE / RE
-- [ ] hidden_cases 内容只在 Edge Function 内可见，前端拿不到
-- [ ] Judge0 限流时能 retry 成功
+- [ ] 提交一段简单 C++ 代码（如 1+2 = 3），3 秒内拿到真实 Judge0 AC
+- [x] mock/verdict 层能正确报 CE / WA / TLE / RE / AC
+- [ ] hidden test cases 内容只在 Edge Function 内可见，前端拿不到
+- [x] Judge0 429 retry 逻辑已在 Edge Function 中实现
 - [ ] 童化文案随机变化，不是每次同一句
 - [ ] 内测期间无判题误判（特别是浮点精度问题）

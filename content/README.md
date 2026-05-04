@@ -9,7 +9,7 @@
 | `world/` | 世界观、地理、时间线（雾镇 → 镜湖 → ... 八章的整体设定） |
 | `characters/` | 主要角色性格档案（犬虎主角、白猫先生、狼隼） |
 | `guardians/` | 15 位关卡守护者档案（每位一份 .md） |
-| `chapters/ch1-mist-town/` | 雾镇序章（12 关）大纲 + levels/ 子目录存关卡内容 |
+| `chapters/ch1-mist-town/` | 雾镇序章（12 关）主线 + levels/ 子目录存关卡内容 |
 | `chapters/ch2-mirror-lake/` | 镜湖小径（v0.1 仅前 3 关） |
 | `chapters/_template-level.md` | 关卡内容模板（15 关都按此填） |
 | `copy/` | UI 文案、错误信息童化、鼓励语等通用文案库 |

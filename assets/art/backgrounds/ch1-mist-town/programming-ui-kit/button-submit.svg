@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 76" role="img" aria-labelledby="title desc">
+  <title id="title">Submit button</title>
+  <desc id="desc">Golden submit button for the programming page.</desc>
+  <defs>
+    <linearGradient id="fill" x1="18" y1="8" x2="202" y2="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f5ce65"/>
+      <stop offset="1" stop-color="#c88c35"/>
+    </linearGradient>
+    <filter id="shadow" x="-12%" y="-30%" width="124%" height="170%">
+      <feDropShadow dx="0" dy="6" stdDeviation="5" flood-color="#5a3611" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect x="8" y="8" width="204" height="60" rx="12" fill="url(#fill)" filter="url(#shadow)"/>
+  <rect x="12" y="12" width="196" height="52" rx="9" fill="none" stroke="#fff4c4" stroke-width="3" opacity="0.5"/>
+  <path d="M57 22l5 12 13 1-10 9 3 13-11-7-11 7 3-13-10-9 13-1z" fill="#fff7dc"/>
+  <text x="132" y="47" text-anchor="middle" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="800">Submit</text>
+</svg>

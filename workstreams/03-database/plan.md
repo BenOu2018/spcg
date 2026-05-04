@@ -41,14 +41,21 @@ CREATE TABLE levels (
   "order" INT NOT NULL,
   title TEXT NOT NULL,
   knowledge_point TEXT NOT NULL,
+  difficulty JSONB NOT NULL,                    -- spcgLevel / levelLabel / stars / label / lglevel
   description TEXT NOT NULL,                    -- 题面 markdown
+  statement_assets JSONB NOT NULL DEFAULT '[]'::jsonb, -- 题面图片链接和元信息；图片文件不入库
   input_format TEXT NOT NULL,
   output_format TEXT NOT NULL,
-  visible_cases JSONB NOT NULL,                 -- TestCase[]
-  hidden_cases JSONB NOT NULL,                  -- TestCase[]，前端拿不到
+  test_cases JSONB NOT NULL,                    -- 20 个 TestCase；public/hidden 由 visibility 区分
+  hints JSONB NOT NULL,                         -- 三步提示
+  solution JSONB NOT NULL,                      -- 最终题解，AC 后解锁
+  official_code TEXT NOT NULL,                  -- 官方 C++ AC 代码，AC 后解锁
+  solution_video_url TEXT,                      -- 题解视频链接；视频文件统一存 assets/video/solutions/
   time_limit_ms INT NOT NULL DEFAULT 1000,
   memory_limit_mb INT NOT NULL DEFAULT 64,
   starter_code TEXT NOT NULL,
+  source JSONB NOT NULL DEFAULT '{}'::jsonb,    -- 题源/授权信息
+  import_meta JSONB NOT NULL DEFAULT '{}'::jsonb,
 
   -- v0.2 扩展点（v0.1 全部 NULL）
   guardian_id TEXT,
@@ -105,16 +112,20 @@ CREATE TABLE progress (
 
 ### levels_public（保护视图）
 
-> 关键：前端永远只查这个 view，**保证 hidden_cases 永不外泄**。
+> 关键：前端永远只查这个 view，**保证 hidden test cases 永不外泄**。
 
 ```sql
 CREATE VIEW levels_public AS
 SELECT
   id, chapter_id, "order", title, knowledge_point, description,
-  input_format, output_format, visible_cases,
-  jsonb_array_length(hidden_cases) AS hidden_count,
+  input_format, output_format,
+  -- 仅返回 visibility='public' 的测试样例
+  public_cases,
+  hidden_count,
+  hints,
+  solution_unlocked,
   time_limit_ms, memory_limit_mb, starter_code,
-  guardian_id, story, pass_out_problem_id
+  source, guardian_id, story, pass_out_problem_id
 FROM levels;
 
 GRANT SELECT ON levels_public TO authenticated, anon;
@@ -161,12 +172,12 @@ CREATE POLICY "self" ON progress FOR ALL USING (user_id = auth.uid());
 
 ## Seed 数据
 
-`scripts/seed-levels.ts`：
+`scripts/import-levels.ts`：
 
 ```typescript
 // 读 content/chapters/ch1-mist-town/levels/*.md
-// 解析 frontmatter + 题目正文
-// INSERT 或 UPSERT 到 levels 表
+// 校验 20 个 testCases + 3 个 hints + solution + officialCode + solutionVideoUrl + statement assets
+// dry-run 通过后 UPSERT 到 levels 表
 
 import { readdir, readFile } from 'node:fs/promises'
 import matter from 'gray-matter'
@@ -181,11 +192,16 @@ for (const file of await readdir(dir)) {
     order: data.order,
     title: data.title,
     knowledge_point: data.knowledgePoint,
+    difficulty: data.difficulty,
     description: content,
+    statement_assets: data.assets,
     input_format: data.inputFormat,
     output_format: data.outputFormat,
-    visible_cases: data.visibleCases,
-    hidden_cases: data.hiddenCases,
+    test_cases: data.testCases,
+    hints: data.hints,
+    solution: data.solution,
+    official_code: data.officialCode,
+    solution_video_url: data.solutionVideoUrl,
     time_limit_ms: data.timeLimitMs ?? 1000,
     memory_limit_mb: data.memoryLimitMb ?? 64,
     starter_code: data.starterCode,
@@ -234,7 +250,7 @@ for (const file of await readdir(dir)) {
 
 - [ ] 4 张表 + 1 个 view 全部建好
 - [ ] RLS 启用 + 跨用户访问被拒
-- [ ] hidden_cases 通过 view 隔离，前端 select 不到
+- [ ] hidden test cases 通过 view 隔离，前端 select 不到
 - [ ] 12 关数据入库
 - [ ] seed 脚本能重复跑（UPSERT 而非 INSERT）
 - [ ] 每日自动备份生效

@@ -1,139 +1,151 @@
 ---
-levelId: ch{1,2}-{nn}                  # 例：ch1-01
-levelName: {关卡中文名}                 # 例：早安雾镇
+templateVersion: spcg-level-v0.1
+levelId: ch1-01
 chapterId: ch1-mist-town
-order: 1                                # 章内序号
-knowledgePoint: 输出 cout                # GESP 知识点
-language: cpp                           # v0.1 锁定 cpp
-guardianRef: guardians/ch1-01.md        # 关联守护者档案
-backgroundRef: assets/art/backgrounds/ch1-mist-town/main-web.png
+order: 1
+title: 早安雾灯村
+knowledgePoint: 输出 cout
+difficulty:
+  spcgLevel: 1
+  levelLabel: SPCG 1级
+  stars: 1
+  label: 入门
+  lglevel: null
+assets:
+  - id: statement-main
+    type: image
+    url: /assets/problems/ch1-mist-town/ch1-01/statement-main.webp
+    alt: 早安雾灯村题目图片
+    caption: null
+defaultLanguage: cpp14
 timeLimitMs: 1000
 memoryLimitMb: 64
+
+guardianId: null
+story: null
+passOutProblemId: null
+sisterProblem: null
+
+inputFormat: |
+  无输入。
+
+outputFormat: |
+  输出一行指定文字。
+
+testCases:
+  - id: case-01
+    visibility: public
+    input: ""
+    expectedOutput: |
+      早安雾灯村！
+  - id: case-02
+    visibility: public
+    input: ""
+    expectedOutput: |
+      早安雾灯村！
+  # case-03 到 case-20 必须补齐；visibility 通常为 hidden。
+
+hints:
+  - step: 1
+    title: 看看要做什么
+    content: 第一件事是确认题目要你输出哪一行文字。
+  - step: 2
+    title: 想想 cout
+    content: C++ 里可以用 cout 把文字打印到屏幕上。
+  - step: 3
+    title: 注意符号
+    content: 中文感叹号也要和题目完全一样，最后可以输出换行。
+
+solution:
+  explanation: |
+    这道题没有输入，只需要在 main 函数里用 cout 输出指定文字。
+  keyPoints:
+    - 使用 #include <iostream>
+    - 使用 cout 输出字符串
+    - 输出内容要和题目要求完全一致
+  complexity:
+    time: $O(1)$
+    memory: $O(1)$
+
+solutionVideoUrl: /video/solutions/ch1-mist-town/ch1-01.mp4
+
+starterCode: |
+  #include <iostream>
+  using namespace std;
+
+  int main() {
+      // 在这里写下你的代码
+      return 0;
+  }
+
+officialCode: |
+  #include <iostream>
+  using namespace std;
+
+  int main() {
+      cout << "早安雾灯村！" << endl;
+      return 0;
+  }
+
+source:
+  type: original
+  name: SPCG 原创
+  url: null
+  author: Stephen
+  license: null
+  attribution: null
+  notes: v0.1 自有题目
+  originalPublicSamples: null
 ---
 
-# 关卡 1-1：{关卡名}
+# 任务描述
 
-## 故事场景
+在这里写给学生看的题面。语言要短、清楚、适合 10-12 岁孩子。
 
-（1 段，60-150 字。把题目包装成情境。例：）
+主角统一叫“犬虎”。不要写成“犬虎小狗”或“小狗”；如果题目不需要主角，也可以不出现犬虎。
 
-> 犬虎小狗站在镜子前，今天是离家远行的第一天。
-> 妈妈说过，每个清晨都要先对世界说一句早安。
-> "可是要怎么说呢？"它挠了挠头。
+![早安雾灯村题目图片](/assets/problems/ch1-mist-town/ch1-01/statement-main.webp)
 
-## 守护者出场
+## 题目图片规则
 
-（守护者说几句话引出题目，链接到守护者档案。）
+- 默认使用 `imagegen` 生成与题意匹配的题目图片。
+- 图片比例固定为 16:9，推荐 `1280x720`。
+- 图片格式推荐 `webp`，文件名固定为 `statement-main.webp`。
+- 单张图片必须控制在 `100KB` 以内。
+- 未压缩原图必须保留一份，命名为 `statement-main-original-{levelId}.png`。
+- 题目 `assets[].url` 只引用压缩图，不引用未压缩原图。
+- 图片只服务题意理解，不放答案代码，不放复杂长文字。
+- 题目图片不限制角色，不要求出现犬虎或任何固定角色；根据题目意思自由创作即可。
+- frontmatter 的 `assets[].url` 和正文图片链接必须完全一致。
 
-> {守护者名}：
-> "（出题对白，从守护者档案里复用即可）"
+## 姐妹题规则
 
-## 任务描述
+如果本题配置姐妹题，仍默认在 frontmatter 中填写 `sisterProblem: null`。姐妹题关系只通过 `-s1` 题号内部识别。姐妹题要求：
 
-（题面，把算法转化为故事任务。例：）
+- 姐妹题和本题同知识点、同难度、同算法、同复杂度。
+- 姐妹题必须是独立完整题目文件，拥有自己的 `levelId`、`order`、标题、图片、20 个测试点、3 个提示、题解和代码。
+- 姐妹题 `levelId` 保留 `-s1` 标记，例如 `ch1-04-s1`；文件名可保留 `S` 标记。
+- 姐妹题只轻微修改规则、数字、输入输出字段或故事包装，不引入新的核心知识点。
+- 题目标题、题面、题解、`source.notes` 和题解视频中不要写“姐妹题”或“对应 ch1-xx”。
 
-帮犬虎小狗对着镜子大声说一声 "早安雾镇！"
+## 输入格式
 
-## 输入输出
+和 frontmatter 里的 `inputFormat` 保持一致。
 
-### 输入格式
-（无输入 / 描述输入）
+## 输出格式
 
-### 输出格式
-输出一行字符串：`早安雾镇！`
+和 frontmatter 里的 `outputFormat` 保持一致。
+
+## LaTeX 数学符号规则
+
+- 题面、输入输出格式、提示、题解和复杂度里的编程数学表达统一使用 LaTeX。
+- 变量、数组、上下标示例：`$n$`、`$a_i$`、`$p_1, p_2, \ldots, p_n$`。
+- 比较式、区间、复杂度示例：`$1 \le n \le 10^6$`、`$[l,r]$`、`$O(n \log n)$`。
+- 不要写 `p_i`、`1..n`、`<=`、`>=`、`!=`、`O(n)` 或用反引号包数学表达。
+- 使用 `$\oplus$`、`$\le$`、`$\ne$`、`$\ldots$`、`$\bmod$`、`$\sum$` 等特殊符号时，在题目底部增加 `## 符号说明`。
 
 ## 公开样例
 
-### 样例 1
+只展示 `visibility: public` 的 2-3 个样例。完整 20 个测试点只在导入和判题中使用。
 
-输入：
-```
-（无）
-```
-
-输出：
-```
-早安雾镇！
-```
-
-（如有第 2、3 个样例继续。1-3 个为宜。）
-
-## 隐藏测试用例（5-10 组）
-
-```
-[待 AI 生成草稿，老师 review]
-case_1:
-  input: ...
-  expected: ...
-case_2:
-  ...
-```
-
-> 隐藏用例覆盖：基本情况、边界值、特殊输入、压力测试。
-
-## 三星标准
-
-- ⭐ **通过所有公开 + 隐藏样例**
-- ⭐⭐ **运行时间 ≤ {目标值}ms**（一般为时间限制的 1/2）
-- ⭐⭐⭐ **代码质量达标**（命名清晰 / 无冗余 / 嵌套深度合理 / 单文件 ≤ 30 行）
-
-## 童化错误反馈
-
-每种错误类型 1-2 句温柔的话。**不直接说 "Wrong Answer" 等技术术语**。
-
-| 错误类型 | 童化反馈（守护者的语气） |
-|---|---|
-| CE 编译错误 | （例）"小狗还没看懂这段哎——第 X 行可能少了点什么？" |
-| RE 运行错误 | （例）"代码跑到一半摔了一跤，先看看是不是数字算超啦？" |
-| TLE 超时 | （例）"想得很到位，但走得有点慢——还能更巧妙一些吗？" |
-| WA 答案错误 | （例）"差一点点。再仔细看看样例，{守护者}相信你能找到。" |
-| 部分通过 | （例）"你帮 X/Y 个孩子找到了答案，剩下的再加把劲！" |
-
-## 通关后导师讲解
-
-（200-400 字。白猫先生用温和的口吻总结本关知识点。）
-
-> 白猫先生眯着眼，递给主角一杯热茶：
-> "你刚刚做的事，叫做'输出'……
-> （讲解 cout 的本质、为什么这样写、和数学里的'结果'有什么关系……）"
-
-## 跳级挑战题（pass-out）
-
-> 难度比标准题 +50%。如果学生在标准题没尝试就点击"挑战自我"，弹出本题。
-
-### 挑战题描述
-（例：除了"早安雾镇！"，还要按指定格式输出三行不同的问候。）
-
-### 挑战题样例
-（同上格式）
-
-### 跳级成功后
-- 直接进入下一关
-- 标记本关为"小师兄通过"
-- 守护者：（跳级成功对白，守护者档案里有）
-
-## 关卡背景画
-
-默认共用：`assets/art/backgrounds/ch1-mist-town/main-web.png`
-
-如有专属插图：`assets/art/backgrounds/ch1-mist-town/levels/01-...png`
-
----
-
-## 给 AI 流水线的 prompt 提示（内部用）
-
-> 这个 section 是给 AI 批量生成草稿用的输入。老师 review 后可以删除。
-
-```
-GESP 1 级，知识点：{}
-关卡序号：{}
-故事主题：{}
-守护者性格：{}
-请生成：
-1. 故事场景（60-150 字）
-2. 任务描述（C++ 题面）
-3. 5-10 组隐藏测试用例
-4. 5 种错误反馈的童化文案
-5. 200-400 字的导师讲解
-6. 1 道难度 +50% 的跳级挑战题
-```
+改编自洛谷或 Codeforces 的题目必须重写公开样例，并在 `source.originalPublicSamples` 记录原题公开样例，不能直接搬运原题公开样例。

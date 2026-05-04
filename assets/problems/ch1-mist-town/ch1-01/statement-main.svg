@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">ch1-01 statement image</title>
+  <desc id="desc">A quiet mist town morning with the required output text.</desc>
+  <rect width="960" height="540" fill="#f6e6b8"/>
+  <rect y="322" width="960" height="218" fill="#7fb38a"/>
+  <circle cx="144" cy="124" r="58" fill="#f5bb4f"/>
+  <path d="M0 305 C160 255 270 292 394 250 C548 198 650 268 770 232 C848 208 900 216 960 190 L960 540 L0 540 Z" fill="#4e7f70"/>
+  <g fill="#6a5844">
+    <rect x="248" y="260" width="120" height="110" rx="8"/>
+    <rect x="510" y="230" width="150" height="140" rx="10"/>
+  </g>
+  <g fill="#d99b45">
+    <path d="M232 262 L308 205 L384 262 Z"/>
+    <path d="M490 232 L585 160 L680 232 Z"/>
+  </g>
+  <rect x="240" y="398" width="480" height="78" rx="18" fill="#fff8dc" stroke="#a77738" stroke-width="6"/>
+  <text x="480" y="448" text-anchor="middle" font-family="Arial, sans-serif" font-size="38" font-weight="700" fill="#2d261b">cout &lt;&lt; "Good morning!"</text>
+</svg>

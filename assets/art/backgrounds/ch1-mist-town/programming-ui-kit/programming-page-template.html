@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SPCG Programming Level Template</title>
+  <style>
+    :root {
+      --paper: rgba(255, 248, 226, 0.96);
+      --ink: #2d261b;
+      --muted: #74664d;
+      --editor: rgba(10, 27, 32, 0.96);
+      --editor-top: rgba(25, 52, 58, 0.95);
+      --line: rgba(221, 178, 99, 0.34);
+      --green: #79c96f;
+      --gold: #f0b64b;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      font-family: Inter, "Avenir Next", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        linear-gradient(rgba(7, 11, 10, 0.18), rgba(7, 11, 10, 0.18)),
+        url("../programming-bg-clean-v1.png") center / cover no-repeat;
+      overflow: hidden;
+    }
+
+    .page {
+      height: 100vh;
+      display: grid;
+      grid-template-rows: 74px minmax(0, 1fr);
+      gap: 14px;
+      padding: 24px 28px 28px;
+    }
+
+    .topbar {
+      display: grid;
+      grid-template-columns: 190px 260px 1fr 220px;
+      align-items: center;
+      gap: 18px;
+      color: #fff8dc;
+    }
+
+    .logo {
+      width: 152px;
+      height: auto;
+    }
+
+    .chapter-pill,
+    .top-icon {
+      border: 1px solid rgba(255, 230, 170, 0.22);
+      background: rgba(34, 25, 16, 0.5);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+      backdrop-filter: blur(8px);
+    }
+
+    .chapter-pill {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 14px;
+      font-size: 20px;
+      font-weight: 760;
+    }
+
+    .progress {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .progress img {
+      width: 40px;
+      height: 40px;
+    }
+
+    .connector {
+      width: 30px;
+      height: 4px;
+      border-radius: 99px;
+      background: rgba(255, 255, 255, 0.34);
+    }
+
+    .top-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .top-icon {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+    }
+
+    .top-icon img {
+      width: 28px;
+      height: 28px;
+    }
+
+    .main {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(320px, 26%) minmax(0, 1fr);
+      gap: 18px;
+    }
+
+    .task {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-radius: 18px;
+      background: var(--paper);
+      border: 3px solid rgba(143, 112, 65, 0.52);
+      box-shadow: 0 16px 42px rgba(35, 19, 5, 0.36);
+    }
+
+    .task-scroll {
+      height: 100%;
+      overflow: auto;
+      padding: 28px 28px 32px;
+    }
+
+    .section-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 36px;
+      padding: 0 16px;
+      border-radius: 999px;
+      color: #fff;
+      background: #5d8e56;
+      font-weight: 850;
+      font-size: 19px;
+    }
+
+    .task h1 {
+      margin: 18px 0 26px;
+      font-size: 22px;
+      line-height: 1.3;
+    }
+
+    .task h2 {
+      margin: 26px 0 10px;
+      font-size: 20px;
+    }
+
+    .task p,
+    .task li {
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.55;
+    }
+
+    .sample {
+      border: 1px solid rgba(130, 100, 55, 0.22);
+      border-radius: 12px;
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.38);
+      font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+      font-size: 14px;
+      overflow: auto;
+    }
+
+    .workbench {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) 230px;
+      overflow: hidden;
+      border-radius: 18px;
+      background: rgba(8, 20, 24, 0.95);
+      border: 2px solid rgba(168, 121, 61, 0.46);
+      box-shadow: 0 18px 46px rgba(0, 0, 0, 0.38);
+    }
+
+    .editor {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 46px minmax(0, 1fr);
+      background: var(--editor);
+    }
+
+    .editor-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      background: var(--editor-top);
+      border-bottom: 1px solid rgba(214, 166, 93, 0.2);
+      color: #dce8e8;
+      font-weight: 760;
+    }
+
+    .tool-buttons {
+      display: flex;
+      gap: 10px;
+    }
+
+    .tool-buttons button {
+      width: 38px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border-radius: 9px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .tool-buttons img {
+      width: 20px;
+      height: 20px;
+    }
+
+    .code {
+      padding: 24px 28px;
+      color: #dbe7e6;
+      font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+      font-size: 18px;
+      line-height: 1.7;
+      white-space: pre;
+      overflow: auto;
+    }
+
+    .comment { color: #7eb16d; }
+    .keyword { color: #7fb4ff; }
+    .string { color: #ffb56c; }
+
+    .results {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 230px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(6, 16, 19, 0.92);
+    }
+
+    .result-list {
+      padding: 20px 26px;
+      color: #dce8e8;
+    }
+
+    .result-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 18px;
+      font-weight: 820;
+      font-size: 19px;
+    }
+
+    .case {
+      display: grid;
+      grid-template-columns: 28px 160px 1fr;
+      gap: 12px;
+      align-items: center;
+      height: 34px;
+      color: rgba(232, 240, 238, 0.86);
+    }
+
+    .case img {
+      width: 22px;
+      height: 22px;
+    }
+
+    .case span:last-child {
+      color: #8fd37c;
+    }
+
+    .actions {
+      display: grid;
+      align-content: center;
+      gap: 16px;
+      padding: 24px;
+      border-left: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .actions button {
+      height: 66px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      border: 0;
+      border-radius: 12px;
+      color: #fff;
+      font-size: 24px;
+      font-weight: 850;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+    }
+
+    .actions img {
+      width: 28px;
+      height: 28px;
+    }
+
+    .run { background: linear-gradient(140deg, #96dc68, #428d37); }
+    .submit { background: linear-gradient(140deg, #f5ce65, #c88c35); }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <img class="logo" src="logo-spcg.svg" alt="SPCG">
+      <div class="chapter-pill">Chapter 1: Mist Town</div>
+      <div class="progress" aria-label="level progress">
+        <img src="level-node-current.svg" alt="current">
+        <span class="connector"></span>
+        <img src="level-node-locked.svg" alt="level 2">
+        <span class="connector"></span>
+        <img src="level-node-locked.svg" alt="level 3">
+        <span class="connector"></span>
+        <img src="level-node-locked.svg" alt="level 4">
+        <span class="connector"></span>
+        <img src="level-node-destination.svg" alt="destination">
+      </div>
+      <div class="top-actions">
+        <div class="top-icon"><img src="icon-book.svg" alt=""></div>
+        <div class="top-icon"><img src="icon-settings.svg" alt=""></div>
+      </div>
+    </header>
+
+    <main class="main">
+      <aside class="task">
+        <div class="task-scroll">
+          <div class="section-label">Task</div>
+          <h1>Collect all glowing orbs</h1>
+
+          <h2>Goal</h2>
+          <p>Write a program that guides the character through the map and collects every glowing orb.</p>
+
+          <h2>Rules</h2>
+          <ul>
+            <li>You can move up, down, left, or right.</li>
+            <li>You cannot walk through rocks.</li>
+            <li>Collect all orbs before reaching the exit.</li>
+          </ul>
+
+          <h2>Input</h2>
+          <p>The map size and tile information are provided by the judge.</p>
+
+          <h2>Output</h2>
+          <p>Print one valid route command sequence.</p>
+
+          <h2>Example</h2>
+          <div class="sample">move("right")
+move("down")
+move("right")</div>
+        </div>
+      </aside>
+
+      <section class="workbench">
+        <section class="editor">
+          <div class="editor-toolbar">
+            <span>C++ Editor</span>
+            <div class="tool-buttons">
+              <button><img src="icon-undo.svg" alt="undo"></button>
+              <button><img src="icon-redo.svg" alt="redo"></button>
+              <button><img src="icon-expand.svg" alt="expand"></button>
+            </div>
+          </div>
+          <pre class="code"><span class="comment">// Use move() to reach all orbs.</span>
+<span class="comment">// Available: "up", "down", "left", "right"</span>
+
+<span class="keyword">int</span> main() {
+    move(<span class="string">"right"</span>);
+    move(<span class="string">"right"</span>);
+    move(<span class="string">"down"</span>);
+    move(<span class="string">"left"</span>);
+    move(<span class="string">"up"</span>);
+    return 0;
+}</pre>
+        </section>
+
+        <section class="results">
+          <div class="result-list">
+            <div class="result-title"><img src="icon-check.svg" alt=""> Test Results</div>
+            <div class="case"><img src="icon-check.svg" alt=""><span>Test Case 1</span><span>Collected all orbs!</span></div>
+            <div class="case"><img src="icon-check.svg" alt=""><span>Test Case 2</span><span>Collected all orbs!</span></div>
+            <div class="case"><img src="icon-check.svg" alt=""><span>Test Case 3</span><span>Collected all orbs!</span></div>
+          </div>
+          <div class="actions">
+            <button class="run"><img src="icon-play.svg" alt=""> Run</button>
+            <button class="submit"><img src="icon-star.svg" alt=""> Submit</button>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

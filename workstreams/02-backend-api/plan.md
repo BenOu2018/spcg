@@ -29,14 +29,22 @@ export type Level = {
   order: number                       // 1..12
   title: string                       // '早安雾镇'
   knowledgePoint: string              // '输出 cout'
+  difficulty: Difficulty              // SPCG 等级 / 等级标签 / 层级 / 洛谷参考难度
   description: string                 // 题面 markdown
+  statementAssets: StatementAsset[]    // 题面图片链接和 alt/caption，文件不入库
   inputFormat: string
   outputFormat: string
-  visibleCases: TestCase[]            // 公开样例 1-3 个
+  publicCases: TestCase[]             // 公开样例 2-3 个
   hiddenCount: number                 // 隐藏用例个数（不返回内容）
+  hints: Hint[]                       // 三步提示，随时可看
+  solutionUnlocked: boolean           // AC 后为 true
+  solution?: Solution                 // AC 后由解锁 API 返回
+  officialCode?: string               // AC 后由解锁 API 返回
+  solutionVideoUrl?: string | null     // AC 后由解锁 API 返回；DB 只存链接
   timeLimitMs: number                 // 默认 1000
   memoryLimitMb: number               // 默认 64
   starterCode: string                 // C++ 起始模板
+  source: ProblemSource               // 题源与授权记录
 
   // ── v0.2 扩展点（v0.1 全部 null）──
   guardianId: string | null
@@ -45,8 +53,30 @@ export type Level = {
 }
 
 export type TestCase = {
+  id: string
   input: string
   expectedOutput: string
+  visibility: 'public' | 'hidden'
+}
+
+export type Hint = {
+  step: 1 | 2 | 3
+  title: string
+  content: string
+}
+
+export type Solution = {
+  explanation: string
+  keyPoints: string[]
+  complexity: { time: string; memory: string }
+}
+
+export type Difficulty = {
+  spcgLevel: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10
+  levelLabel: `SPCG ${number}级`
+  stars: 1 | 2 | 3 | 4 | 5
+  label: '入门' | '基础' | '提高' | '挑战' | '综合'
+  lglevel: string | null
 }
 
 export type Submission = {
@@ -92,8 +122,9 @@ export type Progress = {
 
 | Method | Path | 功能 | 实现 |
 |---|---|---|---|
-| GET | `/rest/v1/levels_public` | 列出所有关卡（含 `hiddenCount` 不含 `hiddenCases`） | Postgres view |
+| GET | `/rest/v1/levels_public` | 列出所有关卡（含 `publicCases` / `hiddenCount`，不含隐藏样例） | Postgres view |
 | GET | `/rest/v1/levels_public?id=eq.X` | 单关详情 | 同上 |
+| POST/RPC | `get_level_unlockables` | AC 后返回题解 + 官方代码 + 题解视频链接 | Postgres function |
 | POST | `/functions/v1/submit-code` | 提交代码 → 返回 `{id}` | Edge Function |
 | GET | `/rest/v1/submissions?id=eq.X` | 查判题状态（备用，主用 Realtime） | Postgres select + RLS |
 | GET | `/rest/v1/progress?user_id=eq.uid` | 我的进度 | Postgres select + RLS |
@@ -127,7 +158,7 @@ export default async function (req: Request) {
     await supabase.from('submissions').update({ status: 'judging' }).eq('id', id)
 
     const level = await supabase.from('levels').select('*').eq('id', levelId).single()
-    const cases = level.hidden_cases as TestCase[]
+    const cases = level.test_cases as TestCase[] // 完整 20 个测试样例，只在 service role 环境读取
 
     const verdict = await runJudge0(code, cases, level.time_limit_ms)
     verdict.childFriendlyMessage = pickChildMessage(verdict.result)
@@ -205,4 +236,4 @@ supabase
 - [ ] 提交一段 C++ 代码，5 秒内拿到 verdict
 - [ ] Realtime 推送延迟 < 200ms
 - [ ] 错误情况下 verdict.errorDetail 有内容
-- [ ] hidden_cases 永远不会泄漏到前端
+- [ ] hidden test cases 永远不会泄漏到前端

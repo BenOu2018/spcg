@@ -1,0 +1,22 @@
+<svg width="220" height="82" viewBox="0 0 220 82" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="82" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#223021"/>
+      <stop offset=".55" stop-color="#121B16"/>
+      <stop offset="1" stop-color="#2A2115"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="220" y2="82" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5B3B22"/>
+      <stop offset=".28" stop-color="#D8A85B"/>
+      <stop offset=".55" stop-color="#FFF0B8"/>
+      <stop offset=".82" stop-color="#A26A38"/>
+      <stop offset="1" stop-color="#3C2519"/>
+    </linearGradient>
+  </defs>
+  <path d="M26 7H194L213 41L194 75H26L7 41L26 7Z" fill="url(#plate)"/>
+  <path d="M26 7H194L213 41L194 75H26L7 41L26 7Z" stroke="url(#edge)" stroke-width="3"/>
+  <path d="M34 16H186" stroke="#FFF3D2" stroke-opacity=".14" stroke-width="2" stroke-linecap="round"/>
+  <text x="31" y="53" fill="#FFF3D2" font-size="39" font-weight="900" font-family="Inter, PingFang SC, sans-serif" letter-spacing="-1">SPCG</text>
+  <path d="M167 23C181 20 193 25 198 37C184 38 173 33 167 23Z" fill="#79C96F" fill-opacity=".78"/>
+  <path d="M177 56C188 54 197 58 201 67C190 68 181 64 177 56Z" fill="#79C96F" fill-opacity=".48"/>
+</svg>

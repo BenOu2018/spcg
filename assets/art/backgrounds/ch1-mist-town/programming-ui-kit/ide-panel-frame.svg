@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 560" role="img" aria-labelledby="title desc">
+  <title id="title">IDE panel frame</title>
+  <desc id="desc">Dark editor panel frame without tabs.</desc>
+  <defs>
+    <linearGradient id="editor" x1="40" y1="0" x2="1040" y2="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#142b31"/>
+      <stop offset="1" stop-color="#0a1b20"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-10%" width="116%" height="122%">
+      <feDropShadow dx="0" dy="14" stdDeviation="12" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect x="14" y="14" width="1052" height="532" rx="16" fill="url(#editor)" filter="url(#shadow)"/>
+  <rect x="22" y="22" width="1036" height="516" rx="11" fill="none" stroke="#a8793d" stroke-width="3" opacity="0.45"/>
+  <rect x="22" y="22" width="1036" height="42" rx="11" fill="#19343a" opacity="0.92"/>
+  <path d="M22 64h1036" stroke="#d6a65d" stroke-width="2" opacity="0.24"/>
+</svg>

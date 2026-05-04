@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>蒜粒</title>
+  <path d="M33 9c7 7 14 16 14 29 0 11-6 18-15 18s-15-7-15-18c0-13 8-22 16-29Z" fill="#f7f2dc" stroke="#6a5b36" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M32 12c-3 8-4 16-3 42M32 12c5 9 7 19 4 41M32 12c-7 8-11 18-9 34" fill="none" stroke="#d8c991" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M29 10c4 0 7-2 10-5-1 5-4 9-9 10-3 0-5-2-7-5 2 1 4 1 6 0Z" fill="#6ca860" stroke="#355a2f" stroke-width="2" stroke-linejoin="round"/>
+  <circle cx="43" cy="19" r="4" fill="#a9e27b" opacity=".85"/>
+</svg>

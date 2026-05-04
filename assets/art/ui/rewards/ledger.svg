@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>奖励记录</title>
+  <rect x="14" y="8" width="36" height="48" rx="6" fill="#e9f2df" stroke="#354f2b" stroke-width="3"/>
+  <path d="M23 20h18M23 30h18M23 40h12" stroke="#547443" stroke-width="3" stroke-linecap="round"/>
+  <path d="M17 16h-4M17 28h-4M17 40h-4" stroke="#354f2b" stroke-width="3" stroke-linecap="round"/>
+  <path d="m43 42 4 4 7-9" fill="none" stroke="#d99b2a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

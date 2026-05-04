@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 72" role="img" aria-labelledby="title desc">
+  <title id="title">SPCG logo</title>
+  <desc id="desc">Clean SPCG wordmark for the programming level UI.</desc>
+  <defs>
+    <linearGradient id="logoFill" x1="20" y1="10" x2="220" y2="62" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff7dc"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </linearGradient>
+    <filter id="shadow" x="-12%" y="-40%" width="124%" height="180%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <text x="120" y="52" text-anchor="middle" fill="url(#logoFill)" filter="url(#shadow)"
+    font-family="Avenir Next, Nunito Sans, Inter, Arial, sans-serif" font-size="46" font-weight="850" letter-spacing="4">SPCG</text>
+</svg>

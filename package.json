@@ -1,0 +1,60 @@
+{
+  "name": "spcg",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "npm run typecheck && npm run check:architecture && npm run judge:check && npm run reward:check && npm run import-validation:check && npm run validate:levels && npm run problem-bank:validate && npm run web:typecheck",
+    "check:architecture": "tsx scripts/check-architecture-boundaries.ts",
+    "typecheck": "tsc --noEmit",
+    "judge:check": "tsx scripts/check-judge.ts",
+    "reward:check": "tsx scripts/check-reward-rules.ts",
+    "import-validation:check": "tsx scripts/check-import-difficulty-validation.ts",
+    "judge:worker": "tsx scripts/judge-worker.ts",
+    "db:migrate": "tsx scripts/db-migrate.ts",
+    "db:seed": "tsx scripts/db-seed.ts",
+    "web:dev": "next dev apps/web --hostname 0.0.0.0 --port 3000",
+    "web:build": "next build apps/web",
+    "web:typecheck": "tsc -p apps/web/tsconfig.json --noEmit",
+    "validate:levels": "tsx scripts/import-levels.ts --dry-run",
+    "import:levels": "tsx scripts/import-levels.ts",
+    "problem:import": "tsx scripts/import-problem-packages.ts",
+    "problem:validate:packages": "tsx scripts/import-problem-packages.ts --dry-run",
+    "levels:normalize-latex": "tsx scripts/normalize-level-latex.ts",
+    "problem-bank:validate": "tsx scripts/import-levels.ts --dry-run --recursive --dir problem-bank/examples --report problem-bank/reports/examples-validation.json",
+    "problem-bank:validate:incoming": "tsx scripts/import-levels.ts --dry-run --recursive --dir problem-bank/incoming --report problem-bank/reports/incoming-validation.json",
+    "problem-bank:sync-import-batch": "tsx scripts/sync-import-report.ts --report problem-bank/reports/incoming-validation.json",
+    "problem-bank:import:incoming": "tsx scripts/import-levels.ts --recursive --dir problem-bank/incoming --report problem-bank/reports/incoming-import.json",
+    "admin:bootstrap": "tsx scripts/bootstrap-admin.ts"
+  },
+  "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.1",
+    "@monaco-editor/react": "^4.7.0",
+    "bcryptjs": "^3.0.3",
+    "katex": "^0.16.45",
+    "lucide-react": "^1.11.0",
+    "monaco-editor": "^0.55.1",
+    "next": "^16.2.4",
+    "next-auth": "^5.0.0-beta.31",
+    "pg": "^8.20.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "yaml": "^2.5.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "overrides": {
+    "dompurify": "3.4.0",
+    "postcss": "8.5.10"
+  }
+}

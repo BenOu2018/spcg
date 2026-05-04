@@ -1,0 +1,833 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SPCG Ranked Match Template</title>
+  <style>
+    :root {
+      --paper: #fde9b8;
+      --paper-deep: #e6bd75;
+      --ink: #17100a;
+      --ink-soft: #332618;
+      --wood: #24170f;
+      --wood-deep: #120c08;
+      --gold: #d79b4b;
+      --gold-soft: #f6d68d;
+      --gold-dark: #7b4b23;
+      --teal: #071d22;
+      --teal-deep: #041115;
+      --teal-line: #1e4950;
+      --green: #93d66f;
+      --red: #ff5d4e;
+      --muted: #89735a;
+      font-family: Inter, "Avenir Next", "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      min-height: 100%;
+      height: 100%;
+      background:
+        linear-gradient(rgba(5, 7, 6, .22), rgba(5, 7, 6, .46)),
+        url("../programming-bg-clean-v1.png") center / cover no-repeat fixed,
+        #050706;
+      overflow: hidden;
+    }
+
+    body {
+      margin: 0;
+      height: 100%;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        linear-gradient(rgba(5, 7, 6, .22), rgba(5, 7, 6, .46)),
+        url("../programming-bg-clean-v1.png") center / cover no-repeat,
+        #050706;
+      overflow: hidden;
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      box-shadow:
+        inset 0 0 0 1px rgba(246, 214, 141, .12),
+        inset 0 0 118px rgba(0, 0, 0, .66);
+    }
+
+    .exam-page {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 96px minmax(0, 1fr);
+      gap: 10px;
+      padding: 6px 30px 22px;
+    }
+
+    .exam-topbar {
+      position: relative;
+      display: grid;
+      grid-template-columns: 208px minmax(370px, 468px) 244px 244px minmax(300px, 352px) 118px;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+      padding: 0 16px 0 10px;
+      color: #fff3d2;
+    }
+
+    .exam-topbar::before {
+      content: "";
+      position: absolute;
+      inset: -2px -28px 0 -28px;
+      background: url("topbar-wood-rail.svg") center / 100% 100% no-repeat;
+      filter: drop-shadow(0 14px 20px rgba(0, 0, 0, .48));
+      pointer-events: none;
+    }
+
+    .exam-topbar > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    .logo-plaque {
+      width: 208px;
+      height: auto;
+      filter: drop-shadow(0 8px 12px rgba(0, 0, 0, .48));
+    }
+
+    .exam-title-card {
+      height: 70px;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 0 25px 0 22px;
+      clip-path: polygon(5% 0, 92% 0, 100% 50%, 92% 100%, 5% 100%, 0 50%);
+      background:
+        linear-gradient(180deg, rgba(69, 43, 24, .98), rgba(29, 18, 12, .98) 52%, rgba(72, 43, 20, .98));
+      border: 2px solid rgba(215, 155, 75, .72);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 246, 210, .26),
+        inset 0 -4px 0 rgba(0, 0, 0, .28),
+        0 9px 18px rgba(0, 0, 0, .34);
+    }
+
+    .exam-title-card::after {
+      content: "";
+      flex: 1 1 auto;
+      max-width: 72px;
+      height: 28px;
+      margin-left: auto;
+      background: url("exam-separator-gem.svg") center / contain no-repeat;
+      opacity: .8;
+    }
+
+    .title-icon {
+      width: 50px;
+      height: 50px;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      border-radius: 14px;
+      background: linear-gradient(180deg, #f7d98d, #b8712e);
+      box-shadow:
+        inset 0 0 0 2px rgba(255, 243, 210, .46),
+        0 4px 10px rgba(0, 0, 0, .32);
+    }
+
+    .title-icon img {
+      width: 34px;
+      height: 34px;
+    }
+
+    .exam-title-copy {
+      min-width: 0;
+    }
+
+    .exam-title-copy strong {
+      display: block;
+      color: #fff3d2;
+      font-size: 30px;
+      line-height: 1;
+      font-weight: 900;
+      white-space: nowrap;
+      text-shadow: 0 2px 0 rgba(0, 0, 0, .52);
+    }
+
+    .exam-title-copy span {
+      display: block;
+      margin-top: 7px;
+      color: #cdb78a;
+      font-size: 13px;
+      font-weight: 720;
+      white-space: nowrap;
+    }
+
+    .status-card,
+    .monitor-card {
+      height: 58px;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      clip-path: polygon(8% 0, 92% 0, 100% 50%, 92% 100%, 8% 100%, 0 50%);
+      background:
+        linear-gradient(180deg, rgba(53, 38, 27, .96), rgba(20, 14, 10, .98) 54%, rgba(43, 28, 18, .96));
+      border: 2px solid rgba(168, 121, 61, .72);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 243, 210, .18),
+        inset 0 -3px 0 rgba(0, 0, 0, .25),
+        0 8px 16px rgba(0, 0, 0, .3);
+    }
+
+    .status-card {
+      justify-content: center;
+      gap: 13px;
+      padding: 0 22px;
+    }
+
+    .status-card img {
+      width: 30px;
+      height: 30px;
+      flex: 0 0 auto;
+    }
+
+    .status-card .label {
+      color: #fff3d2;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 18px;
+      font-weight: 760;
+      white-space: nowrap;
+    }
+
+    .status-card .value {
+      color: var(--gold-soft);
+      font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+      font-size: 20px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .status-card.timer {
+      clip-path: polygon(10% 0, 90% 0, 100% 50%, 90% 100%, 10% 100%, 0 50%);
+    }
+
+    .status-card.timer .value {
+      font-size: 24px;
+    }
+
+    .monitor-card {
+      justify-content: center;
+      gap: 18px;
+      padding: 0 22px;
+      background:
+        linear-gradient(180deg, rgba(19, 50, 57, .96), rgba(8, 21, 25, .98) 54%, rgba(33, 22, 14, .96));
+    }
+
+    .monitor-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 16px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .monitor-chip img {
+      width: 26px;
+      height: 26px;
+    }
+
+    .monitor-chip.camera { color: var(--green); }
+    .monitor-chip.recording { color: var(--red); }
+
+    .monitor-chevron {
+      width: 9px;
+      height: 9px;
+      border-right: 2px solid #d6c49a;
+      border-bottom: 2px solid #d6c49a;
+      transform: rotate(45deg) translateY(-2px);
+      opacity: .85;
+    }
+
+    .camera-tile {
+      width: 118px;
+      height: 76px;
+      display: grid;
+      place-items: center;
+      filter: drop-shadow(0 8px 12px rgba(0, 0, 0, .46));
+    }
+
+    .camera-tile img {
+      width: 118px;
+      height: auto;
+    }
+
+    .main {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(410px, 32.2%) minmax(0, 1fr);
+      gap: 10px;
+    }
+
+    .panel {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      border: 2px solid rgba(112, 70, 34, .96);
+      border-radius: 12px;
+      box-shadow:
+        inset 0 0 0 2px rgba(246, 214, 141, .34),
+        inset 0 0 30px rgba(83, 44, 16, .16),
+        0 18px 40px rgba(0, 0, 0, .46);
+    }
+
+    .corner {
+      position: absolute;
+      width: 62px;
+      height: 62px;
+      background: url("panel-corner-ornament.svg") center / contain no-repeat;
+      pointer-events: none;
+      z-index: 4;
+      opacity: .92;
+    }
+
+    .corner.tl { left: 5px; top: 5px; transform: rotate(0deg); }
+    .corner.tr { right: 5px; top: 5px; transform: rotate(90deg); }
+    .corner.br { right: 5px; bottom: 5px; transform: rotate(180deg); }
+    .corner.bl { left: 5px; bottom: 5px; transform: rotate(270deg); }
+
+    .task {
+      display: flex;
+      flex-direction: column;
+      background:
+        linear-gradient(90deg, rgba(95, 55, 22, .18), transparent 9%, transparent 91%, rgba(95, 55, 22, .16)),
+        linear-gradient(180deg, rgba(255, 251, 227, .52), rgba(244, 209, 151, .14)),
+        var(--paper);
+    }
+
+    .task::before {
+      content: "";
+      position: absolute;
+      inset: 12px;
+      border: 1px solid rgba(123, 75, 35, .24);
+      border-radius: 8px;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .task-scroll {
+      height: 100%;
+      overflow: auto;
+      padding: 44px 48px 32px;
+    }
+
+    .question-head {
+      display: flex;
+      align-items: center;
+      gap: 17px;
+      margin-bottom: 12px;
+    }
+
+    .question-no {
+      color: #0f0904;
+      font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+      font-size: 28px;
+      font-weight: 950;
+      line-height: 1;
+    }
+
+    .task h1 {
+      margin: 0;
+      color: #0f0904;
+      font-size: 25px;
+      line-height: 1.14;
+      font-weight: 950;
+    }
+
+    .tags {
+      display: flex;
+      gap: 10px;
+      margin: 0 0 23px 0;
+      padding-left: 0;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      height: 24px;
+      padding: 0 11px;
+      border-radius: 999px;
+      border: 1px solid rgba(123, 75, 35, .18);
+      background: #e1c481;
+      color: #60421f;
+      font-size: 13px;
+      font-weight: 850;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35);
+    }
+
+    .tag.easy {
+      background: #b7d991;
+      color: #355226;
+    }
+
+    .task h2 {
+      margin: 18px 0 8px;
+      color: #1d1309;
+      font-size: 16px;
+      line-height: 1.2;
+      font-weight: 950;
+    }
+
+    .task p,
+    .task li {
+      color: #20170e;
+      font-size: 15px;
+      line-height: 1.56;
+    }
+
+    .task p {
+      margin: 0 0 9px;
+    }
+
+    .task ul {
+      margin: 7px 0 0;
+      padding-left: 20px;
+    }
+
+    .sample {
+      position: relative;
+      border: 1px solid rgba(130, 100, 55, .26);
+      border-radius: 8px;
+      padding: 12px 42px 12px 14px;
+      background: rgba(255, 255, 255, .24);
+      color: #21170e;
+      font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+      font-size: 14px;
+      line-height: 1.48;
+      overflow: auto;
+    }
+
+    .copy-mark {
+      position: absolute;
+      right: 13px;
+      top: 13px;
+      width: 15px;
+      height: 15px;
+      border: 2px solid rgba(81, 61, 37, .48);
+      border-radius: 3px;
+    }
+
+    .copy-mark::after {
+      content: "";
+      position: absolute;
+      right: -5px;
+      top: -5px;
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(81, 61, 37, .32);
+      border-radius: 3px;
+    }
+
+    .workbench {
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) 270px;
+      background:
+        linear-gradient(180deg, rgba(8, 30, 36, .97), rgba(3, 13, 16, .98));
+      border-color: rgba(121, 74, 35, .98);
+    }
+
+    .workbench::before {
+      content: "";
+      position: absolute;
+      inset: 6px;
+      border: 1px solid rgba(215, 155, 75, .34);
+      border-radius: 8px;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .editor {
+      position: relative;
+      min-height: 0;
+      border-bottom: 2px solid rgba(168, 121, 61, .55);
+      background:
+        linear-gradient(180deg, rgba(8, 33, 39, .98), rgba(4, 17, 21, .98));
+    }
+
+    .editor-tools {
+      position: absolute;
+      top: 22px;
+      right: 28px;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .editor-tools button {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      opacity: .72;
+    }
+
+    .editor-tools img {
+      width: 25px;
+      height: 25px;
+      filter: sepia(.25) saturate(.7);
+    }
+
+    .editor-canvas {
+      height: 100%;
+      display: grid;
+      grid-template-columns: 80px minmax(0, 1fr);
+      min-width: 0;
+      color: #dbe7e6;
+      font-family: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+    }
+
+    .line-numbers {
+      margin: 0;
+      padding: 22px 28px 0 0;
+      list-style: none;
+      color: rgba(205, 225, 222, .58);
+      font-size: 16px;
+      line-height: 1.75;
+      text-align: right;
+      border-right: 1px solid rgba(84, 118, 118, .26);
+      user-select: none;
+    }
+
+    .code-area {
+      position: relative;
+      min-width: 0;
+      overflow: auto;
+      padding: 22px 110px 28px 28px;
+    }
+
+    .code {
+      margin: 0;
+      min-width: 620px;
+      color: #dbe7e6;
+      font-size: 18px;
+      line-height: 1.75;
+      white-space: pre;
+    }
+
+    .caret {
+      display: inline-block;
+      width: 2px;
+      height: 28px;
+      margin-left: 2px;
+      vertical-align: -7px;
+      background: var(--gold-soft);
+      box-shadow: 0 0 10px rgba(246, 214, 141, .52);
+    }
+
+    .comment { color: #83bd6b; }
+    .keyword { color: #84b6ff; }
+    .string { color: #ffba77; }
+
+    .results {
+      position: relative;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 56px minmax(0, 1fr);
+      background:
+        linear-gradient(180deg, rgba(6, 25, 30, .98), rgba(3, 14, 17, .99));
+    }
+
+    .result-tabs {
+      display: flex;
+      align-items: center;
+      gap: 26px;
+      padding: 0 28px;
+      color: rgba(205, 225, 222, .45);
+      border-bottom: 1px solid rgba(255, 255, 255, .07);
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .result-tabs span {
+      height: 56px;
+      display: inline-flex;
+      align-items: center;
+      position: relative;
+      white-space: nowrap;
+    }
+
+    .result-tabs .active {
+      color: #fff3d2;
+    }
+
+    .result-tabs .active::before {
+      content: "";
+      width: 0;
+      height: 0;
+      margin-right: 10px;
+      border-top: 7px solid transparent;
+      border-bottom: 7px solid transparent;
+      border-left: 11px solid var(--green);
+    }
+
+    .result-tabs .active::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 3px;
+      border-radius: 999px;
+      background: var(--green);
+      box-shadow: 0 0 10px rgba(147, 214, 111, .46);
+    }
+
+    .result-tabs .split {
+      width: 1px;
+      height: 24px;
+      background: rgba(255, 255, 255, .1);
+    }
+
+    .trash {
+      margin-left: auto;
+      width: 24px;
+      height: 24px;
+      opacity: .55;
+    }
+
+    .result-body {
+      min-width: 0;
+      padding: 24px 28px;
+      color: rgba(205, 225, 222, .42);
+      font-size: 16px;
+      font-weight: 680;
+    }
+
+    .actions {
+      position: absolute;
+      right: 28px;
+      bottom: 22px;
+      display: flex;
+      gap: 14px;
+      z-index: 3;
+    }
+
+    .exam-button {
+      position: relative;
+      height: 60px;
+      min-width: 150px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 13px;
+      padding: 0 25px;
+      border-radius: 11px;
+      border: 2px solid rgba(255, 243, 210, .22);
+      color: #fff3d2;
+      font-size: 23px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-weight: 900;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, .18),
+        inset 0 -4px 0 rgba(0, 0, 0, .28),
+        0 10px 18px rgba(0, 0, 0, .36);
+    }
+
+    .exam-button::after {
+      content: "";
+      position: absolute;
+      inset: 4px;
+      border: 1px solid rgba(246, 214, 141, .24);
+      border-radius: 7px;
+      pointer-events: none;
+    }
+
+    .exam-button.run {
+      min-width: 152px;
+      background: linear-gradient(180deg, #3a3329, #1f1a15);
+    }
+
+    .exam-button.submit {
+      min-width: 188px;
+      background: linear-gradient(180deg, #768a3a, #4b632b);
+      border-color: rgba(246, 214, 141, .68);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, .22),
+        inset 0 -4px 0 rgba(0, 0, 0, .28),
+        0 10px 18px rgba(0, 0, 0, .36),
+        0 0 0 1px rgba(215, 155, 75, .52);
+    }
+
+    .play-triangle {
+      width: 0;
+      height: 0;
+      border-top: 11px solid transparent;
+      border-bottom: 11px solid transparent;
+      border-left: 17px solid #fff3d2;
+    }
+
+    .paper-plane {
+      width: 23px;
+      height: 23px;
+      clip-path: polygon(0 50%, 100% 0, 68% 100%, 48% 60%);
+      background: #fff3d2;
+      transform: rotate(-8deg);
+    }
+
+    @media (max-width: 1440px) {
+      .exam-page { padding-left: 22px; padding-right: 22px; }
+
+      .exam-topbar {
+        grid-template-columns: 190px minmax(340px, 420px) 220px 230px minmax(270px, 318px);
+        gap: 10px;
+      }
+
+      .logo-plaque { width: 190px; }
+      .camera-tile { display: none; }
+      .exam-title-copy strong { font-size: 27px; }
+      .main { grid-template-columns: minmax(350px, 32%) minmax(0, 1fr); }
+    }
+
+    @media (max-width: 1180px) {
+      .exam-topbar {
+        grid-template-columns: 174px 1fr 212px 224px;
+      }
+
+      .monitor-card { display: none; }
+      .main { grid-template-columns: 340px minmax(0, 1fr); }
+      .task-scroll { padding-left: 36px; padding-right: 36px; }
+      .workbench { grid-template-rows: minmax(0, 1fr) 248px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="exam-page">
+    <header class="exam-topbar">
+      <img class="logo-plaque" src="logo-exam-plaque.svg" alt="SPCG">
+
+      <section class="exam-title-card" aria-label="段位赛标题">
+        <span class="title-icon"><img src="icon-shield-check.svg" alt=""></span>
+        <div class="exam-title-copy">
+          <strong>SPCG Ranked Match</strong>
+          <span>段位赛 · 12 题题单</span>
+        </div>
+      </section>
+
+      <section class="status-card question" aria-label="当前题号">
+        <img src="icon-question-list.svg" alt="">
+        <span class="label">Question</span>
+        <span class="value">03 / 12</span>
+      </section>
+
+      <section class="status-card timer" aria-label="剩余时间">
+        <img src="icon-timer.svg" alt="">
+        <span class="value">01:28:36</span>
+      </section>
+
+      <section class="monitor-card" aria-label="视频监控状态">
+        <span class="monitor-chip camera"><img src="icon-camera.svg" alt="">Camera On</span>
+        <span class="monitor-chip recording"><img src="icon-recording.svg" alt="">Recording</span>
+        <span class="monitor-chevron" aria-hidden="true"></span>
+      </section>
+
+      <aside class="camera-tile" aria-label="监控预览">
+        <img src="camera-preview-frame.svg" alt="">
+      </aside>
+    </header>
+
+    <section class="main">
+      <aside class="task panel">
+        <span class="corner tl"></span><span class="corner tr"></span><span class="corner br"></span><span class="corner bl"></span>
+        <div class="task-scroll">
+          <div class="question-head">
+            <span class="question-no">07</span>
+            <h1>两数之和</h1>
+          </div>
+          <div class="tags"><span class="tag easy">简单</span><span class="tag">数组</span></div>
+
+          <h2>题目描述</h2>
+          <p>给定一个整数数组 nums 和一个整数目标值 target，请你在该数组中找出和为目标值 target 的那两个整数，并返回它们的数组下标。</p>
+          <p>你可以假设每种输入只会对应一个答案。但是，数组中同一个元素在答案里不能重复出现。</p>
+          <p>你可以按任意顺序返回答案。</p>
+
+          <h2>输入格式</h2>
+          <div class="sample">第一行输入整数 n 和 target。<br>第二行输入 n 个整数，表示数组 nums。<span class="copy-mark"></span></div>
+
+          <h2>输出格式</h2>
+          <div class="sample">输出两个整数，表示答案下标（从 0 开始）。<br>如果不存在答案，输出 -1 -1。<span class="copy-mark"></span></div>
+
+          <h2>样例输入</h2>
+          <div class="sample">4 9<br>2 7 11 15<span class="copy-mark"></span></div>
+
+          <h2>样例输出</h2>
+          <div class="sample">0 1<span class="copy-mark"></span></div>
+
+          <h2>数据范围与提示</h2>
+          <ul>
+            <li>2 ≤ n ≤ 10<sup>5</sup></li>
+            <li>-10<sup>9</sup> ≤ nums[i] ≤ 10<sup>9</sup></li>
+            <li>-10<sup>9</sup> ≤ target ≤ 10<sup>9</sup></li>
+          </ul>
+        </div>
+      </aside>
+
+      <section class="workbench panel">
+        <span class="corner tl"></span><span class="corner tr"></span><span class="corner br"></span><span class="corner bl"></span>
+
+        <section class="editor" aria-label="代码编辑区">
+          <div class="editor-tools">
+            <button aria-label="theme"><img src="icon-theme.svg" alt=""></button>
+            <button aria-label="settings"><img src="../programming-ui-kit/icon-settings.svg" alt=""></button>
+            <button aria-label="expand"><img src="../programming-ui-kit/icon-expand.svg" alt=""></button>
+          </div>
+
+          <div class="editor-canvas">
+            <ol class="line-numbers" aria-hidden="true">
+              <li>1</li><li>2</li><li>3</li><li>4</li><li>5</li>
+              <li>6</li><li>7</li><li>8</li><li>9</li><li>10</li>
+              <li>11</li><li>12</li><li>13</li><li>14</li><li>15</li>
+              <li>16</li><li>17</li><li>18</li><li>19</li><li>20</li>
+            </ol>
+            <div class="code-area">
+              <pre class="code"><span class="comment">// 在此处编写你的代码</span>
+<span class="keyword">#include</span> <span class="string">&lt;bits/stdc++.h&gt;</span><span class="caret"></span>
+
+using namespace std;
+
+int main() {
+    return 0;
+}</pre>
+            </div>
+          </div>
+        </section>
+
+        <section class="results" aria-label="运行结果">
+          <nav class="result-tabs" aria-label="运行结果标签">
+            <span class="active">运行结果</span>
+            <i class="split" aria-hidden="true"></i>
+            <span>测试用例</span>
+            <i class="split" aria-hidden="true"></i>
+            <span>评测输出</span>
+            <img class="trash" src="icon-trash.svg" alt="">
+          </nav>
+          <div class="result-body">点击 “Run” 运行代码。段位赛过程会自动保存代码、作答时间和监控状态。</div>
+          <div class="actions">
+            <button class="exam-button run"><span class="play-triangle"></span>Run</button>
+            <button class="exam-button submit"><span class="paper-plane"></span>Submit</button>
+          </div>
+        </section>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

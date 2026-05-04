@@ -36,3 +36,9 @@ supabase/.temp/
 # Editor
 .vscode/
 .idea/
+
+problem-bank/
+docs/
+lesson/
+*.tsbuildinfo
+

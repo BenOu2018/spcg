@@ -18,12 +18,28 @@ coverage/
 
 # Logs
 *.log
+screenlog.*
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Generated reports
+# Large generated/media assets are kept outside Git.
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.mp4
+*.mov
+*.mp3
+*.wav
+*.pdf
+*.zip
+*.tar
+*.tar.gz
+
+# Local/generated content not uploaded to code repository.
 problem-bank/reports/*.json
 problem-bank/
 lesson/
@@ -36,9 +52,3 @@ supabase/.temp/
 # Editor
 .vscode/
 .idea/
-
-problem-bank/
-docs/
-lesson/
-*.tsbuildinfo
-

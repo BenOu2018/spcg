@@ -1,4 +1,3 @@
-import { convertToExcalidrawElements } from '@excalidraw/excalidraw'
 import type { ExcalidrawElementSkeleton } from '@excalidraw/excalidraw/data/transform'
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types'
 import type { AppState, BinaryFiles } from '@excalidraw/excalidraw/types'
@@ -39,6 +38,8 @@ const NODE_FILL = '#f9dc84'
 const ARRAY_FILL = '#f7f2df'
 const NOTE_FILL = '#fff0ba'
 const DP_FILL = '#dceef4'
+const ROUGHNESS = 1
+const FONT_FAMILY = 1
 
 export function buildWhiteboardSeed(input: WhiteboardSeedInput): WhiteboardSeedResult {
   try {
@@ -440,7 +441,130 @@ function text(x: number, y: number, value: string, fontSize: number, color: stri
 }
 
 function toElements(skeletons: ExcalidrawElementSkeleton[]): ExcalidrawElement[] {
-  return Array.from(convertToExcalidrawElements(skeletons, { regenerateIds: true })) as ExcalidrawElement[]
+  const elements: ExcalidrawElement[] = []
+
+  skeletons.forEach((skeleton) => {
+    if (skeleton.type === 'text') {
+      elements.push(makeTextElement(skeleton.x ?? 0, skeleton.y ?? 0, String(skeleton.text ?? ''), skeleton.fontSize ?? 18, skeleton.strokeColor))
+      return
+    }
+
+    const shape = skeleton as ExcalidrawElementSkeleton & {
+      label?: { text?: string; fontSize?: number; textAlign?: string; verticalAlign?: string }
+    }
+    const element = makeShapeElement(shape)
+    elements.push(element)
+
+    const label = shape.label?.text
+    if (label) {
+      elements.push(makeCenteredTextElement(element, label, shape.label?.fontSize ?? 16, skeleton.strokeColor ?? STROKE))
+    }
+  })
+
+  return elements
+}
+
+function makeShapeElement(skeleton: ExcalidrawElementSkeleton): ExcalidrawElement {
+  const type = skeleton.type === 'ellipse' || skeleton.type === 'line' ? skeleton.type : 'rectangle'
+  const skeletonWithPoints = skeleton as ExcalidrawElementSkeleton & { points?: readonly [number, number][] }
+  const points = type === 'line'
+    ? ((skeletonWithPoints.points ?? [[0, 0], [skeleton.width ?? 0, skeleton.height ?? 0]]) as [[number, number], [number, number]])
+    : undefined
+
+  return {
+    id: makeElementId(),
+    type,
+    x: skeleton.x ?? 0,
+    y: skeleton.y ?? 0,
+    width: skeleton.width ?? 0,
+    height: skeleton.height ?? 0,
+    angle: 0,
+    strokeColor: skeleton.strokeColor ?? STROKE,
+    backgroundColor: skeleton.backgroundColor ?? 'transparent',
+    fillStyle: skeleton.fillStyle ?? 'solid',
+    strokeWidth: skeleton.strokeWidth ?? 2,
+    strokeStyle: 'solid',
+    roughness: skeleton.roughness ?? ROUGHNESS,
+    opacity: skeleton.opacity ?? 100,
+    groupIds: [],
+    frameId: null,
+    roundness: type === 'rectangle' ? { type: 3 } : null,
+    seed: makeVersionNonce(),
+    version: 1,
+    versionNonce: makeVersionNonce(),
+    index: null,
+    isDeleted: false,
+    boundElements: null,
+    updated: Date.now(),
+    link: null,
+    locked: false,
+    ...(points ? { points, startBinding: null, endBinding: null, lastCommittedPoint: null, startArrowhead: null, endArrowhead: null } : {}),
+  } as unknown as ExcalidrawElement
+}
+
+function makeTextElement(x: number, y: number, value: string, fontSize: number, color = STROKE): ExcalidrawElement {
+  const lines = value.split('\n')
+  const width = Math.max(24, ...lines.map((line) => line.length * fontSize * 0.62))
+  const height = Math.max(fontSize * 1.25, lines.length * fontSize * 1.25)
+
+  return {
+    id: makeElementId(),
+    type: 'text',
+    x,
+    y,
+    width,
+    height,
+    angle: 0,
+    strokeColor: color,
+    backgroundColor: 'transparent',
+    fillStyle: 'solid',
+    strokeWidth: 1,
+    strokeStyle: 'solid',
+    roughness: 0,
+    opacity: 100,
+    groupIds: [],
+    frameId: null,
+    roundness: null,
+    seed: makeVersionNonce(),
+    version: 1,
+    versionNonce: makeVersionNonce(),
+    index: null,
+    isDeleted: false,
+    boundElements: null,
+    updated: Date.now(),
+    link: null,
+    locked: false,
+    text: value,
+    originalText: value,
+    fontSize,
+    fontFamily: FONT_FAMILY,
+    textAlign: 'left',
+    verticalAlign: 'top',
+    baseline: Math.round(height * 0.78),
+    containerId: null,
+    autoResize: true,
+    lineHeight: 1.25,
+  } as unknown as ExcalidrawElement
+}
+
+function makeCenteredTextElement(shape: ExcalidrawElement, label: string, fontSize: number, color = STROKE): ExcalidrawElement {
+  const textElement = makeTextElement(0, 0, label, fontSize, color)
+
+  return {
+    ...textElement,
+    x: shape.x + shape.width / 2 - textElement.width / 2,
+    y: shape.y + shape.height / 2 - textElement.height / 2,
+    textAlign: 'center',
+    verticalAlign: 'middle',
+  } as ExcalidrawElement
+}
+
+function makeElementId(): string {
+  return `spcg-${makeVersionNonce().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function makeVersionNonce(): number {
+  return Math.floor(Math.random() * 2_147_483_647) + 1
 }
 
 function extractTreeTokens(input: string | null): string[] {

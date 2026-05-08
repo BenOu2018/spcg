@@ -1,37 +1,14 @@
 import { createHash } from 'node:crypto'
-import type { RewardRank } from '@spcg/shared/types'
 export { getDifficultyCoefficient, getLevelCoinReward, getLevelLabel } from '@spcg/shared/difficulty'
-
-export type RankInfo = {
-  rank: RewardRank
-  label: string
-  minCoins: number
-}
-
-export const RANKS: RankInfo[] = [
-  { rank: 'bronze', label: '青铜', minCoins: 0 },
-  { rank: 'silver', label: '白银', minCoins: 120 },
-  { rank: 'gold', label: '黄金', minCoins: 320 },
-  { rank: 'platinum', label: '铂金', minCoins: 700 },
-  { rank: 'diamond', label: '钻石', minCoins: 1300 },
-  { rank: 'stellar', label: '星耀', minCoins: 2200 },
-]
-
-export function getRankForCoins(coinTotal: number): RankInfo {
-  return [...RANKS].reverse().find((rank) => coinTotal >= rank.minCoins) ?? RANKS[0]!
-}
-
-export function getRankLabel(rank: RewardRank): string {
-  return RANKS.find((item) => item.rank === rank)?.label ?? '青铜'
-}
-
-export function generateTitle(input: { garlicBalance: number; rank: RewardRank }): string {
-  const rankLabel = getRankLabel(input.rank)
-  if (input.garlicBalance >= 30) return `${rankLabel}蒜力星尘守卫`
-  if (input.garlicBalance >= 12) return `${rankLabel}二分星尘守卫`
-  if (input.garlicBalance >= 5) return `${rankLabel}蒜粒收集家`
-  return `${rankLabel}晨雾算力学徒`
-}
+export {
+  DEFAULT_REWARD_RANK,
+  generateTitle,
+  getRankForCoins,
+  getRankLabel,
+  REWARD_RANKS,
+  REWARD_RANKS as RANKS,
+} from '@spcg/shared/reward-ranks'
+export type { RankInfo } from '@spcg/shared/reward-ranks'
 
 export function pickItemForKnowledgePoint(knowledgePoint: string): string {
   if (/二分|查找|搜索/.test(knowledgePoint)) return 'binary-scope'

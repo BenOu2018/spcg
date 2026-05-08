@@ -2,12 +2,18 @@
 
 import { revalidatePath } from 'next/cache'
 import type { PoolClient } from 'pg'
+import {
+  PROBLEM_SET_ITEM_DISPLAY_MODES,
+  isProblemSetItemDisplayMode,
+  isRequiredLessonProblemRole,
+  type ProblemSetItemDisplayMode,
+} from '@spcg/shared/curriculum'
 import { requireAdmin } from '@/lib/admin-auth'
 import type { ImportBatchStatus } from '@/lib/admin-data'
 import { isDbConfigured, withTransaction } from '@/lib/db'
 
 const validStatuses = new Set<ImportBatchStatus>(['approved', 'rejected', 'imported'])
-const validDisplayModes = new Set(['primary', 'backup', 'exam-only'])
+const validDisplayModes = new Set<ProblemSetItemDisplayMode>(PROBLEM_SET_ITEM_DISPLAY_MODES)
 
 export async function setImportBatchTarget(formData: FormData) {
   const batchId = readRequiredString(formData, 'batchId')
@@ -200,7 +206,7 @@ async function attachImportedLevelsToTargetStage(client: PoolClient, batchId: st
   const batch = await client.query<{
     target_spcg_level: number | null
     target_problem_set_id: string | null
-    default_item_mode: string
+    default_item_mode: ProblemSetItemDisplayMode
   }>(
     `
     SELECT target_spcg_level, target_problem_set_id, default_item_mode
@@ -265,9 +271,10 @@ async function attachImportedLevelsToTargetStage(client: PoolClient, batchId: st
     await client.query(
       `
       INSERT INTO problem_set_items (problem_set_id, level_id, position, label, required, metadata)
-      VALUES ($1, $2, $3, $4, TRUE, jsonb_build_object('displayMode', $5::text))
+      VALUES ($1, $2, $3, $4, $5, jsonb_build_object('displayMode', $6::text))
       ON CONFLICT (problem_set_id, level_id)
       DO UPDATE SET
+        required = EXCLUDED.required,
         metadata = jsonb_set(
           COALESCE(problem_set_items.metadata, '{}'::jsonb),
           '{displayMode}',
@@ -275,7 +282,14 @@ async function attachImportedLevelsToTargetStage(client: PoolClient, batchId: st
           true
         )
       `,
-      [target.target_problem_set_id, item.level_id, basePosition + index + 1, 'imported', displayMode],
+      [
+        target.target_problem_set_id,
+        item.level_id,
+        basePosition + index + 1,
+        'imported',
+        isRequiredLessonProblemRole(displayMode),
+        displayMode,
+      ],
     )
   }
 }
@@ -292,13 +306,13 @@ function readInteger(formData: FormData, key: string): number {
   return parsed
 }
 
-function readDisplayMode(formData: FormData, key: string): 'primary' | 'backup' | 'exam-only' {
+function readDisplayMode(formData: FormData, key: string): ProblemSetItemDisplayMode {
   const value = readRequiredString(formData, key)
-  if (!validDisplayModes.has(value)) throw new Error('Invalid display mode')
-  return value as 'primary' | 'backup' | 'exam-only'
+  if (!validDisplayModes.has(value as ProblemSetItemDisplayMode)) throw new Error('Invalid display mode')
+  return value as ProblemSetItemDisplayMode
 }
 
-function getPayloadDisplayMode(payload: Record<string, unknown> | null): 'primary' | 'backup' | 'exam-only' | null {
+function getPayloadDisplayMode(payload: Record<string, unknown> | null): ProblemSetItemDisplayMode | null {
   const value = payload?.displayMode
-  return value === 'primary' || value === 'backup' || value === 'exam-only' ? value : null
+  return isProblemSetItemDisplayMode(value) ? value : null
 }

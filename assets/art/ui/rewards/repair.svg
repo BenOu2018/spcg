@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>待修错题</title>
+  <path d="M15 18h26l8 8v26H15V18Z" fill="#f9efe7" stroke="#704431" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M41 18v9h8" fill="none" stroke="#704431" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M23 31h14M23 39h18M23 47h10" fill="none" stroke="#8c6655" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="47" cy="45" r="10" fill="#c85d58" stroke="#6e2d31" stroke-width="3"/>
+  <path d="M43 41l8 8M51 41l-8 8" fill="none" stroke="#fff4e8" stroke-width="3" stroke-linecap="round"/>
+  <path d="M14 10c5 0 8 2 10 6" fill="none" stroke="#57a96b" stroke-width="3" stroke-linecap="round"/>
+  <path d="M24 16l-6 1 2-6" fill="none" stroke="#57a96b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

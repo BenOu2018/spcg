@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 260" role="img" aria-labelledby="title desc">
+  <title id="title">Challenge optional node</title>
+  <desc id="desc">Optional challenge progression problem node.</desc>
+  <defs>
+    <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#ffe2b7"/>
+      <stop offset="1" stop-color="#b84632"/>
+    </linearGradient>
+    <linearGradient id="cap" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#cb4f3d"/>
+      <stop offset="1" stop-color="#7f201b"/>
+    </linearGradient>
+  </defs>
+  <path d="M90 8l66 28 12 164-78 52-78-52 12-164z" fill="url(#g)" stroke="#e4a44a" stroke-width="7"/>
+  <path d="M29 40h122l-8 18H37zM29 196h122l-17 24H46z" fill="#942d25" opacity=".72"/>
+  <circle cx="90" cy="52" r="36" fill="url(#cap)" stroke="#ffd98a" stroke-width="5"/>
+  <path d="M68 151h44v18c0 18-10 32-22 32s-22-14-22-32z" fill="#fff0b8" stroke="#8b2e23" stroke-width="4"/>
+  <path d="M68 160H52c2 22 16 31 28 28M112 160h16c-2 22-16 31-28 28" fill="none" stroke="#fff0b8" stroke-width="7" stroke-linecap="round"/>
+  <path d="M80 224h20M74 238h32" stroke="#fff0b8" stroke-width="7" stroke-linecap="round"/>
+</svg>

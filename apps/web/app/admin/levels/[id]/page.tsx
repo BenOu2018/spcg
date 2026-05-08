@@ -240,7 +240,7 @@ export default async function AdminLevelDetailPage({ params }: AdminLevelDetailP
         <article className="admin-panel">
           <div className="admin-panel-head">
             <h2>AI Analysis</h2>
-            <span className="admin-count">WA / CE / RE / TLE / Judge Error</span>
+            <span className="admin-count">WA / CE / RE / TLE / MLE / PE / Judge Error</span>
           </div>
           <p className="admin-help-text">
             非 AC 提交可以在下方表格点击 AI 分析生成一次错误分析；已生成的记录会显示为已分析并保存到数据库。
@@ -275,7 +275,7 @@ function getAiAnalysisStats(
     errorAnalysis: unknown
   }>,
 ) {
-  const analyzableResults = new Set(['WA', 'TLE', 'RE', 'CE', 'Judge Error'])
+  const analyzableResults = new Set(['WA', 'TLE', 'MLE', 'RE', 'CE', 'PE', 'Judge Error'])
   const analyzable = submissions.filter((submission) => {
     const result = submission.verdict?.result
     return Boolean(result && analyzableResults.has(result))

@@ -2,14 +2,19 @@ import Link from 'next/link'
 import type { CSSProperties } from 'react'
 import type { Level, Progress } from '@spcg/shared/types'
 import { getGameChapter, type GameMapNodePosition } from '@spcg/shared/game-chapters'
+import { buildRankedAssessmentRoute, buildRankedAssessmentTitle } from '@spcg/shared/ranked-assessment'
 
 type LevelMapProps = {
   levels: Level[]
   progress: Progress[]
+  stageMenus?: StageProgressMenu[]
   large?: boolean
   fullscreen?: boolean
   showExamNode?: boolean
+  examSpcgLevel?: number
   freeJump?: boolean
+  currentLevelIdOverride?: string | null
+  unlockedLevelIds?: string[]
 }
 
 const EXAM_NODE_POSITION = {
@@ -23,21 +28,46 @@ type MapPoint = {
   y: number
 }
 
+type StageProgressMenu = {
+  items: Array<{ levelId: string }>
+}
+
+type StageProgressState = {
+  passed: number
+  total: number
+  label: string
+}
+
 export function LevelMap({
   levels,
   progress,
+  stageMenus = [],
   large = false,
   fullscreen = false,
   showExamNode = false,
+  examSpcgLevel = 1,
   freeJump = false,
+  currentLevelIdOverride = null,
+  unlockedLevelIds = [],
 }: LevelMapProps) {
   const orderedLevels = [...levels].sort((a, b) => a.order - b.order)
   const chapter = getGameChapter(orderedLevels[0]?.chapterId)
   const nodePositions = buildRoutePositions(orderedLevels, chapter.nodePositions, chapter.chapterId)
   const routeSegments = buildRouteSegments(nodePositions, chapter.routeSegments)
   const passedIds = new Set(progress.filter((item) => item.passed).map((item) => item.levelId))
-  const firstOpen = orderedLevels.find((level) => !passedIds.has(level.id))?.order ?? 1
-  const current = orderedLevels.find((level) => level.order === firstOpen) ?? orderedLevels[0]
+  const stageProgressByLevelId = buildStageProgressByLevelId(stageMenus, passedIds)
+  const unlockedIds = new Set(unlockedLevelIds)
+  const stageMainlinePassedIds = new Set(
+    [...stageProgressByLevelId.entries()]
+      .filter(([, value]) => value.passed >= getRequiredStagePassCount(value.total))
+      .map(([levelId]) => levelId),
+  )
+  const completedMapIds = new Set([...passedIds, ...stageMainlinePassedIds])
+  const firstOpen = orderedLevels.find((level) => !completedMapIds.has(level.id))?.order ?? 1
+  const current =
+    (currentLevelIdOverride ? orderedLevels.find((level) => level.id === currentLevelIdOverride) : undefined) ??
+    orderedLevels.find((level) => level.order === firstOpen) ??
+    orderedLevels[0]
 
   return (
     <div
@@ -62,7 +92,8 @@ export function LevelMap({
         const position = nodePositions.find((node) => node.id === level.id)
         if (!position) return null
 
-        const state = getLevelState(level, current?.order ?? 1, passedIds, freeJump)
+        const state = getLevelState(level, current?.order ?? 1, completedMapIds, freeJump, unlockedIds)
+        const stageProgress = stageProgressByLevelId.get(level.id) ?? buildDefaultStageProgress(level.id, passedIds)
         const asset = getNodeAsset(state, level.order === orderedLevels.length)
         const style = {
           '--node-x': `${position.x * 100}%`,
@@ -79,18 +110,28 @@ export function LevelMap({
           >
             <img src={`/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/${asset}`} alt="" />
             <span>{String(level.order).padStart(2, '0')}</span>
+            <div className="level-node-stars" aria-label={`题目完成度 ${stageProgress.label}`}>
+              {Array.from({ length: stageProgress.total }, (_, index) => (
+                <i aria-hidden="true" className={index < stageProgress.passed ? 'lit' : undefined} key={index}>
+                  ★
+                </i>
+              ))}
+            </div>
             <div className="level-node-tooltip" aria-hidden="true">
               <span className="level-node-tooltip-title">{level.title}</span>
-              <span className="level-node-tooltip-algorithm">{level.knowledgePoint}</span>
+              <span className="level-node-tooltip-algorithm">
+                {level.knowledgePoint}
+                {stageProgress ? ` · ${stageProgress.label}` : ''}
+              </span>
             </div>
           </Link>
         )
       })}
       {showExamNode ? (
         <Link
-          aria-label="SPCG 段位赛"
+          aria-label={buildRankedAssessmentTitle(examSpcgLevel)}
           className="level-node exam"
-          href="/exam/spcg-level-1"
+          href={buildRankedAssessmentRoute(examSpcgLevel)}
           style={
             {
               '--node-x': `${EXAM_NODE_POSITION.x * 100}%`,
@@ -100,7 +141,7 @@ export function LevelMap({
         >
           <img src="/assets/art/backgrounds/ch1-mist-town/exam-ui-kit/icon-shield-check.svg" alt="" />
           <span>EX</span>
-          <strong>SPCG 段位赛</strong>
+          <strong>{buildRankedAssessmentTitle(examSpcgLevel)}</strong>
         </Link>
       ) : null}
       {current ? (
@@ -160,10 +201,17 @@ function buildRouteSegments(nodePositions: MapPoint[], configuredSegments?: stri
   return segments.length > 0 ? segments : [nodePositions]
 }
 
-function getLevelState(level: Level, currentOrder: number, passedIds: Set<string>, freeJump: boolean) {
+function getLevelState(
+  level: Level,
+  currentOrder: number,
+  passedIds: Set<string>,
+  freeJump: boolean,
+  unlockedIds: Set<string>,
+) {
   if (passedIds.has(level.id)) return 'completed'
   if (level.order === currentOrder) return 'current'
   if (freeJump) return 'unlocked'
+  if (unlockedIds.has(level.id)) return 'unlocked'
   if (level.order < currentOrder + 2) return 'unlocked'
   return 'locked'
 }
@@ -173,6 +221,37 @@ function getNodeAsset(state: string, destination: boolean) {
   if (state === 'completed') return 'level-node-completed.svg'
   if (state === 'current' || state === 'unlocked') return 'level-node-current.svg'
   return 'level-node-locked.svg'
+}
+
+function buildStageProgressByLevelId(stageMenus: StageProgressMenu[], passedIds: Set<string>) {
+  const progressByLevelId = new Map<string, StageProgressState>()
+
+  for (const menu of stageMenus) {
+    const displayItems = menu.items.slice(0, 5)
+    const total = displayItems.length
+    if (total === 0) continue
+    const passed = displayItems.filter((item) => passedIds.has(item.levelId)).length
+    const label = `${passed}/${total}`
+
+    for (const item of menu.items) {
+      progressByLevelId.set(item.levelId, { passed, total, label })
+    }
+  }
+
+  return progressByLevelId
+}
+
+function buildDefaultStageProgress(levelId: string, passedIds: Set<string>): StageProgressState {
+  const passed = passedIds.has(levelId) ? 1 : 0
+  return {
+    passed,
+    total: 5,
+    label: `${passed}/5`,
+  }
+}
+
+function getRequiredStagePassCount(total: number) {
+  return Math.max(1, Math.min(3, total))
 }
 
 function mascotStyle(levelId: string, positions: MapPoint[]): CSSProperties {

@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { PROBLEM_SET_ITEM_DISPLAY_MODES } from '@spcg/shared/curriculum'
 import { requireAdmin } from '@/lib/admin-auth'
 import {
   addAdminProblemSetItem,
@@ -25,7 +26,7 @@ const validStatuses = new Set<ProblemSetStatus>(['draft', 'review', 'published',
 const validTypes = new Set<ProblemSetType>(['chapter', 'practice', 'review', 'challenge', 'import-review', 'lesson'])
 const validVisibilities = new Set<ProblemSetVisibility>(['admin', 'student'])
 const validTracks = new Set<LessonTrack>(['A', 'B'])
-const validDisplayModes = new Set<ProblemSetItemDisplayMode>(['primary', 'backup', 'exam-only'])
+const validDisplayModes = new Set<ProblemSetItemDisplayMode>(PROBLEM_SET_ITEM_DISPLAY_MODES)
 
 export async function createLessonProblemSetAction(formData: FormData) {
   const context = await requireAdmin('editor')

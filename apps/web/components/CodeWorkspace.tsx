@@ -1,10 +1,13 @@
 'use client'
 
+import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Editor, type BeforeMount, type OnMount } from '@monaco-editor/react'
-import { ChevronsDown, ChevronsUp, FileCode2, History, RefreshCw, X } from 'lucide-react'
-import type { CodeErrorAnalysis, Level, StatementAsset, SubmissionErrorAnalysis, Verdict } from '@spcg/shared/types'
+import { Editor, loader, type BeforeMount, type OnMount } from '@monaco-editor/react'
+import type { editor as MonacoEditor } from 'monaco-editor'
+import { AlignLeft, ChevronsDown, ChevronsUp, FileCode2, History, RefreshCw, X } from 'lucide-react'
+import type { CodeErrorAnalysis, JudgeProgress, Level, Progress, SubmissionErrorAnalysis, Verdict } from '@spcg/shared/types'
 import { normalizeOutput } from '@spcg/shared/judge'
+import { getProblemSetItemDisplayModeLabel } from '@spcg/shared/curriculum'
 import {
   LANGUAGE_MODES,
   getLanguageLabel,
@@ -12,10 +15,12 @@ import {
   normalizeLanguageMode,
   resolveLanguageMode,
   type LanguageMode,
+  type ResolvedLanguage,
 } from '@spcg/shared/language-config'
 import {
   explainSubmissionErrorAction,
   getSubmissionHistoryAction,
+  getAssessmentSubmissionHistoryAction,
   getSubmissionVerdictAction,
   runCodeAction,
   runPublicSamplesAction,
@@ -24,6 +29,12 @@ import {
 import { AlgorithmWhiteboardButton, AlgorithmWhiteboardModal } from '@/components/AlgorithmWhiteboard'
 import { TestResults } from '@/components/TestResults'
 import type { SampleRunResultMap } from '@/components/sample-run'
+
+loader.config({
+  paths: {
+    vs: '/monaco/vs',
+  },
+})
 
 type SubmissionPollResult = Awaited<ReturnType<typeof getSubmissionVerdictAction>>
 type SubmissionHistoryResult = Awaited<ReturnType<typeof getSubmissionHistoryAction>>
@@ -35,10 +46,40 @@ type SubmissionAnalysisState =
 
 type CodeWorkspaceProps = {
   level: Level
+  initialProgress?: Progress | null
   layoutVersion?: number
   onRunStart?: () => void
   onRunComplete?: (sampleResults: SampleRunResultMap) => void
   onAccepted?: () => void | Promise<void>
+  stagePath?: StagePath
+  assessmentAttemptId?: string | null
+  assessmentItemMaxScore?: number | null
+  assessmentNextQuestionTitle?: string | null
+  onAssessmentNextQuestion?: () => void
+  onAssessmentSubmissionSettled?: () => void | Promise<void>
+}
+
+type StagePath = {
+  title: string
+  stageNo: number
+  passedLevelIds: string[]
+  items: Array<{
+    levelId: string
+    title: string
+    position: number
+    displayMode: string
+  }>
+}
+
+type LearningFeedback = {
+  kind: 'accepted' | 'repair'
+  title: string
+  body: string
+  steps?: string[]
+  nextHref?: string
+  nextLabel?: string
+  nextActionLabel?: string
+  nextAction?: () => void
 }
 
 type IdeBugContext = {
@@ -55,7 +96,20 @@ declare global {
   }
 }
 
-export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunComplete, onAccepted }: CodeWorkspaceProps) {
+export function CodeWorkspace({
+  level,
+  initialProgress = null,
+  layoutVersion = 0,
+  onRunStart,
+  onRunComplete,
+  onAccepted,
+  stagePath,
+  assessmentAttemptId = null,
+  assessmentItemMaxScore = null,
+  assessmentNextQuestionTitle = null,
+  onAssessmentNextQuestion,
+  onAssessmentSubmissionSettled,
+}: CodeWorkspaceProps) {
   const [languageMode, setLanguageMode] = useState<LanguageMode>(() => readCachedLanguageMode(level.id))
   const [code, setCode] = useState(() => {
     const cachedLanguage = readCachedLanguageMode(level.id)
@@ -70,20 +124,28 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
   const [consoleInput, setConsoleInput] = useState(() => getDefaultConsoleInput(level))
   const [consoleOutput, setConsoleOutput] = useState('')
   const [debugInfo, setDebugInfo] = useState<string[]>([])
+  const [judgeProgress, setJudgeProgress] = useState<JudgeProgress | null>(null)
+  const [sampleProgress, setSampleProgress] = useState<JudgeProgress | null>(null)
   const [lastRemoteSubmissionId, setLastRemoteSubmissionId] = useState<string | null>(null)
   const [analysisBySubmissionId, setAnalysisBySubmissionId] = useState<Record<string, SubmissionAnalysisState>>({})
+  const [learningFeedback, setLearningFeedback] = useState<LearningFeedback | null>(null)
+  const [repairAttemptCount, setRepairAttemptCount] = useState(0)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [whiteboardOpen, setWhiteboardOpen] = useState(false)
   const [historyItems, setHistoryItems] = useState<SubmissionHistoryItem[]>([])
   const [historyStatus, setHistoryStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
   const [historyError, setHistoryError] = useState('')
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null)
-  const [statementPreviewState, setStatementPreviewState] = useState<'hidden' | 'visible' | 'leaving'>('hidden')
+  const [toolbarRenderKey, setToolbarRenderKey] = useState(0)
+  const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null)
+  const workbenchRef = useRef<HTMLElement | null>(null)
+  const editorShellRef = useRef<HTMLElement | null>(null)
+  const ideLayoutFrameRef = useRef<number | null>(null)
+  const ideLayoutSnapshotRef = useRef('')
+  const statusRef = useRef(status)
   const editorDisposablesRef = useRef<Array<{ dispose: () => void }>>([])
-  const statementPreviewHideTimeoutRef = useRef<number | null>(null)
-  const statementPreviewSettleTimeoutRef = useRef<number | null>(null)
-  const statementPreviewAsset = useMemo(() => pickStatementPreviewAsset(level.statementAssets), [level.statementAssets])
-  const selectedHistory = historyItems.find((item) => item.id === selectedHistoryId) ?? historyItems[0] ?? null
+  const selectedHistory = historyItems.find((item) => item.id === selectedHistoryId) ?? null
+  const selectedHistorySource = selectedHistory?.canViewCode && selectedHistory.code ? selectedHistory : null
   const resolvedLanguage = useMemo(() => resolveLanguageMode(languageMode, code), [languageMode, code])
   const usesConsole = useMemo(
     () =>
@@ -92,62 +154,203 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
   )
 
   useEffect(() => {
+    statusRef.current = status
+  }, [status])
+
+  useEffect(() => {
     const cachedLanguage = readCachedLanguageMode(level.id)
     const cachedCode = readCachedCode(level.id, cachedLanguage)
     const restoredCode = cachedCode ?? getStarterCodeForLanguage(level, cachedLanguage)
-    const hasEditedCache = Boolean(cachedCode && cachedCode !== level.starterCode)
+    const completedProgress = initialProgress?.passed ? initialProgress : null
+    const completedVerdict = completedProgress ? buildCompletedProgressVerdict(level, completedProgress) : null
     setLanguageMode(cachedLanguage)
     setCode(restoredCode)
     setLastRunCode(restoredCode)
     setConsoleInput(getDefaultConsoleInput(level))
     setConsoleOutput('')
-    setDebugInfo([])
-    setVerdict(null)
-    setStatus('idle')
+    setDebugInfo(completedProgress ? formatCompletedProgressDebugInfo(completedProgress) : [])
+    setJudgeProgress(null)
+    setSampleProgress(null)
+    setVerdict(completedVerdict)
+    setStatus(completedVerdict ? 'done' : 'idle')
     setOutputExpanded(false)
     setResultsMaximized(false)
     setLastRemoteSubmissionId(null)
     setAnalysisBySubmissionId({})
+    setLearningFeedback(completedVerdict ? buildPreviouslyAcceptedLearningFeedback(level.id, stagePath) : null)
+    setRepairAttemptCount(0)
     setHistoryOpen(false)
     setWhiteboardOpen(false)
     setHistoryItems([])
     setHistoryStatus('idle')
     setHistoryError('')
     setSelectedHistoryId(null)
-    if (hasEditedCache) setStatementPreviewState('hidden')
-  }, [level])
+  }, [level.id, initialProgress?.passed, initialProgress?.bestRuntimeMs, initialProgress?.attemptCount, initialProgress?.lastSubmittedAt])
+
+  useEffect(() => {
+    if (!initialProgress?.passed || assessmentAttemptId) return
+
+    let cancelled = false
+
+    async function restoreAcceptedSubmission() {
+      try {
+        const history = await getSubmissionHistoryAction(level.id)
+        if (cancelled) return
+
+        const latestAccepted = history.items.find(
+          (item) => item.canViewCode && item.status === 'done' && item.verdict?.result === 'AC',
+        )
+        if (!latestAccepted) return
+
+        setHistoryItems(history.items)
+        setHistoryStatus(history.error ? 'error' : 'done')
+        setHistoryError(history.error ?? '')
+
+        const result = await getSubmissionVerdictAction(latestAccepted.id)
+        if (cancelled || statusRef.current !== 'done') return
+
+        const acceptedVerdict = result.verdict?.result === 'AC' ? result.verdict : latestAccepted.verdict
+        if (!acceptedVerdict || acceptedVerdict.result !== 'AC') return
+
+        setLastRemoteSubmissionId(latestAccepted.id)
+        setVerdict(acceptedVerdict)
+        setJudgeProgress(null)
+        setDebugInfo(
+          formatRemoteSubmissionDebugInfo(
+            latestAccepted.id,
+            {
+              status: result.status === 'missing' ? latestAccepted.status : result.status,
+              verdict: acceptedVerdict,
+              language: result.language ?? latestAccepted.language,
+              resolvedLanguage: result.resolvedLanguage ?? latestAccepted.resolvedLanguage,
+              reward: result.reward,
+            },
+            acceptedVerdict,
+          ),
+        )
+        setLearningFeedback(buildPreviouslyAcceptedLearningFeedback(level.id, stagePath))
+      } catch {
+        // 如果历史提交恢复失败，保留 progress 已通过状态即可。
+      }
+    }
+
+    void restoreAcceptedSubmission()
+
+    return () => {
+      cancelled = true
+    }
+  }, [assessmentAttemptId, initialProgress?.passed, level.id])
+
+  useEffect(() => {
+    if (!assessmentAttemptId) return
+
+    let cancelled = false
+    const activeAssessmentAttemptId = assessmentAttemptId
+
+    async function restoreLatestAssessmentSubmission() {
+      try {
+        const history = await getAssessmentSubmissionHistoryAction({ levelId: level.id, assessmentAttemptId: activeAssessmentAttemptId })
+        if (cancelled) return
+
+        const latestOwnSubmission = history.items.find((item) => item.canViewCode)
+        if (!latestOwnSubmission) return
+
+        setLastRemoteSubmissionId(latestOwnSubmission.id)
+        setHistoryItems(history.items)
+        setHistoryStatus(history.error ? 'error' : 'done')
+        setHistoryError(history.error ?? '')
+
+        if (latestOwnSubmission.status === 'pending' || latestOwnSubmission.status === 'judging') {
+          setStatus('judging')
+          setVerdict(null)
+          setOutputExpanded(true)
+          setJudgeProgress(buildSubmissionProgress(level, latestOwnSubmission.status))
+          setDebugInfo(
+            formatRemoteSubmissionDebugInfo(latestOwnSubmission.id, {
+              status: latestOwnSubmission.status,
+              verdict: latestOwnSubmission.verdict,
+              language: latestOwnSubmission.language,
+              resolvedLanguage: latestOwnSubmission.resolvedLanguage,
+            }),
+          )
+          const result = await pollRemoteSubmission(latestOwnSubmission.id, (nextResult) => {
+            if (!cancelled) {
+              setJudgeProgress(nextResult.judgeProgress ?? buildSubmissionProgress(level, nextResult.status))
+              setDebugInfo(formatRemoteSubmissionDebugInfo(latestOwnSubmission.id, nextResult))
+            }
+          })
+          if (cancelled) return
+
+          const nextVerdict =
+            result.verdict ??
+            buildServiceVerdict('Judge Error', result.error ?? '远程判题结果暂未返回。')
+          setVerdict(nextVerdict)
+          setDebugInfo(formatRemoteSubmissionDebugInfo(latestOwnSubmission.id, result, nextVerdict))
+          setJudgeProgress(null)
+          setStatus('done')
+          updateLearningFeedback(nextVerdict)
+          void onAssessmentSubmissionSettled?.()
+          void refreshHistory(false)
+          return
+        }
+
+        if (latestOwnSubmission.verdict) {
+          setStatus('done')
+          setVerdict(latestOwnSubmission.verdict)
+          setJudgeProgress(null)
+          setOutputExpanded(true)
+          setDebugInfo(
+            formatRemoteSubmissionDebugInfo(latestOwnSubmission.id, {
+              status: latestOwnSubmission.status,
+              verdict: latestOwnSubmission.verdict,
+              language: latestOwnSubmission.language,
+              resolvedLanguage: latestOwnSubmission.resolvedLanguage,
+            }),
+          )
+          updateLearningFeedback(latestOwnSubmission.verdict)
+          return
+        }
+
+        if (latestOwnSubmission.status === 'error') {
+          const nextVerdict = buildServiceVerdict('Judge Error', '远程判题失败，请查看提交记录或重新提交。')
+          setStatus('done')
+          setVerdict(nextVerdict)
+          setJudgeProgress(null)
+          setOutputExpanded(true)
+          setDebugInfo(
+            formatRemoteSubmissionDebugInfo(
+              latestOwnSubmission.id,
+              {
+                status: latestOwnSubmission.status,
+                verdict: latestOwnSubmission.verdict,
+                language: latestOwnSubmission.language,
+                resolvedLanguage: latestOwnSubmission.resolvedLanguage,
+              },
+              nextVerdict,
+            ),
+          )
+        }
+      } catch {
+        // 恢复失败不阻塞继续写代码，历史面板刷新时仍会显示错误。
+      }
+    }
+
+    void restoreLatestAssessmentSubmission()
+
+    return () => {
+      cancelled = true
+    }
+  }, [assessmentAttemptId, level.id])
 
   useEffect(() => {
     return () => {
+      editorRef.current = null
+      if (ideLayoutFrameRef.current !== null) {
+        window.cancelAnimationFrame(ideLayoutFrameRef.current)
+      }
       disposeEditorListeners(editorDisposablesRef.current)
-      clearStatementPreviewHideTimeout(statementPreviewHideTimeoutRef)
-      clearStatementPreviewHideTimeout(statementPreviewSettleTimeoutRef)
     }
   }, [])
-
-  useEffect(() => {
-    clearStatementPreviewHideTimeout(statementPreviewHideTimeoutRef)
-    clearStatementPreviewHideTimeout(statementPreviewSettleTimeoutRef)
-    if (!statementPreviewAsset || hasEditedCachedCodeForAnyLanguage(level)) {
-      setStatementPreviewState('hidden')
-      return
-    }
-
-    setStatementPreviewState('visible')
-    statementPreviewHideTimeoutRef.current = window.setTimeout(() => {
-      setStatementPreviewState((current) => (current === 'visible' ? 'leaving' : current))
-      statementPreviewHideTimeoutRef.current = null
-      statementPreviewSettleTimeoutRef.current = window.setTimeout(() => {
-        setStatementPreviewState('hidden')
-        statementPreviewSettleTimeoutRef.current = null
-      }, 980)
-    }, 4000)
-
-    return () => {
-      clearStatementPreviewHideTimeout(statementPreviewHideTimeoutRef)
-      clearStatementPreviewHideTimeout(statementPreviewSettleTimeoutRef)
-    }
-  }, [level.id, level.starterCode, statementPreviewAsset])
 
   useEffect(() => {
     window.__spcgCurrentIdeContext = {
@@ -165,7 +368,89 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
     }
   }, [level.id, level.title, languageMode, resolvedLanguage, code])
 
+  useEffect(() => {
+    setToolbarRenderKey((current) => current + 1)
+
+    const layoutEditor = () => {
+      editorRef.current?.layout()
+    }
+
+    layoutEditor()
+    const animationFrame = window.requestAnimationFrame(layoutEditor)
+    const timeout = window.setTimeout(layoutEditor, 260)
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame)
+      window.clearTimeout(timeout)
+    }
+  }, [expanded, outputExpanded, resultsMaximized, layoutVersion])
+
+  useEffect(() => {
+    const readLayoutSnapshot = () => {
+      const workbenchRect = workbenchRef.current?.getBoundingClientRect()
+      const editorShellRect = editorShellRef.current?.getBoundingClientRect()
+      const viewport = window.visualViewport
+
+      return [
+        Math.round(window.innerWidth),
+        Math.round(window.innerHeight),
+        Math.round(viewport?.width ?? window.innerWidth),
+        Math.round(viewport?.height ?? window.innerHeight),
+        window.devicePixelRatio.toFixed(3),
+        Math.round(workbenchRect?.width ?? 0),
+        Math.round(workbenchRect?.height ?? 0),
+        Math.round(editorShellRect?.width ?? 0),
+        Math.round(editorShellRect?.height ?? 0),
+      ].join(':')
+    }
+
+    const refreshLayout = () => {
+      if (ideLayoutFrameRef.current !== null) return
+
+      ideLayoutFrameRef.current = window.requestAnimationFrame(() => {
+        ideLayoutFrameRef.current = null
+        const nextSnapshot = readLayoutSnapshot()
+
+        editorRef.current?.layout()
+
+        if (nextSnapshot !== ideLayoutSnapshotRef.current) {
+          ideLayoutSnapshotRef.current = nextSnapshot
+          setToolbarRenderKey((current) => current + 1)
+        }
+      })
+    }
+
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => {
+            refreshLayout()
+          })
+
+    if (workbenchRef.current) resizeObserver?.observe(workbenchRef.current)
+    if (editorShellRef.current) resizeObserver?.observe(editorShellRef.current)
+
+    window.addEventListener('resize', refreshLayout)
+    window.addEventListener('orientationchange', refreshLayout)
+    window.visualViewport?.addEventListener('resize', refreshLayout)
+    window.visualViewport?.addEventListener('scroll', refreshLayout)
+    refreshLayout()
+
+    return () => {
+      resizeObserver?.disconnect()
+      window.removeEventListener('resize', refreshLayout)
+      window.removeEventListener('orientationchange', refreshLayout)
+      window.visualViewport?.removeEventListener('resize', refreshLayout)
+      window.visualViewport?.removeEventListener('scroll', refreshLayout)
+      if (ideLayoutFrameRef.current !== null) {
+        window.cancelAnimationFrame(ideLayoutFrameRef.current)
+        ideLayoutFrameRef.current = null
+      }
+    }
+  }, [])
+
   const handleEditorMount: OnMount = (editor) => {
+    editorRef.current = editor
     disposeEditorListeners(editorDisposablesRef.current)
     editorDisposablesRef.current = [
       editor.onDidFocusEditorText(() => {
@@ -180,11 +465,6 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
   function updateCode(nextCode: string) {
     setCode(nextCode)
     writeCachedCode(level.id, languageMode, nextCode)
-    if (nextCode !== level.starterCode) {
-      clearStatementPreviewHideTimeout(statementPreviewHideTimeoutRef)
-      clearStatementPreviewHideTimeout(statementPreviewSettleTimeoutRef)
-      setStatementPreviewState('hidden')
-    }
   }
 
   function updateLanguageMode(nextValue: string) {
@@ -197,13 +477,19 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
     setConsoleOutput('')
     setVerdict(null)
     setDebugInfo([])
+    setJudgeProgress(null)
+    setSampleProgress(null)
+    setLearningFeedback(null)
     setStatus('idle')
   }
 
   async function runCode() {
     setStatus('judging')
     setVerdict(null)
+    setLearningFeedback(null)
     setLastRemoteSubmissionId(null)
+    setJudgeProgress(null)
+    setSampleProgress(buildLocalSampleProgress(level, 1, 0))
     setOutputExpanded(true)
     setConsoleOutput('')
     setDebugInfo([`Action: Run`, `Language: ${getLanguageLabel(resolvedLanguage)}`, 'Status: running'])
@@ -218,11 +504,7 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
           languageMode,
           stdin: usesConsole ? consoleInput : '',
         }),
-        runPublicSamplesAction({
-          levelId: level.id,
-          code,
-          languageMode,
-        }),
+        runVisiblePublicSamples(),
       ])
       const execution = runResult.execution
       const nextVerdict = buildRunVerdict(level, consoleInput, execution, pickLocalMessage)
@@ -233,6 +515,7 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
         `Language: ${getLanguageLabel(runResult.resolvedLanguage)}`,
         `Status: ${nextVerdict.result}`,
       ])
+      setSampleProgress(null)
       setVerdict(nextVerdict)
       setStatus('done')
       onRunComplete?.(sampleResult.samples)
@@ -241,19 +524,56 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
       const nextVerdict = buildServiceVerdict('Judge Error', message)
       setConsoleOutput('')
       setDebugInfo([`Action: Run`, `Language: ${getLanguageLabel(resolvedLanguage)}`, `Status: Judge Error`])
+      setSampleProgress(null)
       setVerdict(nextVerdict)
       setStatus('done')
     }
+  }
+
+  async function runVisiblePublicSamples(): Promise<{ samples: SampleRunResultMap }> {
+    const samples = level.publicCases.slice(0, 2)
+    if (samples.length === 0) {
+      setSampleProgress(null)
+      return { samples: {} }
+    }
+
+    const entries: Array<readonly [string, SampleRunResultMap[string]]> = []
+
+    for (const [index, sample] of samples.entries()) {
+      setSampleProgress(buildLocalSampleProgress(level, index + 1, index, samples.length))
+
+      try {
+        const runResult = await runCodeAction({
+          levelId: level.id,
+          code,
+          languageMode,
+          stdin: sample.input,
+        })
+        const execution = runResult.execution
+        const passed = execution.result === 'AC' && normalizeOutput(execution.stdout) === normalizeOutput(sample.expectedOutput)
+        const status: SampleRunResultMap[string]['status'] = execution.result === 'AC' ? (passed ? 'AC' : 'WA') : execution.result
+        entries.push([sample.id, { status, passed }])
+      } catch {
+        entries.push([sample.id, { status: 'Judge Error', passed: false }])
+      }
+
+      setSampleProgress(buildLocalSampleProgress(level, index + 2, index + 1, samples.length))
+    }
+
+    return { samples: Object.fromEntries(entries) }
   }
 
   async function submitCode() {
     setStatus('judging')
     setVerdict(null)
     setLastRemoteSubmissionId(null)
+    setJudgeProgress(buildSubmissionProgress(level, 'pending'))
+    setSampleProgress(null)
     setOutputExpanded(true)
     setLastRunCode(code)
     setConsoleOutput('')
     setDebugInfo([`Action: Submit`, `Language: ${getLanguageLabel(resolvedLanguage)}`, 'Status: submitting'])
+    setLearningFeedback(null)
     onRunStart?.()
 
     try {
@@ -261,10 +581,16 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
         levelId: level.id,
         code,
         languageMode,
+        assessmentAttemptId,
+        assessmentPhase: assessmentAttemptId ? 'realtime' : null,
+        judgeMode: assessmentAttemptId ? 'fast' : null,
+        maxScore: assessmentItemMaxScore,
       })
 
       if (remoteSubmission.mode === 'remote') {
         setLastRemoteSubmissionId(remoteSubmission.submissionId)
+        if (assessmentAttemptId) void onAssessmentSubmissionSettled?.()
+        setJudgeProgress(buildSubmissionProgress(level, remoteSubmission.status))
         setDebugInfo(
           formatRemoteSubmissionDebugInfo(remoteSubmission.submissionId, {
             status: remoteSubmission.status,
@@ -274,6 +600,7 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
           }),
         )
         const result = await pollRemoteSubmission(remoteSubmission.submissionId, (nextResult) => {
+          setJudgeProgress(nextResult.judgeProgress ?? buildSubmissionProgress(level, nextResult.status))
           setDebugInfo(formatRemoteSubmissionDebugInfo(remoteSubmission.submissionId, nextResult))
         })
         const nextVerdict =
@@ -281,15 +608,17 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
           buildServiceVerdict('Judge Error', result.error ?? '远程判题结果暂未返回。')
 
         setDebugInfo(formatRemoteSubmissionDebugInfo(remoteSubmission.submissionId, result, nextVerdict))
+        setJudgeProgress(null)
+        setVerdict(nextVerdict)
+        updateLearningFeedback(nextVerdict)
+        setStatus('done')
         const sampleResult = await runPublicSamplesAction({
           levelId: level.id,
           code,
           languageMode,
         })
-
-        setVerdict(nextVerdict)
-        setStatus('done')
         onRunComplete?.(sampleResult.samples)
+        if (assessmentAttemptId) void onAssessmentSubmissionSettled?.()
         if (nextVerdict.result === 'AC') void onAccepted?.()
         void refreshHistory(false)
         return
@@ -298,7 +627,9 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
       const nextVerdict = buildServiceVerdict('Judge Error', remoteSubmission.reason)
       setConsoleOutput('')
       setDebugInfo([`Action: Submit`, `Language: ${getLanguageLabel(resolvedLanguage)}`, `Status: Judge Error`])
+      setJudgeProgress(null)
       setVerdict(nextVerdict)
+      updateLearningFeedback(nextVerdict)
       setStatus('done')
       void refreshHistory(false)
       return
@@ -307,16 +638,34 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
       const nextVerdict = buildServiceVerdict('Judge Error', message)
       setConsoleOutput('')
       setDebugInfo([`Action: Submit`, `Language: ${getLanguageLabel(resolvedLanguage)}`, `Status: Judge Error`])
+      setJudgeProgress(null)
       setVerdict(nextVerdict)
+      updateLearningFeedback(nextVerdict)
       setStatus('done')
       void refreshHistory(false)
       return
     }
   }
 
+  function updateLearningFeedback(nextVerdict: Verdict) {
+    if (nextVerdict.result === 'AC') {
+      setRepairAttemptCount(0)
+      setLearningFeedback(
+        assessmentAttemptId
+          ? buildAssessmentAcceptedLearningFeedback(assessmentNextQuestionTitle, onAssessmentNextQuestion)
+          : buildAcceptedLearningFeedback(level.id, stagePath),
+      )
+      return
+    }
+
+    const nextRepairAttemptCount = repairAttemptCount + 1
+    setRepairAttemptCount(nextRepairAttemptCount)
+    setLearningFeedback(buildRepairLearningFeedback(nextVerdict.result, nextRepairAttemptCount))
+  }
+
   async function openHistory() {
     setHistoryOpen(true)
-    await refreshHistory(true)
+    await refreshHistory(false)
   }
 
   async function refreshHistory(selectFirst: boolean) {
@@ -324,10 +673,12 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
     setHistoryError('')
 
     try {
-      const result = await getSubmissionHistoryAction(level.id)
+      const result = assessmentAttemptId
+        ? await getAssessmentSubmissionHistoryAction({ levelId: level.id, assessmentAttemptId })
+        : await getSubmissionHistoryAction(level.id)
       setHistoryItems(result.items)
-      if (selectFirst || !selectedHistoryId || !result.items.some((item) => item.id === selectedHistoryId)) {
-        setSelectedHistoryId(result.items[0]?.id ?? null)
+      if (!result.items.some((item) => item.id === selectedHistoryId)) {
+        setSelectedHistoryId(selectFirst ? result.items.find((item) => item.canViewCode)?.id ?? null : null)
       }
       setHistoryStatus(result.error ? 'error' : 'done')
       setHistoryError(result.error ?? '')
@@ -338,6 +689,7 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
   }
 
   function loadHistoryCode(item: SubmissionHistoryItem) {
+    if (!item.canViewCode || !item.code) return
     const nextLanguageMode = normalizeLanguageMode(item.language)
     writeCachedLanguageMode(level.id, nextLanguageMode)
     setLanguageMode(nextLanguageMode)
@@ -345,6 +697,20 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
     writeCachedCode(level.id, nextLanguageMode, item.code)
     setLastRunCode(item.code)
     setHistoryOpen(false)
+  }
+
+  function formatCurrentCode() {
+    const formattedCode = formatCodeForLanguage(code, resolvedLanguage)
+    if (formattedCode === code) {
+      editorRef.current?.focus()
+      return
+    }
+
+    updateCode(formattedCode)
+    window.requestAnimationFrame(() => {
+      editorRef.current?.focus()
+      editorRef.current?.layout()
+    })
   }
 
   async function explainSubmissionError(submissionId: string) {
@@ -394,29 +760,67 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
   const currentCanExplain =
     Boolean(lastRemoteSubmissionId) && status === 'done' && canAnalyzeVerdict(verdict)
   const currentAnalysisState = lastRemoteSubmissionId ? analysisBySubmissionId[lastRemoteSubmissionId] : undefined
+  const resultSupport = (
+    <>
+      {learningFeedback ? <LearningFeedbackCard feedback={learningFeedback} /> : null}
+      {lastRemoteSubmissionId && currentAnalysisState ? (
+        <SubmissionAnalysisPanel
+          state={currentAnalysisState}
+          onRetry={() => explainSubmissionError(lastRemoteSubmissionId)}
+        />
+      ) : null}
+    </>
+  )
+  const ideToolButtons = (
+    <div key={toolbarRenderKey} className="tool-buttons" aria-label="IDE 工具按钮">
+      <button type="button" aria-label="重置代码" title="重置代码" data-tooltip="重置代码" onClick={() => updateCode(level.starterCode)}>
+        <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-undo.svg" alt="" />
+      </button>
+      <button
+        type="button"
+        aria-label="恢复上次运行代码"
+        title="恢复上次运行代码"
+        data-tooltip="恢复上次运行代码"
+        onClick={() => updateCode(lastRunCode)}
+      >
+        <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-redo.svg" alt="" />
+      </button>
+      <button type="button" aria-label="查看历史提交" title="历史提交" data-tooltip="历史提交" onClick={openHistory}>
+        <History size={18} strokeWidth={2.4} />
+      </button>
+      <button type="button" aria-label="自动排版代码" title="自动排版代码" data-tooltip="自动排版代码" onClick={formatCurrentCode}>
+        <AlignLeft size={18} strokeWidth={2.4} />
+      </button>
+      <AlgorithmWhiteboardButton onOpen={() => setWhiteboardOpen(true)} />
+      <button
+        type="button"
+        aria-label="展开编辑器"
+        title={expanded ? '收起编辑器' : '展开编辑器'}
+        data-tooltip={expanded ? '收起编辑器' : '展开编辑器'}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-expand.svg" alt="" />
+      </button>
+    </div>
+  )
 
   return (
     <section
+      ref={workbenchRef}
       className={[
         'workbench',
         expanded ? 'expanded' : '',
         outputExpanded ? 'output-expanded' : '',
         resultsMaximized ? 'results-maximized' : '',
         historyOpen ? 'history-open' : '',
-        statementPreviewState !== 'hidden' ? 'statement-preview-visible' : '',
+        selectedHistorySource ? 'history-has-source' : '',
       ]
         .filter(Boolean)
         .join(' ')}
       data-layout-version={layoutVersion}
     >
-      <section className="editor-shell">
-        {statementPreviewAsset && statementPreviewState !== 'hidden' ? (
-          <figure className={`ide-statement-frame ${statementPreviewState}`} aria-label={statementPreviewAsset.alt}>
-            <img src={statementPreviewAsset.url} alt={statementPreviewAsset.alt} />
-            {statementPreviewAsset.caption ? <figcaption>{statementPreviewAsset.caption}</figcaption> : null}
-          </figure>
-        ) : null}
-
+      {ideToolButtons}
+      <section ref={editorShellRef} className="editor-shell">
         <div className="editor-toolbar">
           <div className="editor-language-control">
             <span>{getLanguageLabel(resolvedLanguage)} Editor</span>
@@ -432,21 +836,6 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
               ))}
             </select>
           </div>
-          <div className="tool-buttons">
-            <button type="button" aria-label="重置代码" title="重置代码" onClick={() => updateCode(level.starterCode)}>
-              <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-undo.svg" alt="" />
-            </button>
-            <button type="button" aria-label="恢复上次运行代码" title="恢复上次运行代码" onClick={() => updateCode(lastRunCode)}>
-              <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-redo.svg" alt="" />
-            </button>
-            <button type="button" aria-label="查看历史提交" title="历史提交" onClick={openHistory}>
-              <History size={18} strokeWidth={2.4} />
-            </button>
-            <AlgorithmWhiteboardButton onOpen={() => setWhiteboardOpen(true)} />
-            <button type="button" aria-label="展开编辑器" title={expanded ? '收起编辑器' : '展开编辑器'} onClick={() => setExpanded((value) => !value)}>
-              <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-expand.svg" alt="" />
-            </button>
-          </div>
         </div>
 
         <Editor
@@ -461,10 +850,15 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
           onChange={(value) => updateCode(value ?? '')}
           loading={<div className="editor-loading">Loading editor...</div>}
           options={{
+            autoIndent: 'advanced',
             automaticLayout: true,
+            detectIndentation: false,
+            formatOnPaste: true,
+            formatOnType: true,
             fontFamily: '"SFMono-Regular", "Consolas", "Liberation Mono", monospace',
             fontLigatures: false,
             fontSize: 15,
+            insertSpaces: true,
             lineHeight: 24,
             minimap: { enabled: false },
             padding: { top: 14, bottom: 96 },
@@ -492,6 +886,8 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
         <TestResults
           verdict={verdict}
           status={status}
+          progress={sampleProgress ?? judgeProgress}
+          progressKind={sampleProgress ? 'sample' : 'test'}
           debugInfo={debugInfo}
           action={
             <>
@@ -520,14 +916,7 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
               </button>
             </>
           }
-          analysis={
-            lastRemoteSubmissionId && currentAnalysisState ? (
-              <SubmissionAnalysisPanel
-                state={currentAnalysisState}
-                onRetry={() => explainSubmissionError(lastRemoteSubmissionId)}
-              />
-            ) : null
-          }
+          analysis={resultSupport}
         />
         <section className="console-panel">
           <div className="console-column">
@@ -565,7 +954,48 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
           </div>
 
           <div className="history-panel-body">
+            {selectedHistorySource ? (
+              <div className="history-detail">
+                <div className="history-detail-meta">
+                  <FileCode2 size={18} strokeWidth={2.3} />
+                  <div>
+                    <strong>{formatHistoryResult(selectedHistorySource)}</strong>
+                    <span>
+                      {formatHistoryCases(selectedHistorySource.verdict)} · {formatHistoryLanguage(selectedHistorySource)} ·{' '}
+                      {formatHistoryTime(selectedHistorySource.createdAt)}
+                    </span>
+                  </div>
+                  <div className="history-detail-actions">
+                    {canAnalyzeHistoryItem(selectedHistorySource) ? (
+                      <button
+                        type="button"
+                        disabled={analysisBySubmissionId[selectedHistorySource.id]?.status === 'loading'}
+                        onClick={() => explainSubmissionError(selectedHistorySource.id)}
+                      >
+                        {analysisBySubmissionId[selectedHistorySource.id]?.status === 'loading' ? '分析中' : 'AI 分析'}
+                      </button>
+                    ) : null}
+                    <button type="button" onClick={() => loadHistoryCode(selectedHistorySource)}>
+                      Load
+                    </button>
+                  </div>
+                </div>
+                <pre>{selectedHistorySource.code}</pre>
+                <SubmissionAnalysisPanel
+                  state={analysisBySubmissionId[selectedHistorySource.id]}
+                  fallback={selectedHistorySource.errorAnalysis}
+                  onRetry={() => explainSubmissionError(selectedHistorySource.id)}
+                />
+              </div>
+            ) : null}
+
             <div className="history-list">
+              <div className="history-table-head" aria-hidden="true">
+                <span>状态</span>
+                <span>提交人</span>
+                <span>提交时间</span>
+                <span>源码</span>
+              </div>
               {historyStatus === 'loading' && historyItems.length === 0 ? <p className="history-empty">Loading...</p> : null}
               {historyError ? <p className="history-error">{historyError}</p> : null}
               {historyStatus !== 'loading' && historyItems.length === 0 && !historyError ? (
@@ -576,54 +1006,20 @@ export function CodeWorkspace({ level, layoutVersion = 0, onRunStart, onRunCompl
                   className={selectedHistory?.id === item.id ? 'history-item active' : 'history-item'}
                   type="button"
                   key={item.id}
-                  onClick={() => setSelectedHistoryId(item.id)}
+                  onClick={() => setSelectedHistoryId(item.canViewCode ? item.id : null)}
                 >
-                  <span className={`history-verdict history-verdict-${statusClassName(item.verdict?.result ?? item.status)}`}>
-                    {formatHistoryResult(item)}
+                  <span className="history-cell history-cell-status">
+                    <span className={`history-verdict history-verdict-${statusClassName(item.verdict?.result ?? item.status)}`}>
+                      {formatHistoryResult(item)}
+                    </span>
                   </span>
-                  <strong>{formatHistoryTime(item.createdAt)}</strong>
-                  <small>{formatHistoryLanguage(item)} · {shortSubmissionId(item.id)}</small>
+                  <strong className="history-cell history-cell-owner">{formatSubmissionOwner(item)}</strong>
+                  <span className="history-cell history-cell-time">{formatHistoryTime(item.createdAt)}</span>
+                  <em className={item.canViewCode ? 'history-source-allowed' : 'history-source-locked'}>
+                    {item.canViewCode ? '源码' : '仅基础信息'}
+                  </em>
                 </button>
               ))}
-            </div>
-
-            <div className="history-detail">
-              {selectedHistory ? (
-                <>
-                  <div className="history-detail-meta">
-                    <FileCode2 size={18} strokeWidth={2.3} />
-                    <div>
-                      <strong>{formatHistoryResult(selectedHistory)}</strong>
-                      <span>
-                        {formatHistoryCases(selectedHistory.verdict)} · {formatHistoryLanguage(selectedHistory)} ·{' '}
-                        {formatHistoryTime(selectedHistory.createdAt)}
-                      </span>
-                    </div>
-                    <div className="history-detail-actions">
-                      {canAnalyzeHistoryItem(selectedHistory) ? (
-                        <button
-                          type="button"
-                          disabled={analysisBySubmissionId[selectedHistory.id]?.status === 'loading'}
-                          onClick={() => explainSubmissionError(selectedHistory.id)}
-                        >
-                          {analysisBySubmissionId[selectedHistory.id]?.status === 'loading' ? '分析中' : 'AI 分析'}
-                        </button>
-                      ) : null}
-                      <button type="button" onClick={() => loadHistoryCode(selectedHistory)}>
-                        Load
-                      </button>
-                    </div>
-                  </div>
-                  <pre>{selectedHistory.code}</pre>
-                  <SubmissionAnalysisPanel
-                    state={analysisBySubmissionId[selectedHistory.id]}
-                    fallback={selectedHistory.errorAnalysis}
-                    onRetry={() => explainSubmissionError(selectedHistory.id)}
-                  />
-                </>
-              ) : (
-                <p className="history-empty">选择一次提交查看代码</p>
-              )}
             </div>
           </div>
         </aside>
@@ -731,6 +1127,209 @@ function readReasonList(analysis: CodeErrorAnalysis): string[] {
   return analysis.reasonList && analysis.reasonList.length > 0 ? analysis.reasonList : [analysis.likelyCause]
 }
 
+function LearningFeedbackCard({ feedback }: { feedback: LearningFeedback }) {
+  return (
+    <section className={`learning-feedback-card ${feedback.kind}`}>
+      <div>
+        <strong>{feedback.title}</strong>
+        <p>{feedback.body}</p>
+      </div>
+      {feedback.steps && feedback.steps.length > 0 ? (
+        <ul>
+          {feedback.steps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ul>
+      ) : null}
+      {feedback.nextHref && feedback.nextLabel ? (
+        <Link href={feedback.nextHref}>{feedback.nextLabel}</Link>
+      ) : null}
+      {feedback.nextAction && feedback.nextActionLabel ? (
+        <button type="button" onClick={feedback.nextAction}>
+          {feedback.nextActionLabel}
+        </button>
+      ) : null}
+    </section>
+  )
+}
+
+function buildCompletedProgressVerdict(level: Level, progress: Progress): Verdict {
+  const totalCases = Math.max(1, level.publicCases.length + level.hiddenCount)
+
+  return {
+    result: 'AC',
+    passedCases: totalCases,
+    totalCases,
+    maxRuntimeMs: progress.bestRuntimeMs ?? 0,
+    failedCaseIndex: null,
+    childFriendlyMessage: '这道题已经 AC，可回看题解、复盘代码，或继续挑战下一题。',
+  }
+}
+
+function formatCompletedProgressDebugInfo(progress: Progress): string[] {
+  const lines = ['Action: Previous Submit', 'Status: AC']
+
+  if (progress.bestRuntimeMs !== null) {
+    lines.push(`Runtime: ${progress.bestRuntimeMs} ms`)
+  }
+
+  if (progress.attemptCount > 0) {
+    lines.push(`Attempts: ${progress.attemptCount}`)
+  }
+
+  if (progress.lastSubmittedAt) {
+    lines.push(`Last submit: ${new Date(progress.lastSubmittedAt).toLocaleString('zh-CN')}`)
+  }
+
+  return lines
+}
+
+function buildPreviouslyAcceptedLearningFeedback(levelId: string, stagePath?: StagePath): LearningFeedback {
+  const feedback = buildAcceptedLearningFeedback(levelId, stagePath)
+
+  return {
+    ...feedback,
+    title: feedback.title === 'AC，通过啦' ? '已 AC' : `已 AC · ${feedback.title}`,
+  }
+}
+
+function buildAssessmentAcceptedLearningFeedback(
+  nextQuestionTitle?: string | null,
+  onNextQuestion?: () => void,
+): LearningFeedback {
+  if (onNextQuestion && nextQuestionTitle) {
+    return {
+      kind: 'accepted',
+      title: 'AC，通过啦',
+      body: '考试中这道题已经通过。继续保持节奏，建议马上进入下一题。',
+      nextActionLabel: `下一题：${nextQuestionTitle}`,
+      nextAction: onNextQuestion,
+    }
+  }
+
+  return {
+    kind: 'accepted',
+    title: 'AC，通过啦',
+    body: '这是试卷中的最后一道题。可以回到题目列表检查其他题，确认后再交卷。',
+  }
+}
+
+function buildAcceptedLearningFeedback(levelId: string, stagePath?: StagePath): LearningFeedback {
+  if (!stagePath) {
+    return {
+      kind: 'accepted',
+      title: 'AC，通过啦',
+      body: '先把这道题的关键做法记住，再去地图继续推进。',
+      nextHref: '/map',
+      nextLabel: '回地图',
+    }
+  }
+
+  const passedIds = new Set(stagePath.passedLevelIds)
+  passedIds.add(levelId)
+  const current = stagePath.items.find((item) => item.levelId === levelId)
+  const mainlinePassed = stagePath.items.filter((item) => item.position <= 3 && passedIds.has(item.levelId)).length
+  const totalPassed = stagePath.items.filter((item) => passedIds.has(item.levelId)).length
+  const nextUnpassed = stagePath.items.find((item) => item.position > (current?.position ?? 0) && !passedIds.has(item.levelId))
+  const nextMainline = stagePath.items.find((item) => item.position <= 3 && !passedIds.has(item.levelId))
+  const recommended = nextMainline ?? nextUnpassed
+
+  if (totalPassed >= 5) {
+    return {
+      kind: 'accepted',
+      title: '本关完全掌握',
+      body: '5 道题已经全部通过，可以放心进入下一关，也可以回顾题解总结这一关的模型。',
+      nextHref: '/map',
+      nextLabel: '回地图',
+    }
+  }
+
+  if (mainlinePassed >= 3) {
+    return {
+      kind: 'accepted',
+      title: totalPassed >= 4 ? '掌握良好' : '本关主线已完成',
+      body:
+        totalPassed >= 4
+          ? '提高题也通过了，离完全掌握只差最后一步。'
+          : '前 3 道主线题已通过，可以进入下一关，也可以继续挑战提高题。',
+      nextHref: recommended ? `/level/${recommended.levelId}` : '/map',
+      nextLabel: recommended ? `挑战：${recommended.title}` : '回地图',
+    }
+  }
+
+  if (recommended) {
+    return {
+      kind: 'accepted',
+      title: '继续下一题',
+      body: `下一步建议完成 ${getProblemSetItemDisplayModeLabel(recommended.displayMode)}，把这关的主线能力补齐。`,
+      nextHref: `/level/${recommended.levelId}`,
+      nextLabel: `去做：${recommended.title}`,
+    }
+  }
+
+  return {
+    kind: 'accepted',
+    title: 'AC，通过啦',
+    body: '这道题已经完成，可以回地图选择下一关。',
+    nextHref: '/map',
+    nextLabel: '回地图',
+  }
+}
+
+function buildRepairLearningFeedback(result: Verdict['result'], attemptCount: number): LearningFeedback {
+  if (result === 'CE') {
+    return {
+      kind: 'repair',
+      title: '先修编译错误',
+      body: '代码还没有编译通过，优先检查变量名、分号、括号配对和头文件。',
+      steps: ['从第一条编译错误开始改，不要一次改太多处', '确认变量是否先声明再使用', '改完后先 Run 样例，再 Submit'],
+    }
+  }
+
+  if (result === 'RE') {
+    return {
+      kind: 'repair',
+      title: '先定位运行错误',
+      body: '程序运行中断，通常和越界、除以 0、空输入或递归过深有关。',
+      steps: ['检查数组下标范围', '检查分母是否可能为 0', '用最小样例手动走一遍变量变化'],
+    }
+  }
+
+  if (result === 'TLE' || result === 'MLE') {
+    return {
+      kind: 'repair',
+      title: result === 'TLE' ? '先减少重复计算' : '先减少内存使用',
+      body: result === 'TLE' ? '当前算法可能跑太久，试试减少循环层数或重复计算。' : '当前程序占用内存太多，检查数组规模和缓存数量。',
+      steps: ['回看题目数据范围', '估算时间复杂度和空间复杂度', '优先优化最外层重复逻辑'],
+    }
+  }
+
+  if (attemptCount <= 1) {
+    return {
+      kind: 'repair',
+      title: '先把这题修到 AC',
+      body: '不要急着换题，先用公开样例确认题意和输出格式。',
+      steps: ['重新跑样例，逐字对照输出', '检查边界：0、1、最大值、相等值', '把失败样例在纸上或画板里手算一遍'],
+    }
+  }
+
+  if (attemptCount === 2) {
+    return {
+      kind: 'repair',
+      title: '用提示或画板定位',
+      body: '第二次没过，说明可能不是简单格式问题。把变量变化画出来，会更快找到分叉点。',
+      steps: ['打开题目提示，先看第一条', '用逻辑画板画数组、表格或流程', '只改一个怀疑点，再重新提交'],
+    }
+  }
+
+  return {
+    kind: 'repair',
+    title: '建议请求分析',
+    body: '已经连续多次没过，适合让 AI 或老师帮你定位“错在哪里”，但仍然由你自己修到 AC。',
+    steps: ['点击 AI 分析查看错误位置', '查看题解视频或关键题解，不直接复制代码', '把本次提交和你的思路发给老师'],
+  }
+}
+
 function buildRunVerdict(
   level: Level,
   stdin: string,
@@ -753,6 +1352,43 @@ function buildRunVerdict(
     failedCaseIndex: result === 'AC' ? null : 0,
     childFriendlyMessage: childMessage(result),
     ...(execution.errorDetail ? { errorDetail: execution.errorDetail } : {}),
+  }
+}
+
+function buildSubmissionProgress(level: Level, status: SubmissionPollResult['status'] | 'pending' | 'judging'): JudgeProgress | null {
+  if (status !== 'pending' && status !== 'judging') return null
+
+  const totalCases = Math.max(0, level.publicCases.length + level.hiddenCount)
+  return buildJudgeProgress({
+    phase: status === 'pending' ? 'queued' : 'judging',
+    currentCaseIndex: status === 'judging' && totalCases > 0 ? 1 : null,
+    runningCaseRange: null,
+    completedCases: 0,
+    totalCases,
+  })
+}
+
+function buildLocalSampleProgress(
+  level: Level,
+  currentCaseIndex: number,
+  completedCases: number,
+  totalCases = Math.min(2, level.publicCases.length),
+): JudgeProgress | null {
+  if (totalCases <= 0) return null
+
+  return buildJudgeProgress({
+    phase: completedCases >= totalCases ? 'completed' : 'judging',
+    currentCaseIndex: currentCaseIndex <= totalCases ? currentCaseIndex : null,
+    runningCaseRange: null,
+    completedCases,
+    totalCases,
+  })
+}
+
+function buildJudgeProgress(progress: Omit<JudgeProgress, 'updatedAt'>): JudgeProgress {
+  return {
+    ...progress,
+    updatedAt: new Date().toISOString(),
   }
 }
 
@@ -850,6 +1486,11 @@ function formatHistoryLanguage(item: SubmissionHistoryItem): string {
   return selected === resolved ? resolved : `${selected} -> ${resolved}`
 }
 
+function formatSubmissionOwner(item: SubmissionHistoryItem): string {
+  if (item.canViewCode) return '我'
+  return item.userDisplayName ?? item.userEmail ?? shortSubmissionId(item.userId)
+}
+
 function formatHistoryTime(value: string): string {
   return new Date(value).toLocaleString('zh-CN', {
     month: '2-digit',
@@ -865,7 +1506,7 @@ function canAnalyzeVerdict(verdict: Verdict | null): boolean {
 }
 
 function canAnalyzeHistoryItem(item: SubmissionHistoryItem): boolean {
-  return item.status === 'done' && canAnalyzeVerdict(item.verdict)
+  return item.canViewCode && item.status === 'done' && canAnalyzeVerdict(item.verdict)
 }
 
 function shortSubmissionId(id: string): string {
@@ -922,17 +1563,6 @@ function readCachedCode(levelId: string, languageMode: LanguageMode): string | n
   }
 }
 
-function hasEditedCachedCode(levelId: string, languageMode: LanguageMode, starterCode: string): boolean {
-  const cachedCode = readCachedCode(levelId, languageMode)
-  return Boolean(cachedCode && cachedCode !== starterCode)
-}
-
-function hasEditedCachedCodeForAnyLanguage(level: Level): boolean {
-  return LANGUAGE_MODES.some((languageMode) =>
-    hasEditedCachedCode(level.id, languageMode, getStarterCodeForLanguage(level, languageMode)),
-  )
-}
-
 function writeCachedCode(levelId: string, languageMode: LanguageMode, code: string) {
   if (typeof window === 'undefined') return
 
@@ -943,10 +1573,199 @@ function writeCachedCode(levelId: string, languageMode: LanguageMode, code: stri
   }
 }
 
-function clearStatementPreviewHideTimeout(timeoutRef: { current: number | null }) {
-  if (timeoutRef.current === null || typeof window === 'undefined') return
-  window.clearTimeout(timeoutRef.current)
-  timeoutRef.current = null
+function formatCodeForLanguage(source: string, language: ResolvedLanguage): string {
+  if (!source.trim()) return source
+  if (language === 'python3') return formatPythonCode(source)
+  return formatBraceLanguageCode(source)
+}
+
+function formatBraceLanguageCode(source: string): string {
+  const lines = normalizeEditorNewlines(source).split('\n')
+  const formattedLines: string[] = []
+  let indentLevel = 0
+  let inBlockComment = false
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    if (trimmed.length === 0) {
+      formattedLines.push('')
+      continue
+    }
+
+    const syntaxState = stripCStyleSyntaxForIndent(trimmed, inBlockComment)
+    inBlockComment = syntaxState.inBlockComment
+    const syntax = syntaxState.text.trim()
+    const preprocessor = trimmed.startsWith('#')
+    const accessSpecifier = /^(?:public|private|protected)\s*:/.test(syntax)
+    const caseLabel = /^(?:case\b[\s\S]*:|default\s*:)/.test(syntax)
+    let lineIndent = indentLevel
+
+    if (preprocessor) {
+      lineIndent = 0
+    } else {
+      if (/^(?:\}|\)|\])/.test(syntax)) lineIndent = Math.max(0, lineIndent - 1)
+      if (accessSpecifier || caseLabel) lineIndent = Math.max(0, lineIndent - 1)
+    }
+
+    formattedLines.push(`${indentText(lineIndent)}${trimmed}`)
+
+    if (!preprocessor) {
+      const braceDelta = countCharacters(syntax, '{') - countCharacters(syntax, '}')
+      indentLevel = Math.max(0, indentLevel + braceDelta)
+      if (caseLabel && braceDelta === 0) indentLevel = Math.max(indentLevel, lineIndent + 1)
+    }
+  }
+
+  return formattedLines.join('\n')
+}
+
+function formatPythonCode(source: string): string {
+  const lines = normalizeEditorNewlines(source).split('\n')
+  const formattedLines: string[] = []
+  let indentLevel = 0
+  let pendingTerminalDedent = false
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    if (trimmed.length === 0) {
+      formattedLines.push('')
+      continue
+    }
+
+    const syntax = stripPythonSyntaxForIndent(trimmed).trim()
+    const blockContinuation = /^(?:elif|else|except|finally)\b/.test(syntax)
+    if (blockContinuation || pendingTerminalDedent) {
+      indentLevel = Math.max(0, indentLevel - 1)
+      pendingTerminalDedent = false
+    }
+
+    formattedLines.push(`${indentText(indentLevel)}${trimmed}`)
+
+    if (endsPythonBlock(syntax)) {
+      indentLevel += 1
+      pendingTerminalDedent = false
+      continue
+    }
+
+    if (isPythonTerminalStatement(syntax)) {
+      pendingTerminalDedent = true
+    }
+  }
+
+  return formattedLines.join('\n')
+}
+
+function normalizeEditorNewlines(source: string): string {
+  return source.replace(/\r\n?/g, '\n')
+}
+
+function indentText(level: number): string {
+  return '    '.repeat(Math.max(0, level))
+}
+
+function countCharacters(value: string, character: string): number {
+  let count = 0
+  for (const current of value) {
+    if (current === character) count += 1
+  }
+  return count
+}
+
+function stripCStyleSyntaxForIndent(line: string, initialBlockComment: boolean): { text: string; inBlockComment: boolean } {
+  let text = ''
+  let inBlockComment = initialBlockComment
+  let index = 0
+
+  while (index < line.length) {
+    const current = line[index]
+    const next = line[index + 1]
+
+    if (inBlockComment) {
+      if (current === '*' && next === '/') {
+        inBlockComment = false
+        index += 2
+      } else {
+        index += 1
+      }
+      continue
+    }
+
+    if (current === '/' && next === '*') {
+      inBlockComment = true
+      index += 2
+      continue
+    }
+
+    if (current === '/' && next === '/') break
+
+    if (current === '"' || current === "'") {
+      const endIndex = skipQuotedValue(line, index, current)
+      text += current === '"' ? '""' : "''"
+      index = endIndex
+      continue
+    }
+
+    text += current
+    index += 1
+  }
+
+  return { text, inBlockComment }
+}
+
+function stripPythonSyntaxForIndent(line: string): string {
+  let text = ''
+  let index = 0
+
+  while (index < line.length) {
+    const current = line[index]
+
+    if (current === '#') break
+
+    if (current === '"' || current === "'") {
+      const tripleQuote = line.slice(index, index + 3) === current.repeat(3)
+      const endIndex = tripleQuote ? skipTripleQuotedValue(line, index, current) : skipQuotedValue(line, index, current)
+      text += tripleQuote ? `${current.repeat(3)}${current.repeat(3)}` : `${current}${current}`
+      index = endIndex
+      continue
+    }
+
+    text += current
+    index += 1
+  }
+
+  return text
+}
+
+function skipQuotedValue(line: string, startIndex: number, quote: string): number {
+  let index = startIndex + 1
+
+  while (index < line.length) {
+    if (line[index] === '\\') {
+      index += 2
+      continue
+    }
+
+    if (line[index] === quote) return index + 1
+    index += 1
+  }
+
+  return line.length
+}
+
+function skipTripleQuotedValue(line: string, startIndex: number, quote: string): number {
+  const terminator = quote.repeat(3)
+  const endIndex = line.indexOf(terminator, startIndex + 3)
+  return endIndex === -1 ? line.length : endIndex + 3
+}
+
+function endsPythonBlock(syntax: string): boolean {
+  return /:\s*(?:#.*)?$/.test(syntax)
+}
+
+function isPythonTerminalStatement(syntax: string): boolean {
+  return /^(?:return|break|continue|pass|raise)\b/.test(syntax)
 }
 
 function getStarterCodeForLanguage(level: Level, languageMode: LanguageMode): string {
@@ -959,10 +1778,6 @@ function disposeEditorListeners(disposables: Array<{ dispose: () => void }>) {
   while (disposables.length > 0) {
     disposables.pop()?.dispose()
   }
-}
-
-function pickStatementPreviewAsset(assets: StatementAsset[]): StatementAsset | null {
-  return assets.find((asset) => asset.type === 'image') ?? null
 }
 
 const configureMonokai: BeforeMount = (monaco) => {
@@ -1001,6 +1816,8 @@ function pickLocalMessage(result: Verdict['result']) {
     CE: '代码还没编译通过，检查括号、分号或变量名。',
     RE: '程序运行时遇到意外，看看除以 0、越界或输入。',
     TLE: '代码跑太久了，试试减少重复计算。',
+    MLE: '程序使用的内存太多了，试试减少数组或缓存的规模。',
+    PE: '输出格式还不完全正确，检查空格、换行和标点。',
     'Judge Error': '判题服务遇到问题，请稍后再试。',
   }
 

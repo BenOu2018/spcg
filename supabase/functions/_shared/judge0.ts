@@ -6,7 +6,7 @@ export type TestCase = {
 }
 
 export type Verdict = {
-  result: 'AC' | 'WA' | 'TLE' | 'RE' | 'CE'
+  result: 'AC' | 'WA' | 'TLE' | 'MLE' | 'RE' | 'CE' | 'PE'
   passedCases: number
   totalCases: number
   maxRuntimeMs: number
@@ -110,6 +110,21 @@ function aggregateVerdict(
     maxRuntimeMs = Math.max(maxRuntimeMs, Number.isFinite(runtimeMs) ? runtimeMs : 0)
 
     const statusId = current.status?.id
+    const statusText = readJudgeStatusText(current)
+
+    if (isMemoryLimitStatus(statusText)) {
+      result = 'MLE'
+      errorDetail = current.stderr ?? current.status?.description
+      failedCaseIndex = i
+      break
+    }
+
+    if (isPresentationErrorStatus(statusText)) {
+      result = 'PE'
+      errorDetail = current.stderr ?? current.status?.description
+      failedCaseIndex = i
+      break
+    }
 
     if (statusId === 6) {
       result = 'CE'
@@ -153,6 +168,18 @@ function aggregateVerdict(
 
 function normalizeOutput(value: string): string {
   return value.replace(/\r\n/g, '\n').trim()
+}
+
+function readJudgeStatusText(result: Judge0CaseResult): string {
+  return [result.status?.description, result.stderr, result.compile_output].filter(Boolean).join(' ')
+}
+
+function isMemoryLimitStatus(value: string): boolean {
+  return /\b(?:memory limit|memory exceeded|out of memory|sigxfsz)\b/i.test(value)
+}
+
+function isPresentationErrorStatus(value: string): boolean {
+  return /\b(?:presentation error|wrong presentation|format error)\b/i.test(value)
 }
 
 async function fetchJudge0Submission(input: {

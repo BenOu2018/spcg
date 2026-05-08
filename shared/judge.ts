@@ -19,6 +19,7 @@ export type MockJudgeInput = {
   cases: TestCase[]
   timeLimitMs: number
   childMessage: JudgeMessagePicker
+  runAllCases?: boolean
 }
 
 export type MockExecutionResult = {
@@ -33,68 +34,71 @@ export function aggregateJudgeResults(
   expected: TestCase[],
   timeLimitMs: number,
   childMessage: JudgeMessagePicker,
+  options: { runAllCases?: boolean } = {},
 ): Verdict {
   let passedCases = 0
   let failedCaseIndex: number | null = null
   let maxRuntimeMs = 0
   let result: Verdict['result'] = 'AC'
   let errorDetail: string | undefined
+  const caseResults: NonNullable<Verdict['caseResults']> = []
 
   for (let i = 0; i < expected.length; i++) {
     const current = results[i]
+    let caseResult: Verdict['result'] = 'AC'
+    let casePassed = false
+    let caseRuntimeMs = 0
 
     if (!current) {
-      result = 'RE'
+      caseResult = 'RE'
       errorDetail = 'Judge result missing for test case'
-      failedCaseIndex = i
-      break
+    } else {
+      const runtimeMs = Math.round(Number.parseFloat(current.time ?? '0') * 1000)
+      caseRuntimeMs = Number.isFinite(runtimeMs) ? runtimeMs : 0
+      maxRuntimeMs = Math.max(maxRuntimeMs, caseRuntimeMs)
+
+      const statusId = current.status?.id
+      const statusText = readJudgeStatusText(current)
+
+      if (isMemoryLimitStatus(statusText)) {
+        caseResult = 'MLE'
+        errorDetail ??= current.stderr ?? current.message ?? current.status?.description
+      } else if (isPresentationErrorStatus(statusText)) {
+        caseResult = 'PE'
+        errorDetail ??= current.stderr ?? current.message ?? current.status?.description
+      } else if (statusId === 6) {
+        caseResult = 'CE'
+        errorDetail ??= current.compile_output ?? current.status?.description
+      } else if (statusId === 5 || runtimeMs > timeLimitMs) {
+        caseResult = 'TLE'
+      } else if (statusId === 4) {
+        caseResult = 'WA'
+      } else if (statusId === 13) {
+        caseResult = 'Judge Error'
+        errorDetail ??= current.stderr ?? current.message ?? current.status?.description
+      } else if (statusId !== 3) {
+        caseResult = 'RE'
+        errorDetail ??= current.stderr ?? current.message ?? current.status?.description
+      } else if (normalizeOutput(current.stdout ?? '') !== normalizeOutput(expected[i]?.expectedOutput ?? '')) {
+        caseResult = 'WA'
+      } else {
+        casePassed = true
+      }
     }
 
-    const runtimeMs = Math.round(Number.parseFloat(current.time ?? '0') * 1000)
-    maxRuntimeMs = Math.max(maxRuntimeMs, Number.isFinite(runtimeMs) ? runtimeMs : 0)
-
-    const statusId = current.status?.id
-
-    if (statusId === 6) {
-      result = 'CE'
-      errorDetail = current.compile_output ?? current.status?.description
+    if (casePassed) passedCases++
+    if (!casePassed && result === 'AC') {
+      result = caseResult
       failedCaseIndex = i
-      break
     }
-
-    if (statusId === 5 || runtimeMs > timeLimitMs) {
-      result = 'TLE'
-      failedCaseIndex = i
-      break
-    }
-
-    if (statusId === 4) {
-      result = 'WA'
-      failedCaseIndex = i
-      break
-    }
-
-    if (statusId === 13) {
-      result = 'Judge Error'
-      errorDetail = current.stderr ?? current.message ?? current.status?.description
-      failedCaseIndex = i
-      break
-    }
-
-    if (statusId !== 3) {
-      result = 'RE'
-      errorDetail = current.stderr ?? current.message ?? current.status?.description
-      failedCaseIndex = i
-      break
-    }
-
-    if (normalizeOutput(current.stdout ?? '') !== normalizeOutput(expected[i]?.expectedOutput ?? '')) {
-      result = 'WA'
-      failedCaseIndex = i
-      break
-    }
-
-    passedCases++
+    caseResults.push({
+      index: i + 1,
+      visibility: expected[i]?.visibility ?? 'hidden',
+      passed: casePassed,
+      result: caseResult,
+      runtimeMs: caseRuntimeMs,
+    })
+    if (!casePassed && !options.runAllCases) break
   }
 
   return {
@@ -104,6 +108,7 @@ export function aggregateJudgeResults(
     maxRuntimeMs,
     failedCaseIndex,
     childFriendlyMessage: childMessage(result),
+    caseResults,
     ...(errorDetail ? { errorDetail } : {}),
   }
 }
@@ -122,19 +127,21 @@ export function mockJudgeSubmission(input: MockJudgeInput): Verdict {
     maxRuntimeMs = Math.max(maxRuntimeMs, execution.maxRuntimeMs)
 
     if (execution.result !== 'AC') {
-      result = execution.result
+      if (result === 'AC') {
+        result = execution.result
+        failedCaseIndex = i
+      }
       errorDetail = execution.errorDetail
-      failedCaseIndex = i
-      break
+    } else if (normalizeOutput(execution.stdout) !== normalizeOutput(testCase?.expectedOutput ?? '')) {
+      if (result === 'AC') {
+        result = 'WA'
+        failedCaseIndex = i
+      }
+    } else {
+      passedCases++
     }
 
-    if (normalizeOutput(execution.stdout) !== normalizeOutput(testCase?.expectedOutput ?? '')) {
-      result = 'WA'
-      failedCaseIndex = i
-      break
-    }
-
-    passedCases++
+    if (result !== 'AC' && !input.runAllCases) break
   }
 
   return {
@@ -186,6 +193,18 @@ export function mockExecuteCpp(code: string, stdin: string, timeLimitMs = 1000):
 
 export function normalizeOutput(value: string): string {
   return value.replace(/\r\n/g, '\n').trim()
+}
+
+function readJudgeStatusText(result: JudgeCaseResult): string {
+  return [result.status?.description, result.stderr, result.compile_output, result.message].filter(Boolean).join(' ')
+}
+
+function isMemoryLimitStatus(value: string): boolean {
+  return /\b(?:memory limit|memory exceeded|out of memory|sigxfsz)\b/i.test(value)
+}
+
+function isPresentationErrorStatus(value: string): boolean {
+  return /\b(?:presentation error|wrong presentation|format error)\b/i.test(value)
 }
 
 function inferMockStdout(code: string, stdin: string): string {

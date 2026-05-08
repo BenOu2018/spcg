@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" role="img" aria-labelledby="title desc">
+  <title id="title">Golden pass check icon</title>
+  <desc id="desc">Small transparent-background three-dimensional golden check mark for completed or passed levels.</desc>
+  <defs>
+    <linearGradient id="face" x1="5.2" y1="15.8" x2="18.8" y2="5.4" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8e470b"/>
+      <stop offset=".22" stop-color="#d88718"/>
+      <stop offset=".48" stop-color="#ffe681"/>
+      <stop offset=".62" stop-color="#fff6bd"/>
+      <stop offset=".8" stop-color="#d99124"/>
+      <stop offset="1" stop-color="#7a3508"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="4.6" y1="17" x2="19.2" y2="4.4" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4f2106"/>
+      <stop offset=".5" stop-color="#ffe9a0"/>
+      <stop offset="1" stop-color="#3f1a04"/>
+    </linearGradient>
+    <filter id="shadow" x="-8" y="-8" width="40" height="40" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="1.6" stdDeviation="1.1" flood-color="#3d1a04" flood-opacity=".45"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <path d="M5.3 12.4 9.6 16.7 18.8 6.2" fill="none" stroke="#5a2405" stroke-width="6.3" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M5.3 12.4 9.6 16.7 18.8 6.2" fill="none" stroke="url(#edge)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M5.3 12.4 9.6 16.7 18.8 6.2" fill="none" stroke="#5b2607" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round" opacity=".35" transform="translate(0 .8)"/>
+    <path d="M5.3 12.4 9.6 16.7 18.8 6.2" fill="none" stroke="url(#face)" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M6.1 11.1 9.6 14.6 17.8 5.4" fill="none" stroke="#fff8ce" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>
+  </g>
+</svg>

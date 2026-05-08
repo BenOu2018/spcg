@@ -8,6 +8,7 @@ import {
   isDifficultyStars,
   isSpcgLevel,
 } from '@spcg/shared/difficulty'
+import { PROBLEM_SET_ITEM_DISPLAY_MODES } from '@spcg/shared/curriculum'
 import { requireAdmin } from '@/lib/admin-auth'
 import {
   createAdminProblemSet,
@@ -25,7 +26,7 @@ import {
 } from '@/lib/services/curriculum-service'
 import type { DifficultyLayerLabel } from '@spcg/shared/types'
 
-const validDisplayModes = new Set<CurriculumDisplayMode>(['primary', 'backup', 'exam-only'])
+const validDisplayModes = new Set<CurriculumDisplayMode>(PROBLEM_SET_ITEM_DISPLAY_MODES)
 const validStatuses = new Set<CurriculumProblemStatus>(['draft', 'review', 'published', 'archived'])
 const validDifficultyLabels = new Set<DifficultyLayerLabel>(DIFFICULTY_LAYER_LABELS)
 const validTracks = new Set<LessonTrack>(['A', 'B'])

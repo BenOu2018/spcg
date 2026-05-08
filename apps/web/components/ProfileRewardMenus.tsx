@@ -3,15 +3,23 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
-import type { RewardLedgerEntry, UserInventoryItem } from '@spcg/shared/types'
+import type { AssessmentAttempt, RewardLedgerEntry, UserInventoryItem } from '@spcg/shared/types'
+
+type ProfileAssessmentHistoryItem = AssessmentAttempt & {
+  sessionTitle: string
+  spcgLevel: number | null
+  dateKey: string | null
+}
 
 type ProfileRewardMenusProps = {
   inventory: UserInventoryItem[]
   rewards: RewardLedgerEntry[]
+  assessmentHistory: ProfileAssessmentHistoryItem[]
 }
 
-export function ProfileRewardMenus({ inventory, rewards }: ProfileRewardMenusProps) {
-  const [openMenu, setOpenMenu] = useState<'inventory' | 'rewards' | null>('inventory')
+export function ProfileRewardMenus({ inventory, rewards, assessmentHistory }: ProfileRewardMenusProps) {
+  const [openMenu, setOpenMenu] = useState<'inventory' | 'assessments' | 'rewards' | null>('inventory')
+  const completedAssessmentCount = assessmentHistory.filter((item) => item.status === 'completed' || item.status === 'expired').length
 
   return (
     <section className="profile-menu-list" aria-label="奖励详情">
@@ -40,6 +48,33 @@ export function ProfileRewardMenus({ inventory, rewards }: ProfileRewardMenusPro
       </ProfileMenu>
 
       <ProfileMenu
+        id="assessments"
+        icon="/assets/art/ui/rewards/rank.svg"
+        title="段位赛历史"
+        meta={`${completedAssessmentCount}/${assessmentHistory.length} 场完成`}
+        open={openMenu === 'assessments'}
+        onToggle={() => setOpenMenu((value) => (value === 'assessments' ? null : 'assessments'))}
+      >
+        <div className="profile-menu-items">
+          {assessmentHistory.map((attempt) => (
+            <article className="profile-reward-row" key={attempt.id}>
+              <div>
+                <strong>{formatAssessmentTitle(attempt)}</strong>
+                <span>
+                  {formatAttemptTime(attempt.startedAt)} · {formatAssessmentDuration(attempt.durationSeconds)} ·{' '}
+                  {formatAssessmentStatus(attempt.status)}
+                </span>
+              </div>
+              <em>
+                {attempt.score}/300 · {attempt.acceptedCount}/{attempt.totalCount}
+              </em>
+            </article>
+          ))}
+          {assessmentHistory.length === 0 ? <p className="profile-empty">暂无段位赛记录。</p> : null}
+        </div>
+      </ProfileMenu>
+
+      <ProfileMenu
         id="rewards"
         icon="/assets/art/ui/rewards/ledger.svg"
         title="奖励记录"
@@ -62,6 +97,32 @@ export function ProfileRewardMenus({ inventory, rewards }: ProfileRewardMenusPro
       </ProfileMenu>
     </section>
   )
+}
+
+function formatAssessmentTitle(attempt: ProfileAssessmentHistoryItem): string {
+  const level = attempt.spcgLevel ? `${attempt.spcgLevel}级` : 'SPCG'
+  const date = attempt.dateKey ? ` ${attempt.dateKey}` : ''
+  return `${level}段位赛${date}`
+}
+
+function formatAttemptTime(value: string): string {
+  return new Date(value).toLocaleString('zh-CN')
+}
+
+function formatAssessmentDuration(seconds: number): string {
+  const hours = Math.round(seconds / 3600)
+  return `${Math.max(1, hours)}小时`
+}
+
+function formatAssessmentStatus(status: AssessmentAttempt['status']): string {
+  const labels: Record<AssessmentAttempt['status'], string> = {
+    in_progress: '进行中',
+    scoring: '判题中',
+    completed: '已完成',
+    expired: '已超时',
+    abandoned: '已放弃',
+  }
+  return labels[status]
 }
 
 function ProfileMenu({

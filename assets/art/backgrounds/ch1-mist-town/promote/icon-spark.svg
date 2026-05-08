@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Spark icon</title>
+  <desc id="desc">Current problem spark icon.</desc>
+  <circle cx="32" cy="32" r="28" fill="#0b7470" stroke="#65fff4" stroke-width="4"/>
+  <path d="M32 8l7 17 17 7-17 7-7 17-7-17-17-7 17-7z" fill="#dffffb"/>
+  <circle cx="32" cy="32" r="7" fill="#60fff4"/>
+</svg>

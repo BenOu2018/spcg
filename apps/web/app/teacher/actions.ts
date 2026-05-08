@@ -3,7 +3,12 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { auth } from '@/auth'
-import { addStudentToTeacher, createStudentForTeacher, removeStudentFromTeacher } from '@/lib/services/teacher-service'
+import {
+  addStudentToTeacher,
+  createStudentForTeacher,
+  removeStudentFromTeacher,
+  setTeacherStudentCurrentLevel,
+} from '@/lib/services/teacher-service'
 
 export async function addTeacherStudentAction(formData: FormData) {
   const session = await auth()
@@ -54,4 +59,21 @@ export async function removeTeacherStudentAction(formData: FormData) {
   revalidatePath('/teacher')
   revalidatePath('/teacher/students')
   redirect('/teacher/students')
+}
+
+export async function setTeacherStudentCurrentLevelAction(formData: FormData) {
+  const session = await auth()
+  const studentUserId = String(formData.get('studentUserId') ?? '').trim()
+  const levelId = String(formData.get('levelId') ?? '').trim()
+  if (!studentUserId || !levelId) throw new Error('Student id and level id are required')
+
+  await setTeacherStudentCurrentLevel({
+    teacherUserId: session?.user?.id,
+    studentUserId,
+    levelId,
+  })
+
+  revalidatePath('/teacher')
+  revalidatePath('/teacher/students')
+  revalidatePath(`/teacher/students/${studentUserId}`)
 }

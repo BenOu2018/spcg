@@ -1,4 +1,4 @@
-import type { Language, ResolvedLanguage, SubmissionErrorAnalysis, Verdict } from '@spcg/shared/types'
+import type { JudgeProgress, Language, ResolvedLanguage, SubmissionErrorAnalysis, Verdict } from '@spcg/shared/types'
 import { query, queryOne } from '@/lib/db'
 
 export type SubmissionStatus = 'pending' | 'judging' | 'done' | 'error'
@@ -7,8 +7,14 @@ export type SubmissionSummary = {
   id: string
   status: SubmissionStatus
   verdict: Verdict | null
+  judgeProgress: JudgeProgress | null
   language: Language
   resolvedLanguage: ResolvedLanguage | null
+  assessmentAttemptId: string | null
+  assessmentPhase: 'realtime' | 'final' | null
+  judgeMode: 'fast' | 'full' | null
+  score: number
+  maxScore: number | null
 }
 
 export type SubmissionHistoryItem = {
@@ -21,6 +27,14 @@ export type SubmissionHistoryItem = {
   errorAnalysis: SubmissionErrorAnalysis | null
   createdAt: string
   updatedAt: string
+}
+
+export type LevelSubmissionHistoryItem = Omit<SubmissionHistoryItem, 'code'> & {
+  code: string | null
+  canViewCode: boolean
+  userId: string
+  userEmail: string | null
+  userDisplayName: string | null
 }
 
 export type AdminSubmissionHistoryItem = SubmissionHistoryItem & {
@@ -37,6 +51,12 @@ type SubmissionRow = {
   id: string
   status: SubmissionStatus
   verdict: Verdict | null
+  judge_progress: JudgeProgress | null
+  assessment_attempt_id: string | null
+  assessment_phase: 'realtime' | 'final' | null
+  judge_mode: 'fast' | 'full' | null
+  score: number | null
+  max_score: number | null
 } & Record<string, unknown>
 
 type SubmissionHistoryRow = {
@@ -49,6 +69,14 @@ type SubmissionHistoryRow = {
   error_analysis: SubmissionErrorAnalysis | null
   created_at: Date | string
   updated_at: Date | string
+}
+
+type LevelSubmissionHistoryRow = Omit<SubmissionHistoryRow, 'code'> & {
+  code: string | null
+  can_view_code: boolean
+  user_id: string
+  user_email: string | null
+  user_display_name: string | null
 }
 
 type AdminSubmissionHistoryRow = SubmissionHistoryRow & {
@@ -83,7 +111,7 @@ export async function findRecentSubmissionForUser(userId: string, since: Date): 
     `
     SELECT created_at
     FROM submissions
-    WHERE user_id = $1 AND created_at >= $2
+    WHERE user_id = $1 AND created_at >= $2 AND assessment_attempt_id IS NULL
     ORDER BY created_at DESC
     LIMIT 1
     `,
@@ -99,14 +127,29 @@ export async function createSubmission(input: {
   code: string
   language?: Language
   resolvedLanguage?: ResolvedLanguage
+  assessmentAttemptId?: string | null
+  assessmentPhase?: 'realtime' | 'final' | null
+  judgeMode?: 'fast' | 'full' | null
+  maxScore?: number | null
 }): Promise<SubmissionSummary> {
   const rows = await query<SubmissionRow>(
     `
-    INSERT INTO submissions (user_id, level_id, code, language, resolved_language, status)
-    VALUES ($1, $2, $3, $4, $5, 'pending')
-    RETURNING id, status, verdict, language, resolved_language
+    INSERT INTO submissions
+      (user_id, level_id, code, language, resolved_language, status, assessment_attempt_id, assessment_phase, judge_mode, max_score)
+    VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9)
+    RETURNING id, status, verdict, judge_progress, language, resolved_language, assessment_attempt_id, assessment_phase, judge_mode, score, max_score
     `,
-    [input.userId, input.levelId, input.code, input.language ?? 'auto', input.resolvedLanguage ?? null],
+    [
+      input.userId,
+      input.levelId,
+      input.code,
+      input.language ?? 'auto',
+      input.resolvedLanguage ?? null,
+      input.assessmentAttemptId ?? null,
+      input.assessmentPhase ?? null,
+      input.judgeMode ?? null,
+      input.maxScore ?? null,
+    ],
   )
 
   const submission = rows[0]
@@ -117,7 +160,7 @@ export async function createSubmission(input: {
 export async function getSubmissionForUser(submissionId: string, userId: string): Promise<SubmissionSummary | null> {
   const row = await queryOne<SubmissionRow>(
     `
-    SELECT id, status, verdict, language, resolved_language
+    SELECT id, status, verdict, judge_progress, language, resolved_language, assessment_attempt_id, assessment_phase, judge_mode, score, max_score
     FROM submissions
     WHERE id = $1 AND user_id = $2
     `,
@@ -131,7 +174,18 @@ export async function listSubmissionHistoryForUser(input: {
   userId: string
   levelId: string
   limit?: number
+  assessmentAttemptId?: string | null
 }): Promise<SubmissionHistoryItem[]> {
+  const filters = ['s.user_id = $1', 's.level_id = $2']
+  const values: unknown[] = [input.userId, input.levelId]
+  if (input.assessmentAttemptId) {
+    values.push(input.assessmentAttemptId)
+    filters.push(`s.assessment_attempt_id = $${values.length}`)
+  } else {
+    filters.push('s.assessment_attempt_id IS NULL')
+  }
+  values.push(input.limit ?? 20)
+
   const rows = await query<SubmissionHistoryRow>(
     `
     SELECT
@@ -158,15 +212,15 @@ export async function listSubmissionHistoryForUser(input: {
         'createdAt', sea.created_at
       ) AS error_analysis
       FROM submission_error_analyses sea
-      WHERE sea.submission_id = s.id
+      WHERE sea.submission_id = s.id AND s.user_id = $1
       ORDER BY sea.created_at DESC
       LIMIT 1
     ) latest_analysis ON TRUE
-    WHERE s.user_id = $1 AND s.level_id = $2
+    WHERE ${filters.join(' AND ')}
     ORDER BY s.created_at DESC
-    LIMIT $3
+    LIMIT $${values.length}
     `,
-    [input.userId, input.levelId, input.limit ?? 20],
+    values,
   )
 
   return rows.map((row) => ({
@@ -179,6 +233,83 @@ export async function listSubmissionHistoryForUser(input: {
     errorAnalysis: row.error_analysis ? normalizeSubmissionErrorAnalysis(row.error_analysis) : null,
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at),
+  }))
+}
+
+export async function listSubmissionHistoryForLevelViewer(input: {
+  viewerUserId: string
+  levelId: string
+  limit?: number
+  assessmentAttemptId?: string | null
+}): Promise<LevelSubmissionHistoryItem[]> {
+  const limit = Math.max(1, Math.min(input.limit ?? 50, 200))
+  const filters = ['s.level_id = $2']
+  const values: unknown[] = [input.viewerUserId, input.levelId]
+  if (input.assessmentAttemptId) {
+    values.push(input.assessmentAttemptId)
+    filters.push(`s.assessment_attempt_id = $${values.length}`)
+  } else {
+    filters.push('s.assessment_attempt_id IS NULL')
+  }
+  values.push(limit)
+
+  const rows = await query<LevelSubmissionHistoryRow>(
+    `
+    SELECT
+      s.id,
+      s.status,
+      s.verdict,
+      CASE WHEN s.user_id = $1 THEN s.code ELSE NULL END AS code,
+      s.user_id = $1 AS can_view_code,
+      s.language,
+      s.resolved_language,
+      s.user_id,
+      u.email AS user_email,
+      COALESCE(p.display_name, u.display_name) AS user_display_name,
+      latest_analysis.error_analysis,
+      s.created_at,
+      s.updated_at
+    FROM submissions s
+    JOIN users u ON u.id = s.user_id
+    LEFT JOIN profiles p ON p.user_id = u.id
+    LEFT JOIN LATERAL (
+      SELECT jsonb_build_object(
+        'id', sea.id,
+        'submissionId', sea.submission_id,
+        'provider', sea.provider,
+        'model', sea.model,
+        'verdictResult', sea.verdict_result,
+        'analysis', sea.analysis,
+        'rawError', sea.raw_error,
+        'promptHash', sea.prompt_hash,
+        'createdAt', sea.created_at
+      ) AS error_analysis
+      FROM submission_error_analyses sea
+      WHERE sea.submission_id = s.id AND s.user_id = $1
+      ORDER BY sea.created_at DESC
+      LIMIT 1
+    ) latest_analysis ON TRUE
+    WHERE ${filters.join(' AND ')}
+    ORDER BY s.created_at DESC
+    LIMIT $${values.length}
+    `,
+    values,
+  )
+
+  return rows.map((row) => ({
+    id: row.id,
+    status: row.status,
+    verdict: row.verdict,
+    code: row.code,
+    canViewCode: row.can_view_code,
+    language: row.language,
+    resolvedLanguage: row.resolved_language,
+    errorAnalysis: row.error_analysis ? normalizeSubmissionErrorAnalysis(row.error_analysis) : null,
+    createdAt: toIsoString(row.created_at),
+    updatedAt: toIsoString(row.updated_at),
+    userId: row.user_id,
+    userEmail: row.user_email,
+    userDisplayName: row.user_display_name,
   }))
 }
 
@@ -282,8 +413,30 @@ function mapSubmissionSummary(row: SubmissionRow): SubmissionSummary {
     id: row.id,
     status: row.status,
     verdict: row.verdict,
+    judgeProgress: row.judge_progress ? normalizeJudgeProgress(row.judge_progress) : null,
     language: row.language as Language,
     resolvedLanguage: (row.resolved_language as ResolvedLanguage | null | undefined) ?? null,
+    assessmentAttemptId: row.assessment_attempt_id ?? null,
+    assessmentPhase: row.assessment_phase ?? null,
+    judgeMode: row.judge_mode ?? null,
+    score: row.score ?? 0,
+    maxScore: row.max_score ?? null,
+  }
+}
+
+function normalizeJudgeProgress(value: JudgeProgress): JudgeProgress {
+  return {
+    phase: value.phase,
+    currentCaseIndex: typeof value.currentCaseIndex === 'number' ? value.currentCaseIndex : null,
+    runningCaseRange: value.runningCaseRange
+      ? {
+          from: Number(value.runningCaseRange.from),
+          to: Number(value.runningCaseRange.to),
+        }
+      : null,
+    completedCases: Number(value.completedCases) || 0,
+    totalCases: Number(value.totalCases) || 0,
+    updatedAt: toIsoString(value.updatedAt),
   }
 }
 

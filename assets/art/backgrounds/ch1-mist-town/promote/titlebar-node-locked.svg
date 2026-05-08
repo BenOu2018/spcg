@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44" role="img" aria-labelledby="title desc">
+  <title id="title">Locked mini node</title>
+  <desc id="desc">Mini locked node for compact titlebar promotion widget.</desc>
+  <circle cx="22" cy="22" r="20" fill="#444c4d" stroke="#b8b4a4" stroke-width="3"/>
+  <rect x="15" y="22" width="14" height="11" rx="2" fill="#efe0bd"/>
+  <path d="M18 22v-5a4 4 0 0 1 8 0v5" fill="none" stroke="#efe0bd" stroke-width="3" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Bookmark icon</title>
+  <desc id="desc">Bookmark icon for titlebar action.</desc>
+  <path d="M18 8h28v48L32 45 18 56z" fill="#1f8179" stroke="#d7a95a" stroke-width="5" stroke-linejoin="round"/>
+</svg>

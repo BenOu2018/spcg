@@ -193,7 +193,7 @@ function normalizeMathExpression(expression: string): string {
 }
 
 function isMathLike(value: string): boolean {
-  return /_[a-zA-Z0-9]+|\.\.|<=|>=|!=|\bO\(|\bxor\b|\bXOR\b|\*/.test(value)
+  return /_[a-zA-Z0-9]+|\.\.|<=|>=|!=|\\(?:leq?|geq?|neq?|times|cdot|oplus|sum|in|bmod|pmod)\b|\bO\(|\bxor\b|\bXOR\b|\*/.test(value)
 }
 
 function buildSymbolNotes(text: string): string {

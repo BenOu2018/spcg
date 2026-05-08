@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52" role="img" aria-labelledby="title desc">
+  <title id="title">Current mini node</title>
+  <desc id="desc">Mini current node with cyan glow for compact titlebar promotion widget.</desc>
+  <defs>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <circle cx="26" cy="26" r="24" fill="#46f4e8" opacity=".55" filter="url(#glow)"/>
+  <circle cx="26" cy="26" r="20" fill="#0a837e" stroke="#77fff5" stroke-width="4"/>
+  <circle cx="26" cy="26" r="13" fill="#0c5e61"/>
+</svg>

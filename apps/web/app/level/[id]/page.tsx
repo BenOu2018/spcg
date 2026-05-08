@@ -1,17 +1,22 @@
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getGameChapter } from '@spcg/shared/game-chapters'
+import { getProblemSetItemDisplayModeLabel } from '@spcg/shared/curriculum'
 import { ProgrammingLevel } from '@/components/ProgrammingLevel'
 import { requireUser } from '@/lib/auth-guard'
+import { getLevelAccessForUser } from '@/lib/services/level-access-service'
 import { getLessonStageMenu, getLevelById, getMainlineLevels, getProgressRecords } from '@/lib/level-data'
 
 type LevelPageProps = {
   params: Promise<{ id: string }> | { id: string }
+  searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>
 }
 
-export default async function LevelPage({ params }: LevelPageProps) {
+export default async function LevelPage({ params, searchParams }: LevelPageProps) {
   const { id } = await params
-  await requireUser(`/level/${id}`)
+  const query = searchParams ? await searchParams : {}
+  const explicitStageSelection = query.stageSelect === '1'
+  const session = await requireUser(`/level/${id}${explicitStageSelection ? '?stageSelect=1' : ''}`)
   const [level, levels, progressRecords, stageMenu] = await Promise.all([
     getLevelById(id),
     getMainlineLevels(),
@@ -20,9 +25,52 @@ export default async function LevelPage({ params }: LevelPageProps) {
   ])
 
   if (!level) notFound()
+  const access = await getLevelAccessForUser({
+    userId: session.user.id,
+    levelId: level.id,
+  })
+  if (!access.allowed) {
+    redirect(access.redirectLevelId ? `/level/${access.redirectLevelId}` : '/map')
+  }
   const chapter = getGameChapter(level.chapterId)
   const chapterLevels = levels.filter((item) => item.chapterId === level.chapterId)
   const stageLabel = stageMenu ? `第${stageMenu.stageNo}层 ${stageMenu.title}` : `第${level.order}层 ${level.title}`
+  const passedLevelIds = new Set(progressRecords.filter((progress) => progress.passed).map((progress) => progress.levelId))
+  const nextStageLevelId = getProgressAwareStageLevelId({
+    currentLevelId: level.id,
+    passedLevelIds,
+    stageItems: stageMenu?.items ?? null,
+  })
+  const isCurrentStudyStage =
+    stageMenu?.items.some((item) => item.levelId === access.currentMapLevelId || item.levelId === access.currentEntryLevelId) ??
+    false
+  if (
+    !access.canFreeJump &&
+    isCurrentStudyStage &&
+    !explicitStageSelection &&
+    nextStageLevelId &&
+    nextStageLevelId !== level.id
+  ) {
+    redirect(`/level/${nextStageLevelId}`)
+  }
+
+  const promoteItems = buildPromoteItems({
+    currentLevelId: level.id,
+    fallbackLevels: chapterLevels,
+    passedLevelIds,
+    stageItems: stageMenu?.items ?? null,
+  })
+  const promoteSummaryText = buildPromoteSummary(promoteItems, level.title)
+  const stagePassedCount = stageMenu?.items.filter((item) => passedLevelIds.has(item.levelId)).length ?? 0
+  const stageMasteryText = stageMenu
+    ? stagePassedCount >= 5
+      ? '5/5 完全掌握'
+      : stagePassedCount >= 4
+        ? `${stagePassedCount}/5 掌握良好`
+        : stagePassedCount >= 3
+          ? `${stagePassedCount}/5 主线完成`
+          : `${stagePassedCount}/5 主线进行中`
+    : null
 
   return (
     <main className="programming-scene">
@@ -32,46 +80,42 @@ export default async function LevelPage({ params }: LevelPageProps) {
         </Link>
         <div className="programming-level-context">
           <div className="chapter-pill">第{chapter.spcgLevel}级 {chapter.displayName}</div>
-          <div className="chapter-pill">{stageLabel}</div>
+          <div className="chapter-pill">{stageMasteryText ? `${stageLabel} · ${stageMasteryText}` : stageLabel}</div>
           {stageMenu && stageMenu.items.length > 0 ? (
             <details className="programming-problem-menu">
               <summary>本层题目</summary>
               <div className="programming-problem-menu-panel">
-                {stageMenu.items.map((item) => (
-                  <Link
-                    aria-current={item.levelId === level.id ? 'page' : undefined}
-                    className={item.levelId === level.id ? 'active' : undefined}
-                    href={`/level/${item.levelId}`}
-                    key={item.levelId}
-                  >
-                    <span>{String(item.position).padStart(2, '0')}</span>
-                    <strong>{item.title}</strong>
-                    <em>{formatDisplayMode(item.displayMode)}</em>
-                  </Link>
-                ))}
+                {stageMenu.items.map((item) => {
+                  const passed = passedLevelIds.has(item.levelId)
+                  return (
+                    <Link
+                      aria-current={item.levelId === level.id ? 'page' : undefined}
+                      className={item.levelId === level.id ? 'active' : undefined}
+                      href={getStageSelectionHref(item.levelId)}
+                      key={item.levelId}
+                    >
+                      <span>{String(item.position).padStart(2, '0')}</span>
+                      <strong>{item.title}</strong>
+                      <em>
+                        {getProblemSetItemDisplayModeLabel(item.displayMode)} · {passed ? '已通过' : '未通过'}
+                      </em>
+                    </Link>
+                  )
+                })}
               </div>
             </details>
           ) : null}
         </div>
-        <div className="level-progress-strip" aria-label="level progress">
-          {chapterLevels.slice(0, 5).map((item, index) => {
-            const passed = progressRecords.some((progress) => progress.levelId === item.id && progress.passed)
-            const node =
-              item.id === level.id
-                ? 'level-node-current.svg'
-                : passed
-                  ? 'level-node-completed.svg'
-                  : index === 4
-                    ? 'level-node-destination.svg'
-                    : 'level-node-locked.svg'
-            return (
-              <span className="progress-step" key={item.id}>
-                <img src={`/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/${node}`} alt="" />
-                {index < 4 ? <i /> : null}
-              </span>
-            )
-          })}
-        </div>
+        <section className="titlebar-promote-progress" aria-label="本层 5 题晋级进度">
+          <nav className="titlebar-promote-nodes" aria-label="本层题目 1 到 5">
+            {promoteItems.map((item) => (
+              <PromoteNode item={item} key={item.slot} />
+            ))}
+          </nav>
+          <span className="titlebar-promote-summary" title={promoteSummaryText}>
+            {promoteSummaryText}
+          </span>
+        </section>
         <div className="programming-actions">
           <Link className="top-icon-button" href={`/map?chapter=${chapter.chapterId}`} aria-label="任务书">
             <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-book.svg" alt="" />
@@ -83,18 +127,171 @@ export default async function LevelPage({ params }: LevelPageProps) {
       </header>
 
       <section className="programming-main">
-        <ProgrammingLevel level={level} />
+        <ProgrammingLevel level={level} stageMenu={stageMenu} progressRecords={progressRecords} />
       </section>
     </main>
   )
 }
 
-function formatDisplayMode(displayMode: string) {
-  const labels: Record<string, string> = {
-    primary: '主线',
-    backup: '备用',
-    'exam-only': '段位赛',
+type StageMenuItem = NonNullable<Awaited<ReturnType<typeof getLessonStageMenu>>>['items'][number]
+
+type PromoteItem = {
+  slot: number
+  title: string
+  roleLabel: string
+  href: string | null
+  required: boolean
+  passed: boolean
+  current: boolean
+  missing: boolean
+  nodeAsset: string
+}
+
+function getProgressAwareStageLevelId({
+  currentLevelId,
+  passedLevelIds,
+  stageItems,
+}: {
+  currentLevelId: string
+  passedLevelIds: Set<string>
+  stageItems: StageMenuItem[] | null
+}) {
+  if (!stageItems || stageItems.length === 0) return null
+
+  const orderedItems = stageItems.slice().sort((a, b) => a.position - b.position).slice(0, 5)
+  const currentItem = orderedItems.find((item) => item.levelId === currentLevelId)
+  if (!currentItem || !passedLevelIds.has(currentItem.levelId)) return null
+
+  return orderedItems.find((item) => !passedLevelIds.has(item.levelId))?.levelId ?? null
+}
+
+function buildPromoteItems({
+  currentLevelId,
+  fallbackLevels,
+  passedLevelIds,
+  stageItems,
+}: {
+  currentLevelId: string
+  fallbackLevels: Array<{ id: string; title: string }>
+  passedLevelIds: Set<string>
+  stageItems: StageMenuItem[] | null
+}): PromoteItem[] {
+  const sourceItems =
+    stageItems && stageItems.length > 0
+      ? stageItems
+          .slice()
+          .sort((a, b) => a.position - b.position)
+          .slice(0, 5)
+          .map((item, index) => ({
+            levelId: item.levelId,
+            title: item.title,
+            position: item.position || index + 1,
+            displayMode: item.displayMode,
+          }))
+      : fallbackLevels.slice(0, 5).map((item, index) => ({
+          levelId: item.id,
+          title: item.title,
+          position: index + 1,
+          displayMode: null,
+        }))
+
+  return Array.from({ length: 5 }, (_, index) => {
+    const slot = index + 1
+    const source = sourceItems[index]
+    const levelId = source?.levelId ?? null
+    const current = levelId === currentLevelId
+    const passed = levelId ? passedLevelIds.has(levelId) : false
+    const required = slot <= 3
+    const roleLabel = getPromoteRoleLabel(source?.displayMode, slot)
+    const optionalPassed = slot >= 4 && passed
+    const nodeAsset = optionalPassed
+      ? slot === 4
+        ? 'titlebar-node-advanced.svg'
+        : 'titlebar-node-challenge.svg'
+      : current
+        ? 'titlebar-node-current.svg'
+        : passed
+        ? 'titlebar-node-completed.svg'
+        : required
+          ? 'titlebar-node-required.svg'
+          : slot === 4
+            ? 'titlebar-node-advanced.svg'
+            : 'titlebar-node-challenge.svg'
+
+    return {
+      slot,
+      title: source?.title ?? `${roleLabel}待导入`,
+      roleLabel,
+      href: levelId ? getStageSelectionHref(levelId) : null,
+      required,
+      passed,
+      current,
+      missing: !source,
+      nodeAsset,
+    }
+  })
+}
+
+function getStageSelectionHref(levelId: string) {
+  return `/level/${levelId}?stageSelect=1`
+}
+
+function getPromoteRoleLabel(displayMode: string | null | undefined, slot: number) {
+  if (displayMode === 'template') return '模板题'
+  if (displayMode === 'basic') return '基础题'
+  if (displayMode === 'variant') return '变式题'
+  if (displayMode === 'advanced') return '提高题'
+  if (displayMode === 'challenge') return '挑战题'
+
+  return ['模板题', '基础题', '变式题', '提高题', '挑战题'][slot - 1] ?? getProblemSetItemDisplayModeLabel(displayMode ?? '')
+}
+
+function buildPromoteSummary(items: PromoteItem[], currentLevelTitle: string) {
+  const labels = ['模版', '基础', '变式', '提高', '挑战']
+  const passedCount = items.filter((item) => !item.missing && item.passed).length
+  const mainlinePassed = items.slice(0, 3).every((item) => !item.missing && item.passed)
+
+  if (passedCount >= 5) return '完美通过此关'
+  if (mainlinePassed) return '已通关，继续挑战难度'
+
+  const current = items.find((item) => item.current)
+  if (!current) return `当前：${currentLevelTitle}`
+
+  return `${labels[current.slot - 1] ?? current.roleLabel}：${current.missing ? '待导入' : current.title}`
+}
+
+function PromoteNode({ item }: { item: PromoteItem }) {
+  const className = [
+    'titlebar-promote-node',
+    `slot-${item.slot}`,
+    item.current ? 'current' : '',
+    item.passed ? 'passed' : '',
+    item.slot >= 4 && item.passed ? 'optional-passed' : '',
+    item.required ? 'required' : 'optional',
+    item.missing ? 'missing' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+  const content = (
+    <>
+      <img src={`/assets/art/backgrounds/ch1-mist-town/promote/${item.nodeAsset}`} alt="" />
+      <span>{item.passed && !item.current && item.slot < 4 ? '✓' : item.slot}</span>
+      <b>{item.roleLabel}</b>
+    </>
+  )
+  const label = `${item.roleLabel}，${item.current ? '当前题目，' : ''}${item.passed ? '已通过，' : ''}${item.title}`
+
+  if (!item.href || item.current) {
+    return (
+      <span aria-label={label} className={className} title={item.title}>
+        {content}
+      </span>
+    )
   }
 
-  return labels[displayMode] ?? displayMode
+  return (
+    <Link aria-label={label} className={className} href={item.href} title={item.title}>
+      {content}
+    </Link>
+  )
 }

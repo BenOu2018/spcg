@@ -54,7 +54,7 @@ export default async function AdminProblemSetsPage() {
           </label>
           <label className="admin-form-span-2">
             <span>Description</span>
-            <input name="description" placeholder="5-10 题课程题单，后续可生成教案" />
+            <input name="description" placeholder="v0.2 默认每关 5 题，前 3 题主线必做" />
           </label>
           <button className="admin-button" type="submit">
             Create Lesson Set

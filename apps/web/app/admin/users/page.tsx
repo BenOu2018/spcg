@@ -88,6 +88,7 @@ export default async function AdminUsersPage() {
           <span>User</span>
           <span>Status</span>
           <span>User Role</span>
+          <span>Teacher</span>
           <span>Role</span>
           <span>Progress</span>
           <span>Actions</span>
@@ -105,6 +106,20 @@ export default async function AdminUsersPage() {
               {user.isTestAccount ? <em className="admin-status admin-status-validated">test</em> : null}
             </div>
             <span>{user.userRole}</span>
+            <span>
+              {user.teacherOwnerId ? (
+                <>
+                  <Link className="admin-title-link" href={`/admin/users/${user.teacherOwnerId}`}>
+                    {user.teacherOwnerName ?? user.teacherOwnerEmail ?? user.teacherOwnerId}
+                  </Link>
+                  <small>{user.teacherOwnerEmail ?? user.teacherOwnerId}</small>
+                </>
+              ) : user.userRole === 'student' ? (
+                '未绑定'
+              ) : (
+                '-'
+              )}
+            </span>
             <span>{user.adminRole ? `${user.adminRole}${user.adminActive ? '' : ' inactive'}` : '-'}</span>
             <span>
               {user.passedCount} passed

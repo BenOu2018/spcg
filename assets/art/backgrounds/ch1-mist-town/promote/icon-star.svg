@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Star icon</title>
+  <desc id="desc">Advanced optional problem star icon.</desc>
+  <circle cx="32" cy="32" r="28" fill="#b87418" stroke="#ffd37a" stroke-width="4"/>
+  <path d="M32 12l6 13 14 2-10 10 3 14-13-7-13 7 3-14-10-10 14-2z" fill="#fff1b8"/>
+</svg>

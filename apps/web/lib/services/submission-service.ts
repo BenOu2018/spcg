@@ -1,4 +1,4 @@
-import type { Language, ResolvedLanguage, RewardGrantResult, Verdict } from '@spcg/shared/types'
+import type { JudgeProgress, Language, ResolvedLanguage, RewardGrantResult, Verdict } from '@spcg/shared/types'
 import { normalizeLanguageMode, resolveLanguageMode } from '@spcg/shared/language-config'
 import {
   createSubmission,
@@ -6,17 +6,22 @@ import {
   getJudgeQueueStats,
   getSubmissionForUser,
   listAdminSubmissionHistory,
+  listSubmissionHistoryForLevelViewer,
   listSubmissionHistoryForUser,
   type AdminSubmissionHistoryItem,
   type JudgeQueueStats,
+  type LevelSubmissionHistoryItem,
   type SubmissionHistoryItem,
   type SubmissionStatus,
 } from '@/lib/repositories/submission-repository'
 import { isDatabaseConfigured } from '@/lib/repositories/database-repository'
+import { isAssessmentAttemptLevelForUser, recordAssessmentRealtimeSubmission } from '@/lib/repositories/assessment-repository'
 import { getRewardSummaryForSubmission } from '@/lib/services/reward-service'
+import { getLevelAccessForUser } from '@/lib/services/level-access-service'
 import { ServiceError } from '@/lib/services/errors'
 
 export type { SubmissionHistoryItem } from '@/lib/repositories/submission-repository'
+export type { LevelSubmissionHistoryItem } from '@/lib/repositories/submission-repository'
 export type { AdminSubmissionHistoryItem } from '@/lib/repositories/submission-repository'
 
 export type CreateSubmissionServiceResult =
@@ -26,10 +31,11 @@ export type CreateSubmissionServiceResult =
       status: SubmissionStatus
       language: Language
       resolvedLanguage: ResolvedLanguage
+      assessmentAttemptId: string | null
     }
   | {
       ok: false
-      code: 'empty' | 'db_unconfigured' | 'unauthorized' | 'rate_limited'
+      code: 'empty' | 'db_unconfigured' | 'unauthorized' | 'forbidden' | 'rate_limited'
       reason: string
       retryAfterSeconds?: number
     }
@@ -37,14 +43,22 @@ export type CreateSubmissionServiceResult =
 export type SubmissionPollResult = {
   status: SubmissionStatus | 'missing'
   verdict: Verdict | null
+  judgeProgress?: JudgeProgress | null
   language?: Language
   resolvedLanguage?: ResolvedLanguage | null
   reward?: RewardGrantResult | null
+  score?: number
+  maxScore?: number | null
   error?: string
 }
 
 export type SubmissionHistoryResult = {
   items: SubmissionHistoryItem[]
+  error?: string
+}
+
+export type LevelSubmissionHistoryResult = {
+  items: LevelSubmissionHistoryItem[]
   error?: string
 }
 
@@ -56,6 +70,10 @@ export async function createUserSubmission(input: {
   code: string
   language?: Language
   rateLimitSeconds?: number
+  assessmentAttemptId?: string | null
+  assessmentPhase?: 'realtime' | 'final' | null
+  judgeMode?: 'fast' | 'full' | null
+  maxScore?: number | null
 }): Promise<CreateSubmissionServiceResult> {
   if (!input.levelId || !input.code.trim()) {
     return { ok: false, code: 'empty', reason: '提交内容为空，无法远程判题。' }
@@ -67,6 +85,29 @@ export async function createUserSubmission(input: {
 
   if (!input.userId) {
     return { ok: false, code: 'unauthorized', reason: '当前未登录，无法远程判题。' }
+  }
+
+  if (input.assessmentAttemptId) {
+    const allowed = await isAssessmentAttemptLevelForUser({
+      userId: input.userId,
+      attemptId: input.assessmentAttemptId,
+      levelId: input.levelId,
+    })
+    if (!allowed) {
+      return { ok: false, code: 'unauthorized', reason: '当前考试不包含这道题，无法提交。' }
+    }
+  } else {
+    const access = await getLevelAccessForUser({
+      userId: input.userId,
+      levelId: input.levelId,
+    })
+    if (!access.allowed) {
+      return {
+        ok: false,
+        code: 'forbidden',
+        reason: access.reason ?? '当前关卡尚未解锁，无法提交。',
+      }
+    }
   }
 
   const rateLimitSeconds = input.rateLimitSeconds ?? getSubmissionRateLimitSeconds()
@@ -93,7 +134,20 @@ export async function createUserSubmission(input: {
     code: input.code,
     language,
     resolvedLanguage,
+    assessmentAttemptId: input.assessmentAttemptId ?? null,
+    assessmentPhase: input.assessmentPhase ?? null,
+    judgeMode: input.judgeMode ?? null,
+    maxScore: input.maxScore ?? null,
   })
+
+  if (input.assessmentAttemptId && input.assessmentPhase === 'realtime') {
+    await recordAssessmentRealtimeSubmission({
+      userId: input.userId,
+      attemptId: input.assessmentAttemptId,
+      levelId: input.levelId,
+      submissionId: submission.id,
+    })
+  }
 
   return {
     ok: true,
@@ -101,6 +155,7 @@ export async function createUserSubmission(input: {
     status: submission.status,
     language,
     resolvedLanguage,
+    assessmentAttemptId: submission.assessmentAttemptId,
   }
 }
 
@@ -124,8 +179,11 @@ export async function getUserSubmissionVerdict(input: {
   return {
     status: row.status,
     verdict: row.verdict,
+    judgeProgress: row.judgeProgress,
     language: row.language,
     resolvedLanguage: row.resolvedLanguage,
+    score: row.score,
+    maxScore: row.maxScore,
     reward:
       row.status === 'done'
         ? await getRewardSummaryForSubmission({
@@ -139,6 +197,7 @@ export async function getUserSubmissionVerdict(input: {
 export async function getUserSubmissionHistory(input: {
   userId?: string | null
   levelId: string
+  assessmentAttemptId?: string | null
 }): Promise<SubmissionHistoryResult> {
   if (!input.levelId) {
     return { items: [], error: '题目不存在。' }
@@ -157,6 +216,34 @@ export async function getUserSubmissionHistory(input: {
       userId: input.userId,
       levelId: input.levelId,
       limit: 20,
+      assessmentAttemptId: input.assessmentAttemptId ?? null,
+    }),
+  }
+}
+
+export async function getLevelSubmissionHistoryForViewer(input: {
+  userId?: string | null
+  levelId: string
+  assessmentAttemptId?: string | null
+}): Promise<LevelSubmissionHistoryResult> {
+  if (!input.levelId) {
+    return { items: [], error: '题目不存在。' }
+  }
+
+  if (!isDatabaseConfigured()) {
+    return { items: [], error: '数据库未配置。' }
+  }
+
+  if (!input.userId) {
+    return { items: [], error: '当前未登录。' }
+  }
+
+  return {
+    items: await listSubmissionHistoryForLevelViewer({
+      viewerUserId: input.userId,
+      levelId: input.levelId,
+      limit: 50,
+      assessmentAttemptId: input.assessmentAttemptId ?? null,
     }),
   }
 }
@@ -176,6 +263,7 @@ export async function requireUserSubmissionVerdict(input: {
 export async function requireUserSubmissionHistory(input: {
   userId?: string | null
   levelId: string
+  assessmentAttemptId?: string | null
 }): Promise<SubmissionHistoryResult> {
   if (!input.userId) throw new ServiceError('unauthorized', '当前未登录。', 401)
   if (!input.levelId) throw new ServiceError('bad_request', 'levelId is required.', 400)

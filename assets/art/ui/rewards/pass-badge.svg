@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 112" role="img" aria-labelledby="title desc">
+  <title id="title">Pass badge</title>
+  <desc id="desc">Military style level pass badge.</desc>
+  <defs>
+    <linearGradient id="m" x1="16" y1="6" x2="80" y2="106" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f8d575"/>
+      <stop offset=".42" stop-color="#a6782a"/>
+      <stop offset="1" stop-color="#ffe7a0"/>
+    </linearGradient>
+    <linearGradient id="g" x1="28" y1="26" x2="70" y2="91" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#566946"/>
+      <stop offset=".55" stop-color="#263622"/>
+      <stop offset="1" stop-color="#101a14"/>
+    </linearGradient>
+    <filter id="s" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="3" stdDeviation="2" flood-color="#0b0e09" flood-opacity=".5"/>
+    </filter>
+  </defs>
+  <g filter="url(#s)">
+    <path d="M18 28 48 8l30 20v28c0 22-12 38-30 48-18-10-30-26-30-48z" fill="url(#m)" stroke="#3d2b11" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M27 34 48 20l21 14v22c0 16-8 28-21 36-13-8-21-20-21-36z" fill="url(#g)" stroke="#f1c762" stroke-width="2"/>
+    <path d="M16 76h64l8 9-8 9H16l-8-9z" fill="#263b67" stroke="#d5a747" stroke-width="2"/>
+    <path d="M31 44h34M35 53h26M39 62h18" stroke="#cfb16b" stroke-width="4" stroke-linecap="round"/>
+    <path d="m48 29 4 8 9 1-6 6 1 9-8-4-8 4 1-9-6-6 9-1z" fill="#f7d36c" stroke="#3e2a0e" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="m34 83 7 6 8-6 8 6 7-6" fill="none" stroke="#f7d36c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="48" y="90" text-anchor="middle" font-family="Arial Black,Impact,sans-serif" font-size="21" font-weight="900" fill="#fff1b0" stroke="#13213d" stroke-width=".9">Pass</text>
+  </g>
+</svg>

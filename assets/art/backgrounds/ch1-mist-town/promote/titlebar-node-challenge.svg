@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44" role="img" aria-labelledby="title desc">
+  <title id="title">Challenge mini node</title>
+  <desc id="desc">Mini challenge optional node for compact titlebar promotion widget.</desc>
+  <circle cx="22" cy="22" r="20" fill="#9f372b" stroke="#ffd18a" stroke-width="3"/>
+  <path d="M15 12h14v7c0 8-3 14-7 14s-7-6-7-14z" fill="#fff0bb"/>
+  <path d="M15 16h-5c1 8 5 11 9 11M29 16h5c-1 8-5 11-9 11" fill="none" stroke="#fff0bb" stroke-width="4" stroke-linecap="round"/>
+</svg>

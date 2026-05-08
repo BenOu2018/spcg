@@ -36,7 +36,7 @@ export function AttemptedProgressList({ items }: AttemptedProgressListProps) {
       <div className="progress-list-head">
         <div>
           <h2>做过的题目</h2>
-          <span>{items.length} 题</span>
+          <span>{items.length} 题 · 每页 {PAGE_SIZE} 条</span>
         </div>
         {totalPages > 1 ? <em>{currentPage}/{totalPages}</em> : null}
       </div>
@@ -47,7 +47,7 @@ export function AttemptedProgressList({ items }: AttemptedProgressListProps) {
             <div className={item.passed ? 'status-dot done' : 'status-dot'}>
               {item.passed ? <CheckCircle2 size={16} /> : <Clock3 size={16} />}
             </div>
-            <div>
+            <div className="progress-row-main">
               <h2>{item.title}</h2>
               <p>
                 关卡 {item.levelId} · {item.knowledgePoint}

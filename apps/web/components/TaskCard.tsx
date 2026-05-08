@@ -31,6 +31,9 @@ export function TaskCard({ level, sampleResults, expanded = false, onToggleExpan
             <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-book.svg" alt="" />
             Goal
           </div>
+          <div className="task-title-row">
+            <h1>{level.title}</h1>
+          </div>
           <button
             className="task-expand-button"
             type="button"
@@ -42,10 +45,6 @@ export function TaskCard({ level, sampleResults, expanded = false, onToggleExpan
           >
             {expanded ? <Minimize2 size={16} strokeWidth={2.6} /> : <Maximize2 size={16} strokeWidth={2.6} />}
           </button>
-        </div>
-
-        <div className="task-title-row">
-          <h1>{level.title}</h1>
         </div>
 
         <div className="task-meta">
@@ -240,6 +239,8 @@ function formatStatus(status: SampleRunStatus): string {
     CE: 'CE',
     RE: 'RE',
     TLE: 'TLE',
+    MLE: 'MLE',
+    PE: 'PE',
     'Judge Error': 'Judge Error',
   }
 

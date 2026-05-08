@@ -14,6 +14,11 @@ import {
 } from '@/lib/repositories/teacher-repository'
 import { findUserByIdentifier, getUserRole } from '@/lib/repositories/user-repository'
 import { hashPassword } from '@/lib/password'
+import {
+  getStudentCurrentLevelSummary,
+  setStudentCurrentLevel,
+  type StudentCurrentLevelSummary,
+} from '@/lib/services/level-access-service'
 import { ServiceError } from '@/lib/services/errors'
 
 export type TeacherDashboard = {
@@ -140,8 +145,39 @@ export async function requireTeacherOwnsStudent(input: {
   studentUserId: string
 }): Promise<void> {
   const teacher = await requireTeacher(input.teacherUserId)
+  if (teacher.role === 'admin') return
   const owns = await teacherOwnsStudent(teacher.userId, input.studentUserId)
   if (!owns) throw new ServiceError('forbidden', '不能访问不属于你的学生。', 403)
+}
+
+export async function getTeacherStudentCurrentLevel(input: {
+  teacherUserId?: string | null
+  studentUserId: string
+}): Promise<StudentCurrentLevelSummary | null> {
+  const teacher = await requireTeacher(input.teacherUserId)
+  await requireTeacherOwnsStudent({
+    teacherUserId: teacher.userId,
+    studentUserId: input.studentUserId,
+  })
+  return getStudentCurrentLevelSummary(input.studentUserId)
+}
+
+export async function setTeacherStudentCurrentLevel(input: {
+  teacherUserId?: string | null
+  studentUserId: string
+  levelId: string
+}): Promise<StudentCurrentLevelSummary> {
+  const teacher = await requireTeacher(input.teacherUserId)
+  await requireTeacherOwnsStudent({
+    teacherUserId: teacher.userId,
+    studentUserId: input.studentUserId,
+  })
+  return setStudentCurrentLevel({
+    studentUserId: input.studentUserId,
+    levelId: input.levelId,
+    assignedBy: teacher.userId,
+    reason: 'teacher_current_level_override',
+  })
 }
 
 export async function getTeacherStudentProgress(input: {

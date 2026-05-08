@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>本周知识点</title>
+  <path d="M14 12h25c6 0 11 5 11 11v29H24c-6 0-10-4-10-10V12Z" fill="#fff6dc" stroke="#6f5430" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M25 12v30c0 6 4 10 10 10" fill="none" stroke="#b48a47" stroke-width="3" stroke-linecap="round"/>
+  <path d="M32 21h11M32 30h11M32 39h8" fill="none" stroke="#6f5430" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="20" cy="21" r="3" fill="#57a96b"/>
+  <circle cx="20" cy="30" r="3" fill="#4f8edb"/>
+  <circle cx="20" cy="39" r="3" fill="#d09a2c"/>
+  <path d="M45 8l2.4 4.8 5.3.8-3.8 3.7.9 5.2-4.8-2.5-4.8 2.5.9-5.2-3.8-3.7 5.3-.8L45 8Z" fill="#f2c84b" stroke="#73511d" stroke-width="2" stroke-linejoin="round"/>
+</svg>

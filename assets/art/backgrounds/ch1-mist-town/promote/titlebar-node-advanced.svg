@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44" role="img" aria-labelledby="title desc">
+  <title id="title">Advanced mini node</title>
+  <desc id="desc">Mini advanced optional node for compact titlebar promotion widget.</desc>
+  <circle cx="22" cy="22" r="20" fill="#b87418" stroke="#ffe09a" stroke-width="3"/>
+  <path d="M22 9l4 9 10 1-7 7 2 10-9-5-9 5 2-10-7-7 10-1z" fill="#fff2bd"/>
+</svg>

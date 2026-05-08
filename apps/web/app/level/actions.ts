@@ -2,13 +2,14 @@
 
 import { auth } from '@/auth'
 import { wakeJudgeWorker } from '@/lib/judge-worker-autostart'
+import { getLevelAccessForUser } from '@/lib/services/level-access-service'
 import { getLevelByIdForUser, getUnlockedLevelSolutionForUser } from '@/lib/services/level-service'
 import { explainSubmissionErrorForUser } from '@/lib/services/submission-error-analysis-service'
 import {
   createUserSubmission,
-  getUserSubmissionHistory,
+  getLevelSubmissionHistoryForViewer,
   getUserSubmissionVerdict,
-  type SubmissionHistoryResult,
+  type LevelSubmissionHistoryResult,
   type SubmissionPollResult,
 } from '@/lib/services/submission-service'
 import { executeCode } from '@/lib/services/code-runner-service'
@@ -20,6 +21,10 @@ type SubmitCodeInput = {
   levelId: string
   code: string
   languageMode?: LanguageMode
+  assessmentAttemptId?: string | null
+  assessmentPhase?: 'realtime' | 'final' | null
+  judgeMode?: 'fast' | 'full' | null
+  maxScore?: number | null
 }
 
 type RunCodeInput = {
@@ -76,6 +81,18 @@ export async function runCodeAction(input: RunCodeInput): Promise<RunCodeActionR
     }
   }
 
+  const access = await getLevelAccessForUser({
+    userId: session?.user?.id,
+    levelId: input.levelId,
+  })
+  if (!access.allowed) {
+    return {
+      engine: 'error',
+      resolvedLanguage,
+      execution: buildRunError(access.reason ?? '当前关卡尚未解锁，无法运行代码。'),
+    }
+  }
+
   try {
     return {
       engine: isJudge0Configured() ? 'judge0' : 'mock',
@@ -107,6 +124,18 @@ export async function runPublicSamplesAction(input: SubmitCodeInput): Promise<Ru
   })
 
   if (!level) {
+    return {
+      engine: 'error',
+      resolvedLanguage,
+      samples: {},
+    }
+  }
+
+  const access = await getLevelAccessForUser({
+    userId: session?.user?.id,
+    levelId: input.levelId,
+  })
+  if (!access.allowed) {
     return {
       engine: 'error',
       resolvedLanguage,
@@ -148,6 +177,10 @@ export async function submitCodeAction(input: SubmitCodeInput): Promise<SubmitCo
     levelId: input.levelId,
     code: input.code,
     language: languageMode,
+    assessmentAttemptId: input.assessmentAttemptId ?? null,
+    assessmentPhase: input.assessmentPhase ?? null,
+    judgeMode: input.judgeMode ?? null,
+    maxScore: input.maxScore ?? null,
   })
 
   if (!result.ok) {
@@ -178,11 +211,23 @@ export async function getSubmissionVerdictAction(submissionId: string): Promise<
   })
 }
 
-export async function getSubmissionHistoryAction(levelId: string): Promise<SubmissionHistoryResult> {
+export async function getSubmissionHistoryAction(levelId: string): Promise<LevelSubmissionHistoryResult> {
   const session = await auth()
-  return getUserSubmissionHistory({
+  return getLevelSubmissionHistoryForViewer({
     userId: session?.user?.id,
     levelId,
+  })
+}
+
+export async function getAssessmentSubmissionHistoryAction(input: {
+  levelId: string
+  assessmentAttemptId: string
+}): Promise<LevelSubmissionHistoryResult> {
+  const session = await auth()
+  return getLevelSubmissionHistoryForViewer({
+    userId: session?.user?.id,
+    levelId: input.levelId,
+    assessmentAttemptId: input.assessmentAttemptId,
   })
 }
 

@@ -17,7 +17,7 @@ type AdminSubmissionTableProps = {
   emptyText?: string
 }
 
-const ANALYZABLE_RESULTS = new Set<Verdict['result']>(['WA', 'TLE', 'RE', 'CE', 'Judge Error'])
+const ANALYZABLE_RESULTS = new Set<Verdict['result']>(['WA', 'TLE', 'MLE', 'RE', 'CE', 'PE', 'Judge Error'])
 
 export function AdminSubmissionTable({ submissions, emptyText = 'No submissions yet.' }: AdminSubmissionTableProps) {
   const [selectedId, setSelectedId] = useState<string | null>(submissions[0]?.id ?? null)
@@ -326,12 +326,13 @@ function formatResult(submission: AdminSubmissionHistoryItem): string {
 
 function resultStatusClass(submission: AdminSubmissionHistoryItem): string {
   const result = submission.verdict?.result
-  if (result === 'AC') return 'admin-status-published'
-  if (result === 'WA' || result === 'CE' || result === 'RE' || result === 'TLE' || result === 'Judge Error') {
-    return 'admin-status-rejected'
-  }
+  if (result) return `admin-verdict-${statusClassName(result)}`
   if (submission.status === 'pending' || submission.status === 'judging') return 'admin-status-review'
   return 'admin-status-draft'
+}
+
+function statusClassName(status: string): string {
+  return status.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 }
 
 function formatCases(verdict: Verdict | null): string {

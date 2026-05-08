@@ -11,6 +11,7 @@ import type {
   TestCase,
   UserRole,
 } from '@spcg/shared/types'
+import { isProblemSetItemDisplayMode, type ProblemSetItemDisplayMode } from '@spcg/shared/curriculum'
 import { isDbConfigured, query, queryOne } from '@/lib/db'
 import { levels as mockLevels, progressRecords as mockProgressRecords } from '@/lib/mock-data'
 
@@ -71,7 +72,7 @@ export type ProblemSetItem = {
   position: number
   label: string | null
   required: boolean
-  displayMode: 'primary' | 'backup' | 'exam-only'
+  displayMode: ProblemSetItemDisplayMode
 }
 
 export type ProblemSetDetail = ProblemSet & {
@@ -88,7 +89,7 @@ export type ImportBatch = {
   targetSpcgLevel: number | null
   targetProblemSetId: string | null
   targetProblemSetTitle: string | null
-  defaultItemMode: 'primary' | 'backup' | 'exam-only'
+  defaultItemMode: ProblemSetItemDisplayMode
   itemCount: number
   createdAt: string | null
   reviewedAt: string | null
@@ -102,7 +103,7 @@ export type ImportBatchItem = {
   validationStatus: 'pending' | 'passed' | 'failed'
   status: 'pending' | 'approved' | 'rejected' | 'imported'
   validationErrors: unknown[]
-  displayMode: 'primary' | 'backup' | 'exam-only' | null
+  displayMode: ProblemSetItemDisplayMode | null
 }
 
 export type ImportBatchDetail = ImportBatch & {
@@ -123,6 +124,9 @@ export type AdminUser = {
   email: string | null
   displayName: string | null
   parentEmail: string | null
+  teacherOwnerId: string | null
+  teacherOwnerEmail: string | null
+  teacherOwnerName: string | null
   accountStatus: UserAccountStatus
   isTestAccount: boolean
   adminRole: string | null
@@ -156,7 +160,7 @@ export type AdminLevelSetMembership = {
   spcgLevel: number | null
   stageNo: number | null
   track: string | null
-  displayMode: 'primary' | 'backup' | 'exam-only'
+  displayMode: ProblemSetItemDisplayMode
 }
 
 type LevelRow = {
@@ -206,6 +210,9 @@ type AdminUserRow = {
   email: string | null
   display_name: string | null
   parent_email: string | null
+  teacher_owner_id: string | null
+  teacher_owner_email: string | null
+  teacher_owner_name: string | null
   account_status: UserAccountStatus | null
   is_test_account: boolean | null
   admin_role: string | null
@@ -236,7 +243,7 @@ type ImportBatchRow = {
   target_spcg_level: number | null
   target_problem_set_id: string | null
   target_problem_set_title: string | null
-  default_item_mode: 'primary' | 'backup' | 'exam-only' | null
+  default_item_mode: ProblemSetItemDisplayMode | null
   item_count: string | number
   created_at: string | null
   reviewed_at: string | null
@@ -295,7 +302,7 @@ export const listAdminLevelSetMemberships = cache(async (): Promise<AdminLevelSe
         spcg_level: number | null
         stage_no: number | null
         track: string | null
-        display_mode: 'primary' | 'backup' | 'exam-only' | null
+        display_mode: ProblemSetItemDisplayMode | null
       } & Record<string, unknown>
     >(
       `
@@ -358,6 +365,9 @@ export const listAdminUsers = cache(async (): Promise<AdminUser[]> => {
         u.email,
         COALESCE(p.display_name, u.display_name) AS display_name,
         p.parent_email,
+        teacher_user.id AS teacher_owner_id,
+        teacher_user.email AS teacher_owner_email,
+        COALESCE(teacher_profile.display_name, teacher_user.display_name) AS teacher_owner_name,
         COALESCE(uas.account_status, 'active') AS account_status,
         COALESCE(uas.is_test_account, FALSE) AS is_test_account,
         ar.role AS admin_role,
@@ -372,9 +382,23 @@ export const listAdminUsers = cache(async (): Promise<AdminUser[]> => {
       LEFT JOIN user_admin_states uas ON uas.user_id = u.id
       LEFT JOIN admin_roles ar ON ar.user_id = u.id
       LEFT JOIN user_roles ur ON ur.user_id = u.id
+      LEFT JOIN teacher_students ts ON ts.student_user_id = u.id AND ts.status = 'active'
+      LEFT JOIN users teacher_user ON teacher_user.id = ts.teacher_user_id
+      LEFT JOIN profiles teacher_profile ON teacher_profile.user_id = teacher_user.id
       LEFT JOIN progress pr ON pr.user_id = u.id
       LEFT JOIN submissions s ON s.user_id = u.id
-      GROUP BY u.id, p.display_name, p.parent_email, uas.account_status, uas.is_test_account, ar.role, ar.active, ur.role
+      GROUP BY
+        u.id,
+        p.display_name,
+        p.parent_email,
+        teacher_user.id,
+        teacher_user.email,
+        teacher_profile.display_name,
+        uas.account_status,
+        uas.is_test_account,
+        ar.role,
+        ar.active,
+        ur.role
       ORDER BY u.created_at DESC
       `,
     )
@@ -461,7 +485,7 @@ export async function getProblemSet(id: string): Promise<ProblemSetDetail | null
       position: number
       label: string | null
       required: boolean
-      display_mode: 'primary' | 'backup' | 'exam-only' | null
+      display_mode: ProblemSetItemDisplayMode | null
     } & Record<string, unknown>
   >(
     `
@@ -671,6 +695,9 @@ function mapAdminUserRow(row: AdminUserRow): AdminUser {
     email: row.email,
     displayName: row.display_name,
     parentEmail: row.parent_email,
+    teacherOwnerId: row.teacher_owner_id,
+    teacherOwnerEmail: row.teacher_owner_email,
+    teacherOwnerName: row.teacher_owner_name,
     accountStatus: row.account_status ?? 'active',
     isTestAccount: Boolean(row.is_test_account),
     adminRole: row.admin_role,
@@ -803,6 +830,9 @@ function fallbackUsers(): AdminUser[] {
       email: 'student-preview@spcg.local',
       displayName: '预览学生',
       parentEmail: 'parent-preview@spcg.local',
+      teacherOwnerId: null,
+      teacherOwnerEmail: null,
+      teacherOwnerName: null,
       accountStatus: 'active',
       isTestAccount: true,
       adminRole: null,
@@ -818,6 +848,9 @@ function fallbackUsers(): AdminUser[] {
       email: 'admin-preview@spcg.local',
       displayName: '后台预览管理员',
       parentEmail: null,
+      teacherOwnerId: null,
+      teacherOwnerEmail: null,
+      teacherOwnerName: null,
       accountStatus: 'active',
       isTestAccount: true,
       adminRole: 'owner',
@@ -846,8 +879,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function isDisplayMode(value: unknown): value is 'primary' | 'backup' | 'exam-only' {
-  return value === 'primary' || value === 'backup' || value === 'exam-only'
+function isDisplayMode(value: unknown): value is ProblemSetItemDisplayMode {
+  return isProblemSetItemDisplayMode(value)
 }
 
 function isResolvedLanguage(value: unknown): value is ResolvedLanguage {

@@ -1,23 +1,40 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import type { Level } from '@spcg/shared/types'
+import type { Level, Progress } from '@spcg/shared/types'
 import { getUnlockedLevelSolutionAction } from '@/app/level/actions'
 import { CodeWorkspace } from '@/components/CodeWorkspace'
 import { TaskCard } from '@/components/TaskCard'
 import type { SampleRunResultMap } from '@/components/sample-run'
 
+type StagePathMenu = {
+  title: string
+  stageNo: number
+  items: Array<{
+    levelId: string
+    title: string
+    position: number
+    displayMode: string
+  }>
+} | null
+
 type ProgrammingLevelProps = {
   level: Level
+  stageMenu?: StagePathMenu
+  progressRecords?: Progress[]
 }
 
-export function ProgrammingLevel({ level }: ProgrammingLevelProps) {
+export function ProgrammingLevel({ level, stageMenu = null, progressRecords = [] }: ProgrammingLevelProps) {
   const [activeLevel, setActiveLevel] = useState(level)
   const [sampleResults, setSampleResults] = useState<SampleRunResultMap>({})
   const [videoOpen, setVideoOpen] = useState(false)
   const [taskExpanded, setTaskExpanded] = useState(false)
+  const [localPassedIds, setLocalPassedIds] = useState<Set<string>>(
+    () => new Set(progressRecords.filter((progress) => progress.passed).map((progress) => progress.levelId)),
+  )
   const layoutVersion = useProgrammingLayoutRefresh()
   const videoUrl = activeLevel.solutionVideoUrl ?? null
+  const activeProgress = progressRecords.find((progress) => progress.levelId === activeLevel.id) ?? null
 
   useEffect(() => {
     setActiveLevel(level)
@@ -27,11 +44,20 @@ export function ProgrammingLevel({ level }: ProgrammingLevelProps) {
   }, [level.id])
 
   useEffect(() => {
+    setLocalPassedIds(new Set(progressRecords.filter((progress) => progress.passed).map((progress) => progress.levelId)))
+  }, [progressRecords])
+
+  useEffect(() => {
     const frame = window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
     return () => window.cancelAnimationFrame(frame)
   }, [taskExpanded])
 
   async function refreshSolutionUnlock() {
+    setLocalPassedIds((current) => {
+      const next = new Set(current)
+      next.add(activeLevel.id)
+      return next
+    })
     const unlocked = await getUnlockedLevelSolutionAction(activeLevel.id)
     if (!unlocked.solutionUnlocked) return
 
@@ -59,10 +85,21 @@ export function ProgrammingLevel({ level }: ProgrammingLevelProps) {
       />
       <CodeWorkspace
         level={activeLevel}
+        initialProgress={activeProgress}
         layoutVersion={layoutVersion + (taskExpanded ? 1 : 0)}
         onRunStart={() => setSampleResults(buildJudgingSamples(activeLevel))}
         onRunComplete={setSampleResults}
         onAccepted={refreshSolutionUnlock}
+        stagePath={
+          stageMenu
+            ? {
+                title: stageMenu.title,
+                stageNo: stageMenu.stageNo,
+                items: stageMenu.items,
+                passedLevelIds: [...localPassedIds],
+              }
+            : undefined
+        }
       />
       {videoOpen && videoUrl ? (
         <FloatingVideoPlayer title={`${activeLevel.title} · Algorithm Video`} url={videoUrl} onClose={() => setVideoOpen(false)} />

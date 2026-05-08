@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 72" role="img" aria-labelledby="title desc">
+  <title id="title">Continue current problem button</title>
+  <desc id="desc">Cyan button for continuing the current required problem.</desc>
+  <defs>
+    <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#38d8cf"/>
+      <stop offset="1" stop-color="#075a5a"/>
+    </linearGradient>
+  </defs>
+  <path d="M24 8h272l16 28-16 28H24L8 36z" fill="url(#g)" stroke="#8afff6" stroke-width="3"/>
+  <path d="M44 36h230" stroke="#a9fff8" stroke-opacity=".55" stroke-width="2"/>
+</svg>

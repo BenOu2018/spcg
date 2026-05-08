@@ -1,5 +1,13 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import {
+  LESSON_ROLE_SUMMARIES,
+  V02_LESSON_ITEM_COUNT,
+  V02_REQUIRED_ITEM_COUNT,
+  isAdvancedLessonProblemRole,
+  isRequiredLessonProblemRole,
+  type ProblemSetItemDisplayMode,
+} from '@spcg/shared/curriculum'
 import { StatementMarkdown } from '@/components/StatementMarkdown'
 import {
   getAdminProblemSetDetail,
@@ -35,7 +43,8 @@ export default async function AdminProblemSetDetailPage({ params }: AdminProblem
 
   const latestPlan = lessonPlans[0] ?? null
   const aiConfig = getAiLessonPlanConfig()
-  const canGenerateLessonPlan = set.type === 'lesson' && set.itemCount >= 5 && set.itemCount <= 10 && aiConfig.configured
+  const lessonCompleteness = getLessonCompleteness(set.items)
+  const canGenerateLessonPlan = set.type === 'lesson' && lessonCompleteness.ready && aiConfig.configured
 
   return (
     <section className="admin-stack">
@@ -113,6 +122,16 @@ export default async function AdminProblemSetDetailPage({ params }: AdminProblem
             <dd>{courseLabel(set)}</dd>
             <dt>Items</dt>
             <dd>{set.itemCount}</dd>
+            {set.type === 'lesson' ? (
+              <>
+                <dt>v0.2</dt>
+                <dd>
+                  {lessonCompleteness.total}/{V02_LESSON_ITEM_COUNT} 题 · 主线 {lessonCompleteness.required}/
+                  {V02_REQUIRED_ITEM_COUNT} · 提高 {lessonCompleteness.advanced}/2
+                  <small>{lessonCompleteness.ready ? '完整：可发布/生成教案' : lessonCompleteness.message}</small>
+                </dd>
+              </>
+            ) : null}
             <dt>AI</dt>
             <dd>{aiConfig.configured ? `Configured · ${aiConfig.model}` : 'Not configured'}</dd>
           </dl>
@@ -131,7 +150,7 @@ export default async function AdminProblemSetDetailPage({ params }: AdminProblem
           </div>
           {set.type === 'lesson' && !canGenerateLessonPlan ? (
             <p className="admin-help-text">
-              生成教案需要 5-10 道题，并配置 LESSON_PLAN_AI_BASE_URL / KEY / MODEL。
+              v0.2 生成教案需要固定 5 道题、至少前 3 道主线必做，并配置 LESSON_PLAN_AI_BASE_URL / KEY / MODEL。
             </p>
           ) : null}
         </article>
@@ -165,14 +184,12 @@ export default async function AdminProblemSetDetailPage({ params }: AdminProblem
             </label>
             <label>
               <span>Display Mode</span>
-              <select name="displayMode" defaultValue="primary" required>
-                <option value="primary">primary</option>
-                <option value="backup">backup</option>
-                <option value="exam-only">exam-only</option>
+              <select name="displayMode" defaultValue={defaultDisplayModeForPosition(set.itemCount + 1)} required>
+                <DisplayModeOptions />
               </select>
             </label>
             <label className="admin-checkbox">
-              <input name="required" type="checkbox" defaultChecked />
+              <input name="required" type="checkbox" defaultChecked={set.itemCount < V02_REQUIRED_ITEM_COUNT} />
               <span>Required</span>
             </label>
             <button className="admin-button" type="submit">
@@ -232,9 +249,7 @@ export default async function AdminProblemSetDetailPage({ params }: AdminProblem
             </span>
             <div className="admin-inline-field">
               <select className="admin-inline-input" name={`displayMode:${item.levelId}`} defaultValue={item.displayMode}>
-                <option value="primary">primary</option>
-                <option value="backup">backup</option>
-                <option value="exam-only">exam-only</option>
+                <DisplayModeOptions />
               </select>
               <label className="admin-checkbox">
                 <input name={`required:${item.levelId}`} type="checkbox" defaultChecked={item.required} />
@@ -346,4 +361,39 @@ function courseLabel(set: {
 }) {
   if (set.type !== 'lesson') return '-'
   return `SPCG ${set.spcgLevel}级 · 第${set.stageNo}关 · ${set.track}线 · ${set.lessonFocus}`
+}
+
+function DisplayModeOptions() {
+  return (
+    <>
+      {LESSON_ROLE_SUMMARIES.map((role) => (
+        <option key={role.mode} value={role.mode}>
+          {role.mode} · {role.label}
+        </option>
+      ))}
+    </>
+  )
+}
+
+function defaultDisplayModeForPosition(position: number): ProblemSetItemDisplayMode {
+  if (position <= 1) return 'template'
+  if (position === 2) return 'basic'
+  if (position === 3) return 'variant'
+  if (position === 4) return 'advanced'
+  return 'challenge'
+}
+
+function getLessonCompleteness(items: Array<{ required: boolean; displayMode: ProblemSetItemDisplayMode }>) {
+  const total = items.length
+  const required = items.filter((item) => item.required || isRequiredLessonProblemRole(item.displayMode)).length
+  const advanced = items.filter((item) => isAdvancedLessonProblemRole(item.displayMode)).length
+  const ready = total === V02_LESSON_ITEM_COUNT && required >= V02_REQUIRED_ITEM_COUNT
+  const message =
+    total !== V02_LESSON_ITEM_COUNT
+      ? `需要固定 ${V02_LESSON_ITEM_COUNT} 题`
+      : required < V02_REQUIRED_ITEM_COUNT
+        ? `需要 ${V02_REQUIRED_ITEM_COUNT} 道主线必做题`
+        : '完整'
+
+  return { total, required, advanced, ready, message }
 }

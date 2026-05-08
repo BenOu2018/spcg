@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 48" role="img" aria-labelledby="title desc">
+  <title id="title">Titlebar progression tip pill</title>
+  <desc id="desc">Compact teal tip pill for promotion guidance.</desc>
+  <defs>
+    <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#116d69"/>
+      <stop offset="1" stop-color="#063a3b"/>
+    </linearGradient>
+  </defs>
+  <path d="M18 7h244l12 17-12 17H18L6 24z" fill="url(#g)" stroke="#d6a85a" stroke-width="3"/>
+  <path d="M140 0l11 13-11 13-11-13z" fill="#0a756f" stroke="#d6a85a" stroke-width="3"/>
+</svg>

@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { ResolvedLanguage, TestCase, Verdict } from './types.js'
+import type { JudgeProgress, ResolvedLanguage, TestCase, Verdict } from './types.js'
 import {
   aggregateJudgeResults,
   mockExecuteCpp,
@@ -23,7 +23,11 @@ type RunJudge0Input = {
   timeLimitMs: number
   memoryLimitMb: number
   childMessage: (result: Verdict['result']) => string
+  runAllCases?: boolean
+  onProgress?: (progress: JudgeProgressSnapshot) => void | Promise<void>
 }
+
+type JudgeProgressSnapshot = Omit<JudgeProgress, 'updatedAt'>
 
 type ExecuteJudge0Input = {
   code: string
@@ -54,11 +58,29 @@ export async function runJudge0(input: RunJudge0Input): Promise<Verdict> {
   const resolvedInput = { ...input, language }
 
   if (mode === 'mock' || !baseUrl) {
-    return mockJudgeSubmissionForLanguage(resolvedInput)
+    await reportJudgeProgress(resolvedInput, {
+      currentCaseIndex: input.cases.length > 0 ? 1 : null,
+      runningCaseRange: null,
+      completedCases: 0,
+    })
+    const verdict = mockJudgeSubmissionForLanguage(resolvedInput)
+    await reportJudgeProgress(resolvedInput, {
+      phase: 'completed',
+      currentCaseIndex: null,
+      runningCaseRange: null,
+      completedCases: countCompletedCases(verdict, input.cases.length),
+    })
+    return verdict
   }
 
   if (input.cases.length === 0) {
-    return aggregateJudgeResults([], input.cases, input.timeLimitMs, input.childMessage)
+    return aggregateJudgeResults([], input.cases, input.timeLimitMs, input.childMessage, {
+      runAllCases: input.runAllCases,
+    })
+  }
+
+  if (input.runAllCases) {
+    return runJudge0AllCases(baseUrl, resolvedInput)
   }
 
   if (input.cases.length === 1) {
@@ -79,6 +101,45 @@ export async function runJudge0(input: RunJudge0Input): Promise<Verdict> {
   }
 
   return runJudge0Parallel(baseUrl, resolvedInput)
+}
+
+async function runJudge0AllCases(baseUrl: string, input: RunJudge0Input & { language: ResolvedLanguage }): Promise<Verdict> {
+  let results: JudgeCaseResult[]
+
+  if (process.env.JUDGE0_USE_BATCH === 'true') {
+    try {
+      results = await submitAndWaitJudge0Batch(baseUrl, input, input.cases, {
+        fromIndex: 1,
+        completedOffset: 0,
+      })
+    } catch (error) {
+      if (process.env.JUDGE0_BATCH_FALLBACK === 'false') throw error
+      console.warn(`Judge0 batch failed, falling back to parallel mode: ${error instanceof Error ? error.message : error}`)
+      results =
+        getCaseConcurrency(input.cases.length) <= 1
+          ? await submitJudge0CasesSequentially(baseUrl, input, input.cases, {
+              fromIndex: 1,
+              completedOffset: 0,
+            })
+          : await submitJudge0CasesConcurrently(baseUrl, input, input.cases, {
+              fromIndex: 1,
+              completedOffset: 0,
+            })
+    }
+  } else {
+    results =
+      getCaseConcurrency(input.cases.length) <= 1
+        ? await submitJudge0CasesSequentially(baseUrl, input, input.cases, {
+            fromIndex: 1,
+            completedOffset: 0,
+          })
+        : await submitJudge0CasesConcurrently(baseUrl, input, input.cases, {
+            fromIndex: 1,
+            completedOffset: 0,
+          })
+  }
+
+  return aggregateJudgeResults(results, input.cases, input.timeLimitMs, input.childMessage, { runAllCases: true })
 }
 
 export async function executeJudge0(input: ExecuteJudge0Input): Promise<MockExecutionResult> {
@@ -108,9 +169,19 @@ export async function executeJudge0(input: ExecuteJudge0Input): Promise<MockExec
 async function runJudge0Sequential(baseUrl: string, input: RunJudge0Input & { language: ResolvedLanguage }): Promise<Verdict> {
   const caseResults: JudgeCaseResult[] = []
 
-  for (const testCase of input.cases) {
+  for (const [index, testCase] of input.cases.entries()) {
+    await reportJudgeProgress(input, {
+      currentCaseIndex: index + 1,
+      runningCaseRange: null,
+      completedCases: caseResults.length,
+    })
     const caseResult = await submitJudge0Case(baseUrl, input, testCase)
     caseResults.push(caseResult)
+    await reportJudgeProgress(input, {
+      currentCaseIndex: index + 1 < input.cases.length ? index + 2 : null,
+      runningCaseRange: null,
+      completedCases: caseResults.length,
+    })
 
     if (!isAcceptedCase(caseResult, testCase, input.timeLimitMs)) {
       break
@@ -122,7 +193,17 @@ async function runJudge0Sequential(baseUrl: string, input: RunJudge0Input & { la
 
 async function runJudge0Batch(baseUrl: string, input: RunJudge0Input & { language: ResolvedLanguage }): Promise<Verdict> {
   const firstCase = input.cases[0] as TestCase
+  await reportJudgeProgress(input, {
+    currentCaseIndex: 1,
+    runningCaseRange: null,
+    completedCases: 0,
+  })
   const firstResult = await submitJudge0Case(baseUrl, input, firstCase)
+  await reportJudgeProgress(input, {
+    currentCaseIndex: input.cases.length > 1 ? 2 : null,
+    runningCaseRange: null,
+    completedCases: 1,
+  })
 
   if (!isAcceptedCase(firstResult, firstCase, input.timeLimitMs)) {
     return aggregateJudgeResults([firstResult], input.cases, input.timeLimitMs, input.childMessage)
@@ -133,20 +214,36 @@ async function runJudge0Batch(baseUrl: string, input: RunJudge0Input & { languag
     return aggregateJudgeResults([firstResult], input.cases, input.timeLimitMs, input.childMessage)
   }
 
-  const remainingResults = await submitAndWaitJudge0Batch(baseUrl, input, remainingCases)
+  const remainingResults = await submitAndWaitJudge0Batch(baseUrl, input, remainingCases, {
+    fromIndex: 2,
+    completedOffset: 1,
+  })
   return aggregateJudgeResults([firstResult, ...remainingResults], input.cases, input.timeLimitMs, input.childMessage)
 }
 
 async function runJudge0Parallel(baseUrl: string, input: RunJudge0Input & { language: ResolvedLanguage }): Promise<Verdict> {
   const firstCase = input.cases[0] as TestCase
+  await reportJudgeProgress(input, {
+    currentCaseIndex: 1,
+    runningCaseRange: null,
+    completedCases: 0,
+  })
   const firstResult = await submitJudge0Case(baseUrl, input, firstCase)
+  await reportJudgeProgress(input, {
+    currentCaseIndex: input.cases.length > 1 ? 2 : null,
+    runningCaseRange: null,
+    completedCases: 1,
+  })
 
   if (!isAcceptedCase(firstResult, firstCase, input.timeLimitMs)) {
     return aggregateJudgeResults([firstResult], input.cases, input.timeLimitMs, input.childMessage)
   }
 
   const remainingCases = input.cases.slice(1)
-  const remainingResults = await submitJudge0CasesConcurrently(baseUrl, input, remainingCases)
+  const remainingResults = await submitJudge0CasesConcurrently(baseUrl, input, remainingCases, {
+    fromIndex: 2,
+    completedOffset: 1,
+  })
   return aggregateJudgeResults([firstResult, ...remainingResults], input.cases, input.timeLimitMs, input.childMessage)
 }
 
@@ -184,7 +281,14 @@ async function submitAndWaitJudge0Batch(
   baseUrl: string,
   input: RunJudge0Input & { language: ResolvedLanguage },
   cases: TestCase[],
+  progress: { fromIndex: number; completedOffset: number },
 ): Promise<JudgeCaseResult[]> {
+  await reportJudgeProgress(input, {
+    currentCaseIndex: cases.length === 1 ? progress.fromIndex : null,
+    runningCaseRange: cases.length > 1 ? { from: progress.fromIndex, to: progress.fromIndex + cases.length - 1 } : null,
+    completedCases: progress.completedOffset,
+  })
+
   const response = await fetch(`${trimTrailingSlash(baseUrl)}/submissions/batch?base64_encoded=true`, {
     method: 'POST',
     headers: buildJudge0Headers({
@@ -207,17 +311,54 @@ async function submitAndWaitJudge0Batch(
     throw new Error(`Judge0 batch returned ${tokens.length}/${cases.length} tokens`)
   }
 
-  return pollJudge0Batch(baseUrl, tokens)
+  return pollJudge0Batch(baseUrl, tokens, input, {
+    fromIndex: progress.fromIndex,
+    toIndex: progress.fromIndex + cases.length - 1,
+    completedOffset: progress.completedOffset,
+  })
+}
+
+async function submitJudge0CasesSequentially(
+  baseUrl: string,
+  input: RunJudge0Input & { language: ResolvedLanguage },
+  cases: TestCase[],
+  progress: { fromIndex: number; completedOffset: number },
+): Promise<JudgeCaseResult[]> {
+  const results: JudgeCaseResult[] = []
+  for (const [index, testCase] of cases.entries()) {
+    const caseIndex = progress.fromIndex + index
+    await reportJudgeProgress(input, {
+      currentCaseIndex: caseIndex,
+      runningCaseRange: null,
+      completedCases: progress.completedOffset + results.length,
+    })
+    results.push(await submitJudge0Case(baseUrl, input, testCase))
+    await reportJudgeProgress(input, {
+      currentCaseIndex: index + 1 < cases.length ? caseIndex + 1 : null,
+      runningCaseRange: null,
+      completedCases: progress.completedOffset + results.length,
+    })
+  }
+  return results
 }
 
 async function submitJudge0CasesConcurrently(
   baseUrl: string,
   input: RunJudge0Input & { language: ResolvedLanguage },
   cases: TestCase[],
+  progress: { fromIndex: number; completedOffset: number },
 ): Promise<JudgeCaseResult[]> {
   const results: JudgeCaseResult[] = new Array(cases.length)
   const concurrency = getCaseConcurrency(cases.length)
+  const runningCaseRange = cases.length > 1 ? { from: progress.fromIndex, to: progress.fromIndex + cases.length - 1 } : null
   let nextIndex = 0
+  let completedInGroup = 0
+
+  await reportJudgeProgress(input, {
+    currentCaseIndex: cases.length === 1 ? progress.fromIndex : null,
+    runningCaseRange,
+    completedCases: progress.completedOffset,
+  })
 
   async function worker() {
     while (nextIndex < cases.length) {
@@ -225,6 +366,12 @@ async function submitJudge0CasesConcurrently(
       nextIndex += 1
       const testCase = cases[index] as TestCase
       results[index] = await submitJudge0Case(baseUrl, input, testCase)
+      completedInGroup += 1
+      await reportJudgeProgress(input, {
+        currentCaseIndex: cases.length === 1 ? progress.fromIndex : null,
+        runningCaseRange,
+        completedCases: progress.completedOffset + completedInGroup,
+      })
     }
   }
 
@@ -240,10 +387,17 @@ function getCaseConcurrency(caseCount: number): number {
   )
 }
 
-async function pollJudge0Batch(baseUrl: string, tokens: string[]): Promise<JudgeCaseResult[]> {
+async function pollJudge0Batch(
+  baseUrl: string,
+  tokens: string[],
+  input: RunJudge0Input & { language: ResolvedLanguage },
+  progress: { fromIndex: number; toIndex: number; completedOffset: number },
+): Promise<JudgeCaseResult[]> {
   const startedAt = Date.now()
   const timeoutMs = Number(process.env.JUDGE0_BATCH_TIMEOUT_MS ?? DEFAULT_BATCH_TIMEOUT_MS)
   const pollMs = Number(process.env.JUDGE0_BATCH_POLL_MS ?? DEFAULT_BATCH_POLL_MS)
+  const runningCaseRange = progress.fromIndex === progress.toIndex ? null : { from: progress.fromIndex, to: progress.toIndex }
+  let lastCompletedCases = -1
 
   while (Date.now() - startedAt <= timeoutMs) {
     const response = await fetch(
@@ -259,6 +413,16 @@ async function pollJudge0Batch(baseUrl: string, tokens: string[]): Promise<Judge
 
     const body = (await response.json()) as Judge0BatchResult
     const submissions = body.submissions ?? []
+    const completedCases = submissions.filter((result) => !isQueuedOrProcessing(result)).length
+
+    if (completedCases !== lastCompletedCases) {
+      lastCompletedCases = completedCases
+      await reportJudgeProgress(input, {
+        currentCaseIndex: progress.fromIndex === progress.toIndex ? progress.fromIndex : null,
+        runningCaseRange,
+        completedCases: progress.completedOffset + completedCases,
+      })
+    }
 
     if (submissions.length === tokens.length && submissions.every((result) => !isQueuedOrProcessing(result))) {
       const byToken = new Map(submissions.map((result) => [result.token, decodeJudge0Result(result)]))
@@ -269,6 +433,31 @@ async function pollJudge0Batch(baseUrl: string, tokens: string[]): Promise<Judge
   }
 
   throw new Error(`Judge0 batch timed out after ${Number.isFinite(timeoutMs) ? timeoutMs : DEFAULT_BATCH_TIMEOUT_MS} ms`)
+}
+
+async function reportJudgeProgress(
+  input: RunJudge0Input,
+  progress: Omit<Partial<JudgeProgressSnapshot>, 'totalCases'> & { completedCases: number },
+) {
+  if (!input.onProgress) return
+
+  try {
+    await input.onProgress({
+      phase: progress.phase ?? 'judging',
+      currentCaseIndex: progress.currentCaseIndex ?? null,
+      runningCaseRange: progress.runningCaseRange ?? null,
+      completedCases: Math.max(0, Math.min(input.cases.length, progress.completedCases)),
+      totalCases: input.cases.length,
+    })
+  } catch (error) {
+    console.warn(`Judge progress update failed: ${error instanceof Error ? error.message : error}`)
+  }
+}
+
+function countCompletedCases(verdict: Verdict, totalCases: number): number {
+  if (verdict.caseResults) return verdict.caseResults.length
+  if (verdict.result === 'AC') return totalCases
+  return Math.max(0, Math.min(totalCases, (verdict.failedCaseIndex ?? -1) + 1))
 }
 
 function buildSubmissionPayload(input: RunJudge0Input, testCase: TestCase) {
@@ -345,12 +534,31 @@ function toExecutionResult(result: JudgeCaseResult, timeLimitMs: number): MockEx
   const runtimeMs = Math.round(Number.parseFloat(result.time ?? '0') * 1000)
   const maxRuntimeMs = Number.isFinite(runtimeMs) ? runtimeMs : 0
   const statusId = result.status?.id
+  const statusText = readJudgeStatusText(result)
 
   if (statusId === 3 && maxRuntimeMs <= timeLimitMs) {
     return {
       result: 'AC',
       stdout: result.stdout ?? '',
       maxRuntimeMs,
+    }
+  }
+
+  if (isMemoryLimitStatus(statusText)) {
+    return {
+      result: 'MLE',
+      stdout: result.stdout ?? '',
+      maxRuntimeMs,
+      errorDetail: result.stderr ?? result.message ?? result.status?.description,
+    }
+  }
+
+  if (isPresentationErrorStatus(statusText)) {
+    return {
+      result: 'PE',
+      stdout: result.stdout ?? '',
+      maxRuntimeMs,
+      errorDetail: result.stderr ?? result.message ?? result.status?.description,
     }
   }
 
@@ -424,6 +632,18 @@ function decodeBase64Field(value: string | null | undefined): string | null | un
   } catch {
     return value
   }
+}
+
+function readJudgeStatusText(result: JudgeCaseResult): string {
+  return [result.status?.description, result.stderr, result.compile_output, result.message].filter(Boolean).join(' ')
+}
+
+function isMemoryLimitStatus(value: string): boolean {
+  return /\b(?:memory limit|memory exceeded|out of memory|sigxfsz)\b/i.test(value)
+}
+
+function isPresentationErrorStatus(value: string): boolean {
+  return /\b(?:presentation error|wrong presentation|format error)\b/i.test(value)
 }
 
 function buildJudge0Headers(extra: Record<string, string> = {}): Record<string, string> {

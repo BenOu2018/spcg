@@ -12,6 +12,7 @@ const lanDevOrigins = uniqueDevHosts([...privateNetworkDevOrigins, ...readConfig
 
 const nextConfig = {
   reactStrictMode: true,
+  devIndicators: false,
   allowedDevOrigins: ['localhost', '127.0.0.1', '0.0.0.0', ...lanDevOrigins],
   outputFileTracingRoot: new URL('../..', import.meta.url).pathname,
 }

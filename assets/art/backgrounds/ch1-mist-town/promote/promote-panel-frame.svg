@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 680" role="img" aria-labelledby="title desc">
+  <title id="title">Promotion panel frame</title>
+  <desc id="desc">Parchment and brass frame for the in-level progression panel.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#fff1c9"/>
+      <stop offset=".56" stop-color="#efd19a"/>
+      <stop offset="1" stop-color="#d8a869"/>
+    </linearGradient>
+    <linearGradient id="wood" x1="0" x2="1">
+      <stop offset="0" stop-color="#6b3b18"/>
+      <stop offset=".5" stop-color="#b27936"/>
+      <stop offset="1" stop-color="#5a3014"/>
+    </linearGradient>
+  </defs>
+  <rect x="18" y="18" width="1144" height="644" rx="10" fill="url(#wood)"/>
+  <rect x="36" y="36" width="1108" height="608" rx="8" fill="url(#paper)" stroke="#8a581f" stroke-width="4"/>
+  <path d="M80 78h140M960 78h140M80 602h140M960 602h140" stroke="#b17a34" stroke-width="5" stroke-linecap="round"/>
+  <path d="M590 28l34 34-34 34-34-34zM590 584l34 34-34 34-34-34z" fill="#124e54" stroke="#e6b85e" stroke-width="5"/>
+  <circle cx="590" cy="62" r="9" fill="#5af1e5"/>
+  <circle cx="590" cy="618" r="9" fill="#5af1e5"/>
+</svg>

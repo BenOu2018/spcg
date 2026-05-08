@@ -1,6 +1,6 @@
 # SPCG v0.1 Progress
 
-> Last updated: 2026-05-02
+> Last updated: 2026-05-08
 > Branch: `feature/v0.1-problem-core`
 > Current focus: 后台三级题库结构管理与导入归类
 
@@ -53,7 +53,34 @@
 - 地图主线同步已从硬编码 `shared/game-chapters.levelPlan` 改为优先读取后台课程结构：`problem_sets(type=lesson, track=A, visibility=student, status=published)` 中 `primary` 题目会自动成为地图关卡；关卡顺序使用 `stage_no`，名称和算法使用后台关卡字段，解决 2 级题目 ID 与 `ch2-01` 硬编码不一致导致地图不显示的问题
 - 编程页题目栏文本选中样式已强化为深灰背景、白色文字；顶部层级显示改为“第N级 章节名” + “第M层 关卡名”，并新增“本层题目”菜单，可在当前层的已发布题目间切换；地图主级别文案已从“主关卡/第N关”调整为“级别/第N级”，层目录显示“第M层”
 - 题目栏扩展时 Run / Submit 不再跟随右移后的 IDE 边缘跑出或改变屏幕操作位；`.programming-layout.task-expanded` 下按钮改为 viewport fixed 定位，并按当前调试区高度计算底部位置
+- 编程题页面顶部栏已接入轻量 5 题进度：不改变原 IDE 布局和顶部栏高度，去掉圆环结构，改为 1-5 一字排开；前 3 题为必做晋级，当前题放大高亮，4-5 题作为提高/挑战入口
+- 轻量 5 题进度已继续调整：在不改变顶部栏高度的前提下，将 1-5 节点和数字放大一倍；右侧摘要改为显示当前层五类题目名称：模版、基础、变式、提高、挑战
+- 轻量 5 题进度摘要已改为只显示当前题目，例如 `基础：第一题名称`，避免顶部栏信息过长
+- 当前题目标识控件已改为按显示内容自适应宽度，不再占满顶部栏剩余空间
+- 轻量 5 题进度条已整体左移并保持节点组居中显示；1-5 节点之间的连接符从短线改为箭头
+- 轻量 5 题进度条定位已改为页面居中：第 3 个节点对齐页面水平中心；访问已 AC 题目时会按当前层进度自动跳到第一个未 AC 题目并高亮
+- 地图关卡节点下方已改为星星进度：默认显示 5 颗星，若当前层实际只配置 3 题则显示 3 颗；已 AC 题目点亮金色星星，未完成题目显示灰色星星
+- 顶部 5 题进度中特殊处理挑战题完成态：第 5 格通过后保留挑战题原标记和数字 `5`，只在标记上方叠加黄金勾，不再替换成普通完成节点
+- 顶部 5 题进度已把提高题纳入同样的特殊完成态：第 4、5 格通过后保留原提高/挑战标记和数字，只叠加直接金色勾，不再使用小圆圈勾
+- 顶部 5 题进度第 4、5 格完成勾已改用 `icon-golden-check.svg`；前三题完成后标签显示 `已通关，继续挑战难度`，五题完成后显示 `完美通过此关`
+- 顶部 5 题进度第 4、5 格完成勾已移动到数字中心覆盖显示
+- 编程 IDE 顶部栏显式选题已和“默认进入跳过已 AC 题”拆开：顶部 1-5 进度和“本层题目”菜单可回看已 AC 题，地图/默认入口仍自动进入第一个未 AC 题
+- `/exam/spcg-level-1` 段位赛题目菜单已提升为顶部栏独立浮层，展开后不再被下方题目栏或 IDE 主体遮挡
+- 关卡题目页进入已 AC 题目时，IDE 调试结果区会直接显示 AC、通过用例、历史运行时间和最近一次 AC 提交的奖励信息，不再显示 `Ready / Submit when done.`
+- 本次已 AC 结果区恢复验证已通过：`npm run web:typecheck`、`npm run web:build`
+- 编程 IDE 已增强自动缩进：Monaco 开启 advanced auto indent、format on type/paste、固定 4 空格缩进；右上角新增“自动排版代码”按钮，第一版本地轻量整理 C/C++/Python 缩进并写回代码缓存
+- 编程 IDE 右上角 6 个工具按钮已统一悬浮提示：重置、恢复、历史提交、自动排版、逻辑画板、展开/收起编辑器均支持鼠标 hover 和键盘 focus 提示
+- 本次顶部栏改动验证已通过：`npm run web:typecheck`、`npm run web:build`
 - 当前新增验证已通过：`DATABASE_URL=postgres://spcg:spcg@localhost:5432/spcg npm run db:migrate`、`DATABASE_URL=postgres://spcg:spcg@localhost:5432/spcg npm run db:seed`、`npm run web:typecheck`、`npm run check:architecture`、`npm run check`、`npm run web:build`
+- v0.2 闭环规则已开始落地：新增 `docs/v0.2-roadmap.md`，每关默认固定 5 题，前 3 题主线必做，4-5 提高题不阻塞地图推进
+- `problem_set_items.metadata.displayMode` 已扩展为 `template / basic / variant / advanced / challenge / exam-only`，并保留 `primary / backup` 旧数据兼容
+- 后台题单详情已显示 v0.2 完整度：5 题数量、主线必做数、提高题数量；发布和生成教案会按固定 5 题、至少 3 道主线题校验
+- 地图和关卡页已开始显示 5 题完成度：地图节点显示 `x/5`，本层题目菜单显示题目角色和通过状态，前 3 题通过后按主线完成处理
+- `/me` 前 4 个核心数据已调整为今日目标、段位差距、本周知识点、待修错题；老师学生详情页已补充待修错、修错成功和最近错误类型摘要
+- 学生编程页已补齐 v0.2 当场反馈：Submit 判题后 AC 会推荐下一题/提高题/回地图，WA/CE/RE/TLE/MLE 会按错误类型和连续错误次数给修错建议
+- 老师学生详情页已增加每关 5 题完成矩阵，展示主线完成数、提高题完成数、掌握状态和待修错数量
+- 判题 worker 已增加一次性 `repair_ac` 修错成功小奖励：同题之前有错误尝试、这次 AC 时发放少量金币，并写入 `reward_ledger`
+- 已新增 PostgreSQL migration `019_repair_ac_reward_source.sql`，为奖励流水增加 `repair_ac` 来源
 
 本轮已按计划完成核心迁移：
 
@@ -578,6 +605,26 @@ System bug reports -> added `/admin/settings` Bug Report Debug Tool switch; defa
 System bug reports -> added `/admin/system-bugs` list and `/admin/system-bugs/[id]` detail page with status/admin note updates and audit logs
 System bug reports -> `DATABASE_URL=postgres://spcg:spcg@localhost:5432/spcg npm run db:migrate` applied `015_system_bugs.sql`; local table exists with 0 records
 System bug reports -> `npm run web:typecheck`, `npm run typecheck`, `npm run check:architecture`, `npm run check`, `npm run web:build` passed
+Judge progress display -> started IDE debug area real-time test progress; added `judge_progress` migration and shared `JudgeProgress` type
+Judge progress display -> Judge0 worker now writes queued/running/completed snapshots without disabling batch/parallel execution
+Judge progress display -> frontend polling now shows `Test Case 1 / 20` or `Test Cases 2-20 Completed n/20`
+Judge progress display -> Run public samples now execute through a two-sample loop so the debug area can show `Public Sample 1 / 2`
+Judge progress display -> `npm run web:typecheck`, `npm run typecheck`, `npm run check:architecture`, `npm run check`, `npm run web:build`, `git diff --check` passed
+Judge progress display -> local `db:migrate` and real Submit E2E blocked because Docker daemon/PostgreSQL are not running (`localhost:5432` connection refused)
+Judge progress display fix -> actual Web DB uses `apps/web/.env.local` port `127.0.0.1:15432`; applied `022_submission_judge_progress.sql` there and confirmed `submissions.judge_progress JSONB` exists
+Judge progress display fix -> `npm run web:typecheck` passed after migration confirmation
+SPCG 2 ranked match -> added shared ranked assessment rule source at `shared/ranked-assessment.ts` and tracked human-readable rule doc at `RANKED_ASSESSMENT_RULES.md`
+SPCG 2 ranked match -> added `/exam/spcg-level-2`; `ExamLevel` now accepts `spcgLevel` and uses the same daily 6-problem generation rule as level 1
+SPCG 2 ranked match -> map exam node is now level-aware: SPCG 1 links to `/exam/spcg-level-1`, SPCG 2 links to `/exam/spcg-level-2`
+SPCG 2 ranked match -> verified local DB has enough SPCG 2 candidates: 12 basic, 12 variant, at least 3 exam-only; unauthenticated `/exam/spcg-level-2` redirects to sign-in
+SPCG 2 ranked match -> `npm run web:typecheck`, `npm run typecheck`, `npm run check`, `npm run web:build`, `git diff --check` passed
+Programming task header -> shrank the task panel `Goal` pill and expand button to about 70%, moved the header row upward, and increased title spacing below it
+Programming task header -> restored `Goal` pill and expand button to original size; moved the problem title into the same top row immediately after `Goal`
+Programming task header -> moved the difficulty/meta tag row down by 5px to avoid overlap with the sticky title row
+SPCG 3 ranked match -> enabled SPCG 3 in `shared/ranked-assessment.ts` and added `/exam/spcg-level-3` using the same daily 6-problem ranked assessment rule as SPCG 1-2
+SPCG 3 ranked match -> updated `RANKED_ASSESSMENT_RULES.md`; the persistent rule source remains `shared/ranked-assessment.ts`, with the root markdown file as the human-readable rule record
+SPCG 3 ranked match -> verified local DB candidate pool before enabling: 12 lesson basic, 12 lesson variant, 6 exam-only candidates for SPCG 3
+SPCG 3 ranked match -> `npm run web:typecheck`, `npm run typecheck`, `npm run check`, `npm run web:build` passed; production route table includes `/exam/spcg-level-3`
 ```
 
 Docker / DB 当前状态：
@@ -599,28 +646,31 @@ reward smoke -> toby@spcg.local / level2-b4357-power-lantern / coin_delta=6 / co
 
 ## Next Actions
 
-1. 第一阶段进入 review/封版，不再追加主线功能
-2. 第二阶段开始前先做一次产品走查：地图、编程页、段位赛页、后台、导入链路
-3. 第二阶段再开始故事情节和关卡叙事
+1. 完成 1-3级 A 线主线题单和题目质量验收：每关 5 题，前 3 题必做，官方代码通过全部测试点
+2. 实现学生当前关卡访问控制：学生默认从 1级第1关开始，完成前 3 题后推进，未来关卡 URL 需服务端拦截
+3. 实现老师后台设置学生当前关卡：老师可自由预览任意级别关卡，并可为自己学生设置当前关卡
+4. 完成阿里云 Web 部署和正式网址 smoke test：连接云端 PostgreSQL、Judge0 和 judge-worker，验证登录、地图、IDE、Submit、Me 页、老师后台
+5. 继续按 v0.2 闭环验证奖励与成长：金币、段位、修错奖励、待修错题、做过题目和老师完成矩阵
 
 ## Product Roadmap Priority
 
-后续产品路线按依赖顺序推进：先固定课程和叙事底座，再做地图、成长、考试、教练，最后做证书、商城和 AI 分析。
+后续产品路线按依赖顺序推进：v0.2 优先做学生体验闭环；然后固定课程和叙事底座，再做地图、成长、考试、教练，最后做证书、商城和 AI 分析。
 
-1. 所有算法关卡固定
-2. 关卡 A/B 线设计：A 线简单主线，B 线挑战拔高
-3. 故事小说确定，角色人物定位生成
-4. 支持导入角色、剧情的编程设计：主线固定，分支可扩展
-5. 九大关卡地图
-6. 健康游戏化投入系统与防沉迷设计
-7. 段位升级系统、考试机制
-8. 称谓系统
-9. 教练系统
-10. 防抄袭 AI 监控与代码行为分析
-11. IP 信息、用户行为数据库等基础采集
-12. 三大高校与登记证书设计
-13. 积分商城
-14. AI 用户学习标签系统
+1. v0.2 学生体验闭环：每关 5 题、前 3 题主线通关、WA 修错、AC 成长反馈、老师干预
+2. 所有算法关卡固定
+3. 关卡 A/B 线设计：A 线简单主线，B 线挑战拔高
+4. 故事小说确定，角色人物定位生成
+5. 支持导入角色、剧情的编程设计：主线固定，分支可扩展
+6. 九大关卡地图
+7. 健康游戏化投入系统与防沉迷设计
+8. 段位升级系统、考试机制
+9. 称谓系统
+10. 教练系统
+11. 防抄袭 AI 监控与代码行为分析
+12. IP 信息、用户行为数据库等基础采集
+13. 三大高校与登记证书设计
+14. 积分商城
+15. AI 用户学习标签系统
 
 路线记录：
 

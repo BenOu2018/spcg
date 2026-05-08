@@ -188,14 +188,25 @@ export async function importLevelRecords(parsed: ParsedLevel[], importBatch: str
 
 export function validateLevelRecord(record: LevelRecord): string[] {
   const errors: string[] = []
+  const fixedOutputSingleCase = record.importMeta.testCasePolicy?.mode === 'fixed-output-single-case'
 
-  if (record.testCases.length !== 20) {
+  if (fixedOutputSingleCase) {
+    if (record.testCases.length !== 1) {
+      errors.push(`${record.id}: fixed-output-single-case must contain exactly 1 case, got ${record.testCases.length}`)
+    }
+  } else if (record.testCases.length !== 20) {
     errors.push(`${record.id}: testCases must contain exactly 20 cases, got ${record.testCases.length}`)
   }
 
   const publicCount = record.testCases.filter((test) => test.visibility === 'public').length
   const hiddenCount = record.testCases.filter((test) => test.visibility === 'hidden').length
-  if (publicCount < 2 || publicCount > 3) {
+  if (fixedOutputSingleCase) {
+    if (publicCount !== 1 || hiddenCount !== 0) {
+      errors.push(
+        `${record.id}: fixed-output-single-case must contain 1 public case and 0 hidden cases, got ${publicCount} public and ${hiddenCount} hidden`,
+      )
+    }
+  } else if (publicCount < 2 || publicCount > 3) {
     errors.push(`${record.id}: testCases must contain 2-3 public cases, got ${publicCount}`)
   }
   if (publicCount + hiddenCount !== record.testCases.length) {

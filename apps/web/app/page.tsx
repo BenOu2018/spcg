@@ -1,12 +1,16 @@
 import { GameVillage } from '@/components/GameVillage'
 import { requireUser } from '@/lib/auth-guard'
-import { getMapMainlineLevels, getProgressRecords } from '@/lib/level-data'
+import { getAllLevels, getMapMainlineLevels, getProgressRecords } from '@/lib/level-data'
 
 export const dynamic = 'force-dynamic'
 
 export default async function HomePage() {
   await requireUser('/')
-  const [levels, progressRecords] = await Promise.all([getMapMainlineLevels(), getProgressRecords()])
+  const [levels, testLevels, progressRecords] = await Promise.all([
+    getMapMainlineLevels(),
+    getAllLevels(),
+    getProgressRecords(),
+  ])
 
-  return <GameVillage levels={levels} progress={progressRecords} />
+  return <GameVillage levels={levels} testLevels={testLevels} progress={progressRecords} />
 }

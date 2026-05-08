@@ -9,12 +9,13 @@ type GameMapMenusProps = {
   chapters: GameChapter[]
   currentChapter: GameChapter
   levels: Level[]
+  testLevels: Level[]
   currentLevelId?: string
 }
 
-type OpenMenu = 'chapter' | 'level' | null
+type OpenMenu = 'chapter' | 'level' | 'test' | null
 
-export function GameMapMenus({ chapters, currentChapter, levels, currentLevelId }: GameMapMenusProps) {
+export function GameMapMenus({ chapters, currentChapter, levels, testLevels, currentLevelId }: GameMapMenusProps) {
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -98,6 +99,35 @@ export function GameMapMenus({ chapters, currentChapter, levels, currentLevelId 
                 <span>第{level.order}层</span>
                 <strong>{level.title}</strong>
                 <em>{level.knowledgePoint}</em>
+              </Link>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="village-test-menu">
+        <button
+          aria-controls="village-test-menu-panel"
+          aria-expanded={openMenu === 'test'}
+          className="village-test-trigger"
+          onClick={() => setOpenMenu(openMenu === 'test' ? null : 'test')}
+          type="button"
+        >
+          <span>TEST</span>
+          <strong>{testLevels.length}</strong>
+        </button>
+        {openMenu === 'test' ? (
+          <div className="village-test-menu-panel" id="village-test-menu-panel">
+            {testLevels.map((level, index) => (
+              <Link
+                aria-current={level.id === currentLevelId ? 'page' : undefined}
+                className={level.id === currentLevelId ? 'active' : undefined}
+                href={`/level/${level.id}`}
+                key={level.id}
+                onClick={closeMenus}
+              >
+                <span>{index + 1}</span>
+                <strong>{level.title}</strong>
               </Link>
             ))}
           </div>

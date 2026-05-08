@@ -134,10 +134,10 @@ export async function updateAdminUser(formData: FormData) {
 
 export async function deleteAdminUser(formData: FormData) {
   const userId = readRequired(formData, 'userId')
-  const confirm = readRequired(formData, 'confirm')
+  const confirm = readRequired(formData, 'confirm').toUpperCase()
 
   if (!userId || confirm !== 'DELETE') {
-    throw new Error('Type DELETE to confirm user deletion.')
+    throw new Error('请输入 DELETE 确认删除用户。')
   }
 
   const context = await requireAdmin('admin')

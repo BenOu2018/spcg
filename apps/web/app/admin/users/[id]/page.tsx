@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { getAdminUser } from '@/lib/admin-data'
 import { requireUserInventory } from '@/lib/services/inventory-service'
@@ -53,6 +54,21 @@ export default async function AdminUserDetailPage({ params }: AdminUserDetailPag
             <dd>{user.adminRole ? `${user.adminRole}${user.adminActive ? '' : ' inactive'}` : '-'}</dd>
             <dt>User Role</dt>
             <dd>{user.userRole}</dd>
+            <dt>Teacher Owner</dt>
+            <dd>
+              {user.teacherOwnerId ? (
+                <>
+                  <Link className="admin-title-link" href={`/admin/users/${user.teacherOwnerId}`}>
+                    {user.teacherOwnerName ?? user.teacherOwnerEmail ?? user.teacherOwnerId}
+                  </Link>
+                  {user.teacherOwnerEmail ? <small>{user.teacherOwnerEmail}</small> : null}
+                </>
+              ) : user.userRole === 'student' ? (
+                '未绑定'
+              ) : (
+                '-'
+              )}
+            </dd>
             <dt>Last Sign In</dt>
             <dd>{user.lastSignInAt ? new Date(user.lastSignInAt).toLocaleString() : '-'}</dd>
             <dt>Notes</dt>
@@ -149,7 +165,14 @@ export default async function AdminUserDetailPage({ params }: AdminUserDetailPag
             <input name="userId" type="hidden" value={user.id} />
             <label className="admin-inline-field">
               <span>Type DELETE</span>
-              <input name="confirm" placeholder="DELETE" />
+              <input
+                name="confirm"
+                placeholder="DELETE"
+                required
+                autoComplete="off"
+                pattern="[Dd][Ee][Ll][Ee][Tt][Ee]"
+                title="Type DELETE to confirm user deletion."
+              />
             </label>
             <button className="admin-button admin-danger-button" type="submit">
               Delete user
@@ -165,7 +188,7 @@ export default async function AdminUserDetailPage({ params }: AdminUserDetailPag
         <AdminFact label="Created" value={user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '-'} />
         <AdminFact label="Coins" value={wallet?.coinTotal ?? 0} />
         <AdminFact label="Garlic" value={wallet?.garlicBalance ?? 0} />
-        <AdminFact label="Rank" value={wallet?.rankLabel ?? '青铜'} />
+        <AdminFact label="Rank" value={wallet?.rankLabel ?? '烂铁'} />
         <AdminFact label="Inventory" value={inventory.length} />
       </section>
 
@@ -174,13 +197,13 @@ export default async function AdminUserDetailPage({ params }: AdminUserDetailPag
           <h2>Reward Wallet</h2>
           <dl className="admin-dl">
             <dt>Title</dt>
-            <dd>{wallet?.title ?? '晨雾算力学徒'}</dd>
+            <dd>{wallet?.title ?? '烂铁晨雾算力学徒'}</dd>
             <dt>Coins</dt>
             <dd>{wallet?.coinTotal ?? 0}</dd>
             <dt>Garlic</dt>
             <dd>{wallet?.garlicBalance ?? 0}</dd>
             <dt>Rank</dt>
-            <dd>{wallet?.rankLabel ?? '青铜'}</dd>
+            <dd>{wallet?.rankLabel ?? '烂铁'}</dd>
           </dl>
         </article>
 

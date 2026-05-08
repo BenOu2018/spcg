@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { LESSON_ROLE_SUMMARIES, V02_REQUIRED_ITEM_COUNT } from '@spcg/shared/curriculum'
 import { getDifficultyCoefficient } from '@spcg/shared/difficulty'
 import type { Difficulty } from '@spcg/shared/types'
 import { StatementMarkdown } from '@/components/StatementMarkdown'
@@ -399,18 +400,16 @@ function ProblemImportModal({
           </label>
           <label>
             <span>Display Mode</span>
-            <select name="displayMode" defaultValue="primary" required>
-              <option value="primary">primary</option>
-              <option value="backup">backup</option>
-              <option value="exam-only">exam-only</option>
+            <select name="displayMode" defaultValue="template" required>
+              <DisplayModeOptions />
             </select>
           </label>
           <label>
             <span>Label</span>
-            <input name="label" placeholder="主线 / 备用 / 段位赛" />
+            <input name="label" placeholder="模板题 / 基础题 / 提高题" />
           </label>
           <label className="admin-checkbox">
-            <input name="required" type="checkbox" defaultChecked />
+            <input name="required" type="checkbox" defaultChecked={selectedSet.itemCount < V02_REQUIRED_ITEM_COUNT} />
             <span>Required</span>
           </label>
           <button className="admin-button" type="submit" disabled={candidates.length === 0}>
@@ -484,10 +483,8 @@ function ProblemCreateModal({
           </label>
           <label>
             <span>Display Mode</span>
-            <select name="displayMode" defaultValue="backup">
-              <option value="primary">primary</option>
-              <option value="backup">backup</option>
-              <option value="exam-only">exam-only</option>
+            <select name="displayMode" defaultValue="advanced">
+              <DisplayModeOptions />
             </select>
           </label>
           <label className="admin-form-span-2">
@@ -567,9 +564,7 @@ function ProblemSummaryEditModal({
           <label>
             <span>Display Mode</span>
             <select name="displayMode" defaultValue={selectedItem.displayMode}>
-              <option value="primary">primary</option>
-              <option value="backup">backup</option>
-              <option value="exam-only">exam-only</option>
+              <DisplayModeOptions />
             </select>
           </label>
           <label>
@@ -782,6 +777,18 @@ function difficultyLabel(difficulty: Difficulty) {
 
 function buildStageId(spcgLevel: number, stageNo: number, track: 'A' | 'B') {
   return `spcg${spcgLevel}-stage${String(stageNo).padStart(2, '0')}-${track.toLowerCase()}`
+}
+
+function DisplayModeOptions() {
+  return (
+    <>
+      {LESSON_ROLE_SUMMARIES.map((role) => (
+        <option key={role.mode} value={role.mode}>
+          {role.mode} · {role.label}
+        </option>
+      ))}
+    </>
+  )
 }
 
 function json(value: unknown) {

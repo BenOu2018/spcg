@@ -7,13 +7,17 @@ import type {
   Solution,
   TestCase,
 } from '@spcg/shared/types'
+import {
+  FRONTEND_LESSON_DISPLAY_MODES,
+  isProblemSetItemDisplayMode,
+  type ProblemSetItemDisplayMode,
+} from '@spcg/shared/curriculum'
 import { query, queryOne, withTransaction } from '@/lib/db'
 
 export type ProblemSetStatus = 'draft' | 'review' | 'published' | 'archived'
-export type ProblemSetType = 'chapter' | 'practice' | 'review' | 'challenge' | 'import-review' | 'lesson'
+export type ProblemSetType = 'chapter' | 'practice' | 'review' | 'challenge' | 'import-review' | 'lesson' | 'assessment'
 export type ProblemSetVisibility = 'admin' | 'student'
 export type LessonTrack = 'A' | 'B'
-export type ProblemSetItemDisplayMode = 'primary' | 'backup' | 'exam-only'
 
 export type AdminAuditContext = {
   userId: string
@@ -295,7 +299,7 @@ export async function listMainlineStageTitles(levelIds: string[]): Promise<Mainl
       AND ps.status = 'published'
       AND ps.visibility = 'student'
       AND ps.track = 'A'
-      AND COALESCE(psi.metadata->>'displayMode', 'primary') = 'primary'
+      AND COALESCE(psi.metadata->>'displayMode', 'primary') IN ('template', 'primary')
     ORDER BY psi.level_id, ps.spcg_level ASC NULLS LAST, ps.stage_no ASC NULLS LAST, psi.position ASC
     `,
     [levelIds],
@@ -334,7 +338,7 @@ export async function listCurriculumMainlineStages(): Promise<CurriculumMainline
       AND ps.visibility = 'student'
       AND ps.track = 'A'
       AND l.status = 'published'
-      AND COALESCE(psi.metadata->>'displayMode', 'primary') = 'primary'
+      AND COALESCE(psi.metadata->>'displayMode', 'primary') IN ('template', 'primary')
     ORDER BY ps.spcg_level ASC, ps.stage_no ASC, psi.position ASC
     `,
   )
@@ -398,9 +402,10 @@ export async function getLessonStageProblemMenuForLevel(levelId: string): Promis
     WHERE
       psi.problem_set_id = $1
       AND l.status = 'published'
+      AND COALESCE(psi.metadata->>'displayMode', 'primary') = ANY($2::text[])
     ORDER BY psi.position ASC, psi.level_id ASC
     `,
-    [set.id],
+    [set.id, FRONTEND_LESSON_DISPLAY_MODES],
   )
 
   return {
@@ -753,10 +758,6 @@ function mapProblemSetItemRow(row: ProblemSetItemRow): ProblemSetItemSummary {
     knowledgePoint: row.knowledge_point,
     difficulty: row.difficulty,
   }
-}
-
-function isProblemSetItemDisplayMode(value: unknown): value is ProblemSetItemDisplayMode {
-  return value === 'primary' || value === 'backup' || value === 'exam-only'
 }
 
 function mapLessonPlanProblemRow(row: LessonPlanProblemRow): LessonPlanProblem {

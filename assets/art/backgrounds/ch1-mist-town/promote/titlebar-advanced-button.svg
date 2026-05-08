@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 132 52" role="img" aria-labelledby="title desc">
+  <title id="title">Titlebar advanced button</title>
+  <desc id="desc">Small golden advanced-problem button for programming titlebar.</desc>
+  <defs>
+    <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#ffc966"/>
+      <stop offset="1" stop-color="#8d4e0e"/>
+    </linearGradient>
+  </defs>
+  <path d="M16 6h100l10 20-10 20H16L6 26z" fill="url(#g)" stroke="#ffe2a0" stroke-width="3"/>
+</svg>

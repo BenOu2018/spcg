@@ -1,3 +1,5 @@
+import type { ProblemSetItemDisplayMode } from './curriculum.js'
+
 export type Language = 'auto' | 'c' | 'cpp11' | 'cpp14' | 'cpp17' | 'cpp20' | 'cpp23' | 'python3'
 export type ResolvedLanguage = Exclude<Language, 'auto'>
 
@@ -94,8 +96,15 @@ export type ProblemImportMeta = {
   algorithmFamily?: ProblemAlgorithmFamily | null
   algorithms?: ProblemAlgorithm[]
   parentOrder?: number | null
-  defaultDisplayMode?: 'primary' | 'backup' | 'exam-only' | null
+  stageItemIndex?: number | null
+  defaultDisplayMode?: ProblemSetItemDisplayMode | null
   mapVisible?: boolean | null
+  testCasePolicy?: {
+    mode?: string
+    publicCases?: number
+    hiddenCases?: number
+    reason?: string
+  } | null
 }
 
 export type StatementAsset = {
@@ -165,18 +174,44 @@ export type Submission = {
   resolvedLanguage: ResolvedLanguage | null
   status: 'pending' | 'judging' | 'done' | 'error'
   verdict: Verdict | null
+  assessmentAttemptId?: string | null
+  assessmentPhase?: 'realtime' | 'final' | null
+  judgeMode?: 'fast' | 'full' | null
+  score?: number
+  maxScore?: number | null
   createdAt: string
   isPassOut: boolean
 }
 
+export type VerdictCaseResult = {
+  index: number
+  visibility: TestCase['visibility']
+  passed: boolean
+  result: Verdict['result']
+  runtimeMs: number
+}
+
+export type JudgeProgress = {
+  phase: 'queued' | 'judging' | 'completed'
+  currentCaseIndex: number | null
+  runningCaseRange: {
+    from: number
+    to: number
+  } | null
+  completedCases: number
+  totalCases: number
+  updatedAt: string
+}
+
 export type Verdict = {
-  result: 'AC' | 'WA' | 'TLE' | 'RE' | 'CE' | 'Judge Error'
+  result: 'AC' | 'WA' | 'TLE' | 'MLE' | 'RE' | 'CE' | 'PE' | 'Judge Error'
   passedCases: number
   totalCases: number
   maxRuntimeMs: number
   failedCaseIndex: number | null
   childFriendlyMessage: string
   errorDetail?: string
+  caseResults?: VerdictCaseResult[]
 }
 
 export type CodeErrorAnalysis = {
@@ -211,11 +246,24 @@ export type Progress = {
   passedOut: boolean
 }
 
-export type RewardRank = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'stellar'
+export type RewardRank =
+  | 'scrap_iron'
+  | 'bronze'
+  | 'silver'
+  | 'gold'
+  | 'platinum'
+  | 'diamond'
+  | 'stellar'
+  | 'king'
+  | 'master'
+  | 'grandmaster'
+  | 'legend'
+  | 'server'
 
 export type RewardSource =
   | 'level_first_ac'
   | 'hidden_garlic_drop'
+  | 'repair_ac'
   | 'assessment_complete'
   | 'assessment_rank_bonus'
   | 'admin_adjustment'
@@ -277,7 +325,7 @@ export type RewardLedgerEntry = {
 }
 
 export type AssessmentType = 'exam' | 'contest'
-export type AssessmentAttemptStatus = 'in_progress' | 'completed' | 'expired' | 'abandoned'
+export type AssessmentAttemptStatus = 'in_progress' | 'scoring' | 'completed' | 'expired' | 'abandoned'
 
 export type AssessmentSession = {
   id: string
@@ -297,8 +345,25 @@ export type AssessmentAttempt = {
   status: AssessmentAttemptStatus
   startedAt: string
   finishedAt: string | null
+  durationSeconds: number
   score: number
   acceptedCount: number
   totalCount: number
   reward: RewardGrantResult | null
+}
+
+export type AssessmentAttemptItem = {
+  attemptId: string
+  levelId: string
+  position: number
+  displayMode: string
+  source: 'lesson' | 'exam-only'
+  maxScore: number
+  latestRealtimeSubmissionId: string | null
+  finalSubmissionId: string | null
+  status: 'pending' | 'scoring' | 'done'
+  passedCases: number
+  totalCases: number
+  score: number
+  verdict: Verdict | null
 }

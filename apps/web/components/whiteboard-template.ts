@@ -36,7 +36,6 @@ const STROKE = '#27414b'
 const SOFT_STROKE = '#6c7b82'
 const NODE_FILL = '#f9dc84'
 const ARRAY_FILL = '#f7f2df'
-const NOTE_FILL = '#fff0ba'
 const DP_FILL = '#dceef4'
 const ROUGHNESS = 1
 const FONT_FAMILY = 1
@@ -59,25 +58,18 @@ export function buildWhiteboardSeed(input: WhiteboardSeedInput): WhiteboardSeedR
 export function buildWhiteboardPreset(kind: WhiteboardPresetKind, options: WhiteboardPresetOptions = {}): ExcalidrawElement[] {
   if (kind === 'number_balls') {
     const quantity = clampInteger(options.quantity, 5, 1, 40)
-    return toElements([
-      text(24, 26, `数字球 x ${quantity}`, 18, '#3b3120'),
-      ...makeNumberBallGrid(quantity, 28, 70),
-    ])
+    return toElements(makeNumberBallGrid(quantity, 28, 70))
   }
 
   if (kind === 'array_1d') {
     const quantity = clampInteger(options.quantity, 6, 1, 50)
-    return toElements([
-      text(24, 26, `一维数组 x ${quantity}`, 18, '#3b3120'),
-      ...makeArrayCells(Array.from({ length: quantity }, (_, index) => `a${index}`), 28, 72, 58, 48),
-    ])
+    return toElements(makeArrayCells(Array.from({ length: quantity }, () => ''), 28, 72, 58, 48))
   }
 
   const rows = clampInteger(options.rows, 4, 1, 12)
   const cols = clampInteger(options.cols, 5, 1, 12)
-  return toElements([
-    text(24, 26, `二维数组 ${rows} x ${cols}`, 18, '#3b3120'),
-    ...makeTable(
+  return toElements(
+    makeTable(
       Array.from({ length: rows }, () => Array.from({ length: cols }, () => '')),
       28,
       70,
@@ -86,12 +78,12 @@ export function buildWhiteboardPreset(kind: WhiteboardPresetKind, options: White
       DP_FILL,
       true,
     ),
-  ])
+  )
 }
 
 export function makeWhiteboardAppState(level: Level): Partial<AppState> {
   return {
-    name: `${level.title} · 逻辑画板`,
+    name: '逻辑画板',
     viewBackgroundColor: '#fffdf2',
     currentItemStrokeColor: STROKE,
     currentItemBackgroundColor: ARRAY_FILL,
@@ -141,9 +133,7 @@ function detectTemplateKind(level: Level, sampleInput: string | null): Whiteboar
 function buildBinaryTreeSeed(input: WhiteboardSeedInput): WhiteboardSeedResult {
   const rawTokens = extractTreeTokens(input.sampleInput)
   const tokens = (rawTokens.length > 0 ? rawTokens : ['1', '2', '3', '4', '5', '6', '7']).slice(0, 15)
-  const skeletons: ExcalidrawElementSkeleton[] = [
-    text(18, 20, `${input.level.title} · 样例二叉树`, 20, '#2f3c42'),
-  ]
+  const skeletons: ExcalidrawElementSkeleton[] = []
   const nodePositions = new Map<number, { x: number; y: number }>()
   const maxDepth = Math.min(3, Math.floor(Math.log2(Math.max(tokens.length, 1))))
 
@@ -172,7 +162,6 @@ function buildBinaryTreeSeed(input: WhiteboardSeedInput): WhiteboardSeedResult {
 
   if (nodePositions.size === 0) return buildBlankSeed(input.level)
 
-  skeletons.push(text(50, 570, '可拖动节点、补充空儿子或标记遍历顺序。', 16, '#52636b'))
   return {
     kind: 'binary_tree',
     elements: toElements(skeletons),
@@ -189,9 +178,7 @@ function buildGraphSeed(input: WhiteboardSeedInput): WhiteboardSeedResult {
   const centerX = 390
   const centerY = 300
   const positions = new Map<number, { x: number; y: number }>()
-  const skeletons: ExcalidrawElementSkeleton[] = [
-    text(18, 20, `${input.level.title} · 样例图`, 20, '#2f3c42'),
-  ]
+  const skeletons: ExcalidrawElementSkeleton[] = []
 
   for (let id = 1; id <= graph.n; id += 1) {
     const angle = -Math.PI / 2 + ((id - 1) / graph.n) * Math.PI * 2
@@ -217,7 +204,6 @@ function buildGraphSeed(input: WhiteboardSeedInput): WhiteboardSeedResult {
     if (point) skeletons.push(node(point.x, point.y, String(id)))
   }
 
-  skeletons.push(text(48, 568, '可圈出当前选择的边、标记权值，模拟 Kruskal / Prim 的推导过程。', 16, '#52636b'))
   return {
     kind: 'graph',
     elements: toElements(skeletons),
@@ -229,11 +215,7 @@ function buildGraphSeed(input: WhiteboardSeedInput): WhiteboardSeedResult {
 function buildArraySeed(input: WhiteboardSeedInput): WhiteboardSeedResult {
   const values = normalizeArrayValues(extractNumberTokens(input.sampleInput)).slice(0, 12)
   const cells = values.length > 0 ? values : ['3', '1', '4', '1', '5', '9']
-  const skeletons: ExcalidrawElementSkeleton[] = [
-    text(18, 22, `${input.level.title} · 一维数组`, 20, '#2f3c42'),
-    ...makeArrayCells(cells, 38, 112, 58, 52),
-    text(38, 230, '可以拖动画笔标出指针、区间、前缀和或单调结构。', 16, '#52636b'),
-  ]
+  const skeletons = makeArrayCells(cells, 38, 112, 58, 52)
 
   return {
     kind: 'array_1d',
@@ -254,11 +236,7 @@ function buildMatrixSeed(input: WhiteboardSeedInput, kind: 'matrix_2d' | 'dp_tab
     cols: Math.min(matrix.cols, 7),
     values: matrix.values.slice(0, 6).map((row) => row.slice(0, 7)),
   }
-  const skeletons: ExcalidrawElementSkeleton[] = [
-    text(18, 22, `${input.level.title} · ${kind === 'dp_table' ? 'DP 推导表' : '二维表格'}`, 20, '#2f3c42'),
-    ...makeTable(clipped.values, 38, 92, 58, 44, kind === 'dp_table' ? DP_FILL : ARRAY_FILL, true),
-    text(38, 92 + clipped.rows * 44 + 72, '可填写状态、画箭头表示转移来源，或用颜色标出当前格。', 16, '#52636b'),
-  ]
+  const skeletons = makeTable(clipped.values, 38, 92, 58, 44, kind === 'dp_table' ? DP_FILL : ARRAY_FILL, true)
 
   return {
     kind,
@@ -271,10 +249,7 @@ function buildMatrixSeed(input: WhiteboardSeedInput, kind: 'matrix_2d' | 'dp_tab
 function buildBlankSeed(level: Level): WhiteboardSeedResult {
   return {
     kind: 'blank',
-    elements: toElements([
-      note(42, 54, 360, 118, '从这里画题目结构'),
-      text(64, 92, `${level.title}\n可以添加数字球、连线、数组或 DP 表。`, 18, '#3a3526'),
-    ]),
+    elements: [],
     appState: makeWhiteboardAppState(level),
     files: EMPTY_FILES,
   }
@@ -392,22 +367,6 @@ function rect(
     strokeWidth: 2,
     roughness: 0,
     label: { text: label, fontSize: 17, textAlign: 'center', verticalAlign: 'middle' },
-  } as ExcalidrawElementSkeleton
-}
-
-function note(x: number, y: number, width: number, height: number, label: string): ExcalidrawElementSkeleton {
-  return {
-    type: 'rectangle',
-    x,
-    y,
-    width,
-    height,
-    strokeColor: '#946f1f',
-    backgroundColor: NOTE_FILL,
-    fillStyle: 'solid',
-    strokeWidth: 2,
-    roughness: 1,
-    label: { text: label, fontSize: 22, textAlign: 'center', verticalAlign: 'middle' },
   } as ExcalidrawElementSkeleton
 }
 

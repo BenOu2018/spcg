@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 54 54" role="img" aria-labelledby="title desc">
+  <title id="title">Titlebar round button</title>
+  <desc id="desc">Small round brass titlebar icon button.</desc>
+  <defs>
+    <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#b38546"/>
+      <stop offset="1" stop-color="#3b2818"/>
+    </linearGradient>
+  </defs>
+  <circle cx="27" cy="27" r="24" fill="url(#g)" stroke="#d8a95c" stroke-width="3"/>
+  <circle cx="27" cy="27" r="17" fill="#152e2f" opacity=".72"/>
+</svg>

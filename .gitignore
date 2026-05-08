@@ -40,10 +40,12 @@ pnpm-debug.log*
 *.tar.gz
 
 # Local/generated content not uploaded to code repository.
+tmp/
 problem-bank/reports/*.json
 problem-bank/
 lesson/
 docs/
+apps/web/public/monaco/
 
 # Supabase local runtime
 supabase/.branches/

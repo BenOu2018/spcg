@@ -38,7 +38,8 @@ export async function POST(request: Request) {
     })
 
     if (!result.ok) {
-      const status = result.code === 'unauthorized' ? 401 : result.code === 'rate_limited' ? 429 : 400
+      const status =
+        result.code === 'unauthorized' ? 401 : result.code === 'forbidden' ? 403 : result.code === 'rate_limited' ? 429 : 400
       const code = result.code === 'empty' ? 'bad_request' : result.code
       throw new ServiceError(code, result.reason, status, result.retryAfterSeconds)
     }

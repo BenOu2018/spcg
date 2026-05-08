@@ -1,4 +1,4 @@
-type VerdictResult = 'AC' | 'WA' | 'TLE' | 'RE' | 'CE'
+type VerdictResult = 'AC' | 'WA' | 'TLE' | 'MLE' | 'RE' | 'CE' | 'PE'
 
 const messages: Record<VerdictResult, string[]> = {
   AC: [
@@ -13,6 +13,10 @@ const messages: Record<VerdictResult, string[]> = {
     '方向可能对了，但走得有点慢。试试减少重复计算。',
     '代码跑太久了，可以想想有没有更直接的做法。',
   ],
+  MLE: [
+    '程序用的内存太多了，试试减少数组或缓存的规模。',
+    '内存超限了，可以想想哪些数据不用全部存下来。',
+  ],
   RE: [
     '代码跑到一半停住了，检查一下除以 0、越界或输入读取。',
     '程序运行时遇到意外了，先从变量范围和输入格式查起。',
@@ -20,6 +24,10 @@ const messages: Record<VerdictResult, string[]> = {
   CE: [
     '代码还没编译通过，看看括号、分号或变量名有没有写错。',
     '编译器还没看懂这段代码，先检查语法细节。',
+  ],
+  PE: [
+    '输出格式还差一点，检查空格、换行和标点。',
+    '答案内容可能接近了，再看看格式是否和要求完全一致。',
   ],
 }
 

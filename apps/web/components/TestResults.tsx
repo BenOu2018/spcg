@@ -1,16 +1,28 @@
 import type { ReactNode } from 'react'
-import type { Verdict } from '@spcg/shared/types'
+import type { JudgeProgress, Verdict } from '@spcg/shared/types'
 
 type TestResultsProps = {
   verdict: Verdict | null
   status: 'idle' | 'judging' | 'done'
+  progress?: JudgeProgress | null
+  progressKind?: 'test' | 'sample'
   debugInfo?: string[]
   action?: ReactNode
   analysis?: ReactNode
 }
 
-export function TestResults({ verdict, status, debugInfo = [], action, analysis }: TestResultsProps) {
+export function TestResults({
+  verdict,
+  status,
+  progress = null,
+  progressKind = 'test',
+  debugInfo = [],
+  action,
+  analysis,
+}: TestResultsProps) {
   if (status === 'judging') {
+    const progressLine = formatProgressLine(progress, progressKind)
+
     return (
       <div className="result-list pending">
         <div className="result-title">
@@ -20,8 +32,8 @@ export function TestResults({ verdict, status, debugInfo = [], action, analysis 
         </div>
         <div className="case muted-case">
           <span />
-          <span>Test Case</span>
-          <span>Running...</span>
+          <span>{progressLine.label}</span>
+          <span>{progressLine.value}</span>
         </div>
         <DebugInfo items={debugInfo} />
         {analysis}
@@ -80,6 +92,42 @@ export function TestResults({ verdict, status, debugInfo = [], action, analysis 
       {analysis}
     </div>
   )
+}
+
+function formatProgressLine(progress: JudgeProgress | null, kind: NonNullable<TestResultsProps['progressKind']>) {
+  const singleLabel = kind === 'sample' ? 'Public Sample' : 'Test Case'
+  const pluralLabel = kind === 'sample' ? 'Public Samples' : 'Test Cases'
+
+  if (!progress || progress.totalCases <= 0) {
+    return { label: singleLabel, value: 'Running...' }
+  }
+
+  if (progress.phase === 'queued') {
+    return { label: pluralLabel, value: `Queued... ${progress.completedCases}/${progress.totalCases}` }
+  }
+
+  if (progress.runningCaseRange) {
+    const { from, to } = progress.runningCaseRange
+    return {
+      label: `${pluralLabel} ${from}-${to}`,
+      value: `Running... Completed ${progress.completedCases}/${progress.totalCases}`,
+    }
+  }
+
+  if (progress.currentCaseIndex) {
+    return {
+      label: `${singleLabel} ${progress.currentCaseIndex} / ${progress.totalCases}`,
+      value: `Running... Completed ${progress.completedCases}/${progress.totalCases}`,
+    }
+  }
+
+  return {
+    label: pluralLabel,
+    value:
+      progress.phase === 'completed'
+        ? `Completed ${progress.completedCases}/${progress.totalCases}`
+        : `Running... Completed ${progress.completedCases}/${progress.totalCases}`,
+  }
 }
 
 function TitleAction({ action }: { action?: ReactNode }) {

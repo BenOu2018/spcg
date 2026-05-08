@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation'
+import { LESSON_ROLE_SUMMARIES } from '@spcg/shared/curriculum'
 import { getImportBatch } from '@/lib/admin-data'
 import { listAdminProblemSets } from '@/lib/services/problem-set-service'
 import { reviewImportBatch, setImportBatchTarget, updateImportItemMode } from '../actions'
@@ -65,9 +66,7 @@ export default async function AdminImportDetailPage({ params }: AdminImportDetai
             <label>
               <span>Default Mode</span>
               <select name="defaultItemMode" defaultValue={batch.defaultItemMode}>
-                <option value="primary">primary</option>
-                <option value="backup">backup</option>
-                <option value="exam-only">exam-only</option>
+                <DisplayModeOptions />
               </select>
             </label>
             <label className="admin-form-span-2">
@@ -127,9 +126,7 @@ export default async function AdminImportDetailPage({ params }: AdminImportDetai
                 <input name="batchId" type="hidden" value={batch.id} />
                 <input name="levelId" type="hidden" value={item.levelId} />
                 <select className="admin-inline-input" name="displayMode" defaultValue={item.displayMode ?? batch.defaultItemMode}>
-                  <option value="primary">primary</option>
-                  <option value="backup">backup</option>
-                  <option value="exam-only">exam-only</option>
+                  <DisplayModeOptions />
                 </select>
                 <button className="admin-small-button" type="submit">
                   Save
@@ -141,6 +138,18 @@ export default async function AdminImportDetailPage({ params }: AdminImportDetai
         {batch.items.length === 0 ? <p className="admin-empty">No import items recorded yet.</p> : null}
       </section>
     </section>
+  )
+}
+
+function DisplayModeOptions() {
+  return (
+    <>
+      {LESSON_ROLE_SUMMARIES.map((role) => (
+        <option key={role.mode} value={role.mode}>
+          {role.mode} · {role.label}
+        </option>
+      ))}
+    </>
   )
 }
 

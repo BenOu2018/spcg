@@ -27,8 +27,8 @@ export async function getRewardSummaryForSubmission(input: {
         name: String(entry.metadata.itemName ?? entry.itemId),
         quantity: entry.itemQuantity,
       })),
-    rankBefore: (ledger[0]?.metadata.rankBefore as RewardGrantResult['rankBefore']) ?? 'bronze',
-    rankAfter: (ledger[ledger.length - 1]?.metadata.rankAfter as RewardGrantResult['rankAfter']) ?? 'bronze',
+    rankBefore: (ledger[0]?.metadata.rankBefore as RewardGrantResult['rankBefore']) ?? 'scrap_iron',
+    rankAfter: (ledger[ledger.length - 1]?.metadata.rankAfter as RewardGrantResult['rankAfter']) ?? 'scrap_iron',
     title: String(ledger[ledger.length - 1]?.metadata.title ?? ''),
     ledgerIds: ledger.map((entry) => entry.id),
   }

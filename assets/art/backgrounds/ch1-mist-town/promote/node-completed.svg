@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 260" role="img" aria-labelledby="title desc">
+  <title id="title">Completed required node</title>
+  <desc id="desc">Completed progression problem node.</desc>
+  <defs>
+    <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#fff0c9"/>
+      <stop offset="1" stop-color="#d8b36c"/>
+    </linearGradient>
+    <linearGradient id="cap" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#18877f"/>
+      <stop offset="1" stop-color="#07504f"/>
+    </linearGradient>
+  </defs>
+  <path d="M90 8l66 28 12 164-78 52-78-52 12-164z" fill="url(#g)" stroke="#174e50" stroke-width="7"/>
+  <path d="M29 40h122l-8 18H37zM29 196h122l-17 24H46z" fill="#0b5c5a" opacity=".85"/>
+  <circle cx="90" cy="52" r="36" fill="url(#cap)" stroke="#f3d890" stroke-width="5"/>
+  <path d="M64 184l17 17 37-43" fill="none" stroke="#fff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

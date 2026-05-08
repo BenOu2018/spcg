@@ -145,7 +145,7 @@ export async function listUserInventory(userId: string): Promise<UserInventoryIt
 
 export async function grantRewards(inputs: GrantRewardInput[]): Promise<RewardGrantResult> {
   if (inputs.length === 0) {
-    return emptyGrantResult('bronze', 'bronze', generateTitle({ garlicBalance: 0, rank: 'bronze' }))
+    return emptyGrantResult('scrap_iron', 'scrap_iron', generateTitle({ garlicBalance: 0, rank: 'scrap_iron' }))
   }
 
   return withTransaction(async (client) => {

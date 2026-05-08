@@ -80,12 +80,31 @@ function toExecutionResult(result: JudgeCaseResult, timeLimitMs: number): MockEx
   const runtimeMs = Math.round(Number.parseFloat(result.time ?? '0') * 1000)
   const maxRuntimeMs = Number.isFinite(runtimeMs) ? runtimeMs : 0
   const statusId = result.status?.id
+  const statusText = readJudgeStatusText(result)
 
   if (statusId === 3 && maxRuntimeMs <= timeLimitMs) {
     return {
       result: 'AC',
       stdout: result.stdout ?? '',
       maxRuntimeMs,
+    }
+  }
+
+  if (isMemoryLimitStatus(statusText)) {
+    return {
+      result: 'MLE',
+      stdout: result.stdout ?? '',
+      maxRuntimeMs,
+      errorDetail: result.stderr ?? result.message ?? result.status?.description,
+    }
+  }
+
+  if (isPresentationErrorStatus(statusText)) {
+    return {
+      result: 'PE',
+      stdout: result.stdout ?? '',
+      maxRuntimeMs,
+      errorDetail: result.stderr ?? result.message ?? result.status?.description,
     }
   }
 
@@ -145,6 +164,18 @@ function decodeBase64Field(value: string | null | undefined): string | null | un
   } catch {
     return value
   }
+}
+
+function readJudgeStatusText(result: JudgeCaseResult): string {
+  return [result.status?.description, result.stderr, result.compile_output, result.message].filter(Boolean).join(' ')
+}
+
+function isMemoryLimitStatus(value: string): boolean {
+  return /\b(?:memory limit|memory exceeded|out of memory|sigxfsz)\b/i.test(value)
+}
+
+function isPresentationErrorStatus(value: string): boolean {
+  return /\b(?:presentation error|wrong presentation|format error)\b/i.test(value)
 }
 
 function buildJudge0Headers(extra: Record<string, string> = {}): Record<string, string> {

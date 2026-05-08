@@ -1,7 +1,13 @@
 import { isDatabaseConfigured } from '@/lib/repositories/database-repository'
 import {
+  PROBLEM_SET_ITEM_DISPLAY_MODES,
+  V02_LESSON_ITEM_COUNT,
+  V02_REQUIRED_ITEM_COUNT,
+  isRequiredLessonProblemRole,
+  type ProblemSetItemDisplayMode,
+} from '@spcg/shared/curriculum'
+import {
   addProblemSetItem,
-  countProblemSetItems,
   createProblemSet,
   getProblemSetDetail,
   listProblemSetLevelCandidates,
@@ -12,7 +18,6 @@ import {
   updateProblemSetItems,
   type AdminAuditContext,
   type LessonTrack,
-  type ProblemSetItemDisplayMode,
   type ProblemSetStatus,
   type ProblemSetType,
   type ProblemSetVisibility,
@@ -37,7 +42,7 @@ const VALID_TYPES = new Set<ProblemSetType>(['chapter', 'practice', 'review', 'c
 const VALID_VISIBILITIES = new Set<ProblemSetVisibility>(['admin', 'student'])
 const VALID_STATUSES = new Set<ProblemSetStatus>(['draft', 'review', 'published', 'archived'])
 const VALID_TRACKS = new Set<LessonTrack>(['A', 'B'])
-const VALID_DISPLAY_MODES = new Set<ProblemSetItemDisplayMode>(['primary', 'backup', 'exam-only'])
+const VALID_DISPLAY_MODES = new Set<ProblemSetItemDisplayMode>(PROBLEM_SET_ITEM_DISPLAY_MODES)
 
 export async function listAdminProblemSets() {
   if (!isDatabaseConfigured()) return []
@@ -77,6 +82,9 @@ export async function setAdminProblemSetStatus(
 
   const set = await getProblemSetDetail(input.id)
   if (!set) throw new ServiceError('not_found', '题单不存在。', 404)
+  if (input.status === 'published' && set.type === 'lesson') {
+    ensureLessonItemsReady(set.items)
+  }
 
   await translateRepositoryErrors(() => setProblemSetStatus(input, audit))
 }
@@ -98,7 +106,7 @@ export async function addAdminProblemSetItem(
     throw new ServiceError('bad_request', '题目位置必须是正整数。', 400)
   }
   if (!VALID_DISPLAY_MODES.has(input.displayMode)) {
-    throw new ServiceError('bad_request', '题目用途必须是 primary、backup 或 exam-only。', 400)
+    throw new ServiceError('bad_request', '题目用途必须是 v0.2 五题角色或 exam-only。', 400)
   }
 
   await translateRepositoryErrors(() =>
@@ -135,7 +143,7 @@ export async function updateAdminProblemSetItems(
     }
     if (positions.has(item.position)) throw new ServiceError('bad_request', '题目位置不能重复。', 400)
     if (!VALID_DISPLAY_MODES.has(item.displayMode)) {
-      throw new ServiceError('bad_request', '题目用途必须是 primary、backup 或 exam-only。', 400)
+      throw new ServiceError('bad_request', '题目用途必须是 v0.2 五题角色或 exam-only。', 400)
     }
     positions.add(item.position)
   }
@@ -163,8 +171,7 @@ export async function ensureProblemSetCanGenerateLessonPlan(problemSetId: string
   if (!set) throw new ServiceError('not_found', '题单不存在。', 404)
   if (set.type !== 'lesson') throw new ServiceError('bad_request', '只有课程题单可以生成教案。', 400)
 
-  const itemCount = await countProblemSetItems(problemSetId)
-  ensureLessonItemCount(itemCount)
+  ensureLessonItemsReady(set.items)
   return set
 }
 
@@ -224,9 +231,14 @@ function normalizeProblemSetInput(input: ProblemSetUpsertInput): ProblemSetUpser
   }
 }
 
-function ensureLessonItemCount(count: number) {
-  if (count < 5 || count > 10) {
-    throw new ServiceError('bad_request', '课程题单需要包含 5-10 道题后才能发布或生成教案。', 400)
+function ensureLessonItemsReady(items: Array<{ required: boolean; displayMode: ProblemSetItemDisplayMode }>) {
+  if (items.length !== V02_LESSON_ITEM_COUNT) {
+    throw new ServiceError('bad_request', 'v0.2 课程题单必须固定 5 道题后才能发布或生成教案。', 400)
+  }
+
+  const requiredCount = items.filter((item) => item.required || isRequiredLessonProblemRole(item.displayMode)).length
+  if (requiredCount < V02_REQUIRED_ITEM_COUNT) {
+    throw new ServiceError('bad_request', 'v0.2 课程题单至少需要前 3 道主线必做题。', 400)
   }
 }
 

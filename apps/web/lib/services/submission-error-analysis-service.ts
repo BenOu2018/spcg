@@ -29,7 +29,7 @@ export type ExplainSubmissionErrorResult =
 
 const PROVIDER = 'minimax'
 const PROMPT_VERSION = 'spcg-error-analysis-v2'
-const ANALYZABLE_RESULTS = new Set<Verdict['result']>(['WA', 'TLE', 'RE', 'CE', 'Judge Error'])
+const ANALYZABLE_RESULTS = new Set<Verdict['result']>(['WA', 'TLE', 'MLE', 'RE', 'CE', 'PE', 'Judge Error'])
 
 export async function explainSubmissionErrorForUser(input: {
   userId?: string | null

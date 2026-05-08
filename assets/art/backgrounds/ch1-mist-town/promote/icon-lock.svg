@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Lock icon</title>
+  <desc id="desc">Locked required problem icon.</desc>
+  <circle cx="32" cy="32" r="28" fill="#6d6657" stroke="#3d352b" stroke-width="4"/>
+  <rect x="19" y="29" width="26" height="20" rx="4" fill="#f4dfb0"/>
+  <path d="M23 29v-8a9 9 0 0 1 18 0v8" fill="none" stroke="#f4dfb0" stroke-width="6" stroke-linecap="round"/>
+</svg>

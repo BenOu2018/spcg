@@ -1,3 +1,4 @@
+import { isRequiredLessonProblemRole, type ProblemSetItemDisplayMode } from '@spcg/shared/curriculum'
 import { withTransaction } from '@/lib/db'
 
 export type CurriculumAuditContext = {
@@ -5,7 +6,7 @@ export type CurriculumAuditContext = {
   role: string
 }
 
-export type CurriculumDisplayMode = 'primary' | 'backup' | 'exam-only'
+export type CurriculumDisplayMode = ProblemSetItemDisplayMode
 export type CurriculumProblemStatus = 'draft' | 'review' | 'published' | 'archived'
 export type CurriculumProblemSetItemInput = {
   problemSetId: string
@@ -96,11 +97,18 @@ export async function createCurriculumDraftLevel(
     await client.query(
       `
       INSERT INTO problem_set_items (problem_set_id, level_id, position, label, required, metadata)
-      VALUES ($1, $2, $3, $4, TRUE, jsonb_build_object('displayMode', $5::text))
+      VALUES ($1, $2, $3, $4, $5, jsonb_build_object('displayMode', $6::text))
       ON CONFLICT (problem_set_id, level_id)
-      DO UPDATE SET position = EXCLUDED.position, label = EXCLUDED.label, required = TRUE, metadata = EXCLUDED.metadata
+      DO UPDATE SET position = EXCLUDED.position, label = EXCLUDED.label, required = EXCLUDED.required, metadata = EXCLUDED.metadata
       `,
-      [input.problemSetId, level.id, input.position, input.itemLabel, input.displayMode],
+      [
+        input.problemSetId,
+        level.id,
+        input.position,
+        input.itemLabel,
+        isRequiredLessonProblemRole(input.displayMode),
+        input.displayMode,
+      ],
     )
 
     await client.query(

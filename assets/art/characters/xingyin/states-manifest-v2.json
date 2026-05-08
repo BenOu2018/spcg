@@ -1,0 +1,38 @@
+{
+  "character": "xingyin",
+  "version": "v2",
+  "style": "first-version short-skirt sci-fi mentor look, subtly mature and attractive, talent-forward, transparent PNG assets with safe padding",
+  "contactSheet": "xingyin-states-contact-sheet-v2.png",
+  "extraContactSheet": "xingyin-extra-states-contact-sheet-v2.png",
+  "animations": {
+    "victorySpinGif": "animations/xingyin-victory-spin-transparent.gif",
+    "victorySpinWebp": "animations/xingyin-victory-spin-transparent.webp",
+    "victorySpinApng": "animations/xingyin-victory-spin-transparent.png",
+    "victorySpinPreview": "animations/xingyin-victory-spin-preview.png"
+  },
+  "fullbody": {
+    "standing": "fullbody/standing.png",
+    "sitting": "fullbody/sitting.png",
+    "crouching": "fullbody/crouching.png",
+    "reclining": "fullbody/reclining.png",
+    "battle": "fullbody/battle.png",
+    "defense": "fullbody/defense.png",
+    "chibiCute": "fullbody/chibi-cute.png"
+  },
+  "upperbody": {
+    "thinking": "upperbody/thinking.png",
+    "profile": "upperbody/profile.png",
+    "angry": "upperbody/angry.png",
+    "impatient": "upperbody/impatient.png",
+    "playfulPout": "upperbody/playful-pout.png",
+    "coding": "upperbody/coding.png",
+    "victory": "upperbody/victory.png",
+    "defeat": "upperbody/defeat.png",
+    "lost": "upperbody/lost.png",
+    "happy": "upperbody/happy.png",
+    "shocked": "upperbody/shocked.png",
+    "confused": "upperbody/confused.png",
+    "playfulChinRest": "upperbody/playful-chin-rest.png"
+  },
+  "sources": "sources/*-chromakey-v2.png"
+}

@@ -9,6 +9,11 @@ import { getLocalCppCompilerArgs } from '../shared/cpp-config.js'
 import { DIFFICULTY_LAYER_LABELS, getLevelLabel, isDifficultyStars, isSpcgLevel } from '../shared/difficulty.js'
 import { DEFAULT_CPP_LANGUAGE, isResolvedLanguage, normalizeResolvedLanguage } from '../shared/language-config.js'
 import {
+  isProblemSetItemDisplayMode,
+  isRequiredLessonProblemRole,
+  type ProblemSetItemDisplayMode,
+} from '../shared/curriculum.js'
+import {
   checkOfficialCode,
   importLevelRecords,
   printValidatedLevels,
@@ -78,11 +83,12 @@ type AssetCopy = {
   to: string
 }
 
-type StageDisplayMode = 'primary' | 'backup' | 'exam-only'
+type StageDisplayMode = ProblemSetItemDisplayMode
 
 type StageAssignment = {
   spcgLevel: number
   parentOrder: number
+  position: number | null
   track: 'A'
   displayMode: StageDisplayMode
 }
@@ -322,6 +328,7 @@ async function parsePackage(packageDir: string, args: Args): Promise<PackageVali
   const parentOrder = readOptionalPositiveInteger(spcg, 'parentOrder')
   const defaultDisplayMode = readStageDisplayMode(spcg.defaultDisplayMode, errors)
   const mapVisible = typeof spcg.mapVisible === 'boolean' ? spcg.mapVisible : null
+  const stageItemIndex = readStageItemIndex(spcg, id, parentOrder, difficulty?.spcgLevel ?? null, errors)
 
   const statementPath = join(packageDir, 'statement.md')
   const teacherNotesPath = join(packageDir, 'statement_teacher.md')
@@ -384,8 +391,10 @@ async function parsePackage(packageDir: string, args: Args): Promise<PackageVali
     algorithmFamily,
     algorithms,
     parentOrder,
+    stageItemIndex,
     defaultDisplayMode,
     mapVisible,
+    testCasePolicy: isRecord(spcg.testCasePolicy) ? spcg.testCasePolicy : null,
   }
 
   if (!inputFormat || !outputFormat || errors.length > 0) {
@@ -397,6 +406,7 @@ async function parsePackage(packageDir: string, args: Args): Promise<PackageVali
       ? {
           spcgLevel: difficulty.spcgLevel,
           parentOrder,
+          position: stageItemIndex,
           track: 'A' as const,
           displayMode: defaultDisplayMode ?? 'backup',
         }
@@ -572,10 +582,16 @@ async function syncStageAssignments(parsed: ParsedPackageLevel[]) {
         )
       }
 
-      const position = await client.query<{ next_position: string | number }>(
-        'SELECT COALESCE(MAX(position), 0) + 1 AS next_position FROM problem_set_items WHERE problem_set_id = $1',
-        [problemSetId],
-      )
+      const position =
+        assignment.position ??
+        Number(
+          (
+            await client.query<{ next_position: string | number }>(
+              'SELECT COALESCE(MAX(position), 0) + 1 AS next_position FROM problem_set_items WHERE problem_set_id = $1',
+              [problemSetId],
+            )
+          ).rows[0]?.next_position ?? 1,
+        )
 
       await client.query(
         `
@@ -585,29 +601,33 @@ async function syncStageAssignments(parsed: ParsedPackageLevel[]) {
           $2,
           $3,
           $4,
-          TRUE,
+          $5,
           jsonb_build_object(
-            'displayMode', $5::text,
+            'displayMode', $6::text,
             'attachedBy', 'import-problem-packages',
-            'parentOrder', $6::int
+            'parentOrder', $7::int,
+            'stageItemIndex', $3::int
           )
         )
         ON CONFLICT (problem_set_id, level_id)
         DO UPDATE SET
+          position = EXCLUDED.position,
           label = EXCLUDED.label,
           required = EXCLUDED.required,
-          metadata = jsonb_set(
-            COALESCE(problem_set_items.metadata, '{}'::jsonb),
-            '{displayMode}',
-            to_jsonb(EXCLUDED.metadata->>'displayMode'),
-            true
-          )
+          metadata = COALESCE(problem_set_items.metadata, '{}'::jsonb)
+            || jsonb_build_object(
+              'displayMode', EXCLUDED.metadata->>'displayMode',
+              'stageItemIndex', (EXCLUDED.metadata->>'stageItemIndex')::int,
+              'parentOrder', (EXCLUDED.metadata->>'parentOrder')::int,
+              'attachedBy', 'import-problem-packages'
+            )
         `,
         [
           problemSetId,
           level.record.id,
-          Number(position.rows[0]?.next_position ?? 1),
+          position,
           target.rows[0]?.knowledge_point ?? level.record.knowledgePoint,
+          isRequiredLessonProblemRole(assignment.displayMode),
           assignment.displayMode,
           assignment.parentOrder,
         ],
@@ -768,6 +788,8 @@ async function validatePackageQualityGates(context: PackageQualityContext): Prom
 
 function validateStatementMarkdown(levelId: string, statement: string): string[] {
   const errors: string[] = []
+  const statementWithoutFences = stripFencedCodeBlocks(statement)
+  const statementWithoutCodeAndMath = stripInlineCodeAndMath(statementWithoutFences)
 
   if (statement.includes('\t')) {
     errors.push(
@@ -785,7 +807,124 @@ function validateStatementMarkdown(levelId: string, statement: string): string[]
     )
   }
 
+  const inlineCodeMath = statementWithoutFences.match(/`[^`\n]*(?:\\(?:leq?|geq?|neq?|times|cdot|oplus|sum|in|bmod|pmod)|<=|>=|!=|[A-Za-z]_[A-Za-z0-9]+|\bO\([^`\n]*\))[^`\n]*`/)
+  if (inlineCodeMath) {
+    errors.push(
+      `${levelId}: statement.md contains math inside inline code ${inlineCodeMath[0]}; use Markdown LaTeX like $0 \\le x \\le 1000$ or $b \\ne 0$ instead of backticks`,
+    )
+  }
+
+  const plainMathCommand = statementWithoutCodeAndMath.match(/\\(?:leq?|geq?|neq?|times|cdot|oplus|sum|in|bmod|pmod|leftarrow|lfloor|rfloor)\b/)
+  if (plainMathCommand) {
+    errors.push(
+      `${levelId}: statement.md contains raw LaTeX command ${plainMathCommand[0]} outside $...$; wrap programming math, comparisons, arrays, subscripts, and formulas in Markdown LaTeX`,
+    )
+  }
+
+  validateStatementVariablesUseLatex(levelId, statementWithoutFences, statementWithoutCodeAndMath, errors)
+
   return errors
+}
+
+function validateStatementVariablesUseLatex(
+  levelId: string,
+  statementWithoutFences: string,
+  statementWithoutCodeAndMath: string,
+  errors: string[],
+) {
+  const variableRows = extractVariableTableRows(statementWithoutFences)
+  if (variableRows.length === 0) return
+
+  const variables = new Set<string>()
+  for (const row of variableRows) {
+    variables.add(row.symbol)
+    if (!row.isLatex) {
+      errors.push(
+        `${levelId}: statement.md variable table symbol "${row.symbol}" must be written as LaTeX, e.g. $${row.symbol}$ or $\\text{${row.symbol}}$`,
+      )
+    }
+  }
+
+  for (const variable of variables) {
+    const bareVariable = findBareVariable(statementWithoutCodeAndMath, variable)
+    if (bareVariable) {
+      errors.push(
+        `${levelId}: statement.md contains bare variable "${variable}" outside Markdown LaTeX near "${bareVariable}"; write variables as $${variable}$ or $\\text{${variable}}$ in prose, input/output formats, samples, and explanations`,
+      )
+    }
+  }
+
+  const bareFormula = statementWithoutCodeAndMath.match(
+    /\b[A-Za-z][A-Za-z0-9_]*\s*(?:<=|>=|==|!=|=|[<>]|[+\-*/%])\s*[A-Za-z0-9_]/,
+  )
+  if (bareFormula) {
+    errors.push(
+      `${levelId}: statement.md contains bare formula-like text "${bareFormula[0]}"; wrap comparisons, assignments, arithmetic, and modulo expressions in Markdown LaTeX`,
+    )
+  }
+}
+
+function extractVariableTableRows(statementWithoutFences: string): Array<{ symbol: string; isLatex: boolean }> {
+  const rows: Array<{ symbol: string; isLatex: boolean }> = []
+  let inVariableSection = false
+
+  for (const line of statementWithoutFences.split('\n')) {
+    if (/^##\s+变量说明\s*$/.test(line.trim())) {
+      inVariableSection = true
+      continue
+    }
+    if (inVariableSection && /^##\s+/.test(line.trim())) break
+    if (!inVariableSection) continue
+
+    const cell = line.match(/^\|\s*([^|]+?)\s*\|/)
+    if (!cell) continue
+    const raw = cell[1]?.trim()
+    if (!raw || raw === '符号' || /^-+$/.test(raw)) continue
+
+    const latexText = raw.match(/^\$\\text\{([A-Za-z][A-Za-z0-9_]*)\}\$$/)
+    const latexPlain = raw.match(/^\$([A-Za-z][A-Za-z0-9_]*)\$$/)
+    const plain = raw.match(/^([A-Za-z][A-Za-z0-9_]*)$/)
+
+    if (latexText?.[1]) rows.push({ symbol: latexText[1], isLatex: true })
+    else if (latexPlain?.[1]) rows.push({ symbol: latexPlain[1], isLatex: true })
+    else if (plain?.[1]) rows.push({ symbol: plain[1], isLatex: false })
+  }
+
+  return rows
+}
+
+function findBareVariable(textWithoutCodeAndMath: string, variable: string): string | null {
+  const pattern = new RegExp(`(^|[^A-Za-z0-9_$@\\\\])(${escapeRegExp(variable)})(?=$|[^A-Za-z0-9_$@])`)
+  const lines = textWithoutCodeAndMath.split('\n')
+  for (const line of lines) {
+    if (/^\s*\|/.test(line)) continue
+    const match = line.match(pattern)
+    if (match) return line.trim().slice(0, 80)
+  }
+  return null
+}
+
+function stripFencedCodeBlocks(markdown: string): string {
+  return markdown
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .reduce(
+      (state, line) => {
+        if (line.trim().startsWith('```')) {
+          state.inFence = !state.inFence
+          state.lines.push('')
+          return state
+        }
+        state.lines.push(state.inFence ? '' : line)
+        return state
+      },
+      { inFence: false, lines: [] as string[] },
+    )
+    .lines.join('\n')
+}
+
+function stripInlineCodeAndMath(markdown: string): string {
+  return markdown.replace(/`[^`\n]*`/g, '').replace(/\$\$[\s\S]*?\$\$/g, '').replace(/\$[^$\n]*\$/g, '')
 }
 
 function validateTestGroups(context: PackageQualityContext, errors: string[]) {
@@ -1176,6 +1315,59 @@ function readPositiveIntegerArray(value: unknown): number[] {
 function readOptionalPositiveInteger(raw: Record<string, unknown> | null, key: string): number | null {
   const value = raw?.[key]
   return Number.isInteger(value) && (value as number) > 0 ? (value as number) : null
+}
+
+function readStageItemIndex(
+  spcg: Record<string, unknown>,
+  id: string,
+  parentOrder: number | null,
+  spcgLevel: number | null,
+  errors: string[],
+): number | null {
+  const explicit = readOptionalPositiveInteger(spcg, 'stageItemIndex')
+  const lessonSlot = isRecord(spcg.lessonSlot) ? spcg.lessonSlot : null
+  const lessonSlotIndex = readOptionalPositiveInteger(lessonSlot, 'index')
+  const canonicalMatch = id.match(/^ch(\d{2})-(\d{2})-(\d{1,3})(?:-|$)/)
+
+  if (canonicalMatch) {
+    const canonicalLevel = Number(canonicalMatch[1])
+    const canonicalStage = Number(canonicalMatch[2])
+    const canonicalIndex = Number(canonicalMatch[3])
+    if (spcgLevel !== null && canonicalLevel !== spcgLevel) {
+      errors.push('canonical id level must match spcg.difficulty.spcgLevel')
+    }
+    if (parentOrder !== null && canonicalStage !== parentOrder) {
+      errors.push('canonical id stage must match spcg.parentOrder')
+    }
+    if (explicit !== null && explicit !== canonicalIndex) {
+      errors.push('spcg.stageItemIndex must match canonical id item index')
+    }
+    if (lessonSlotIndex !== null && lessonSlotIndex !== canonicalIndex) {
+      errors.push('spcg.lessonSlot.index must match canonical id item index')
+    }
+    if (canonicalIndex > 0) return explicit ?? lessonSlotIndex ?? canonicalIndex
+  }
+
+  if (explicit !== null) return explicit
+  if (lessonSlotIndex !== null) return lessonSlotIndex
+
+  if (parentOrder !== null && spcgLevel !== null) {
+    const expectedPrefix = `ch${String(spcgLevel).padStart(2, '0')}-${String(parentOrder).padStart(2, '0')}-`
+    if (id.startsWith(expectedPrefix)) {
+      const suffix = id.slice(expectedPrefix.length)
+      const match = suffix.match(/^(\d{1,3})(?:-|$)/)
+      if (match?.[1]) {
+        const index = Number(match[1])
+        if (index > 0) return index
+      }
+    }
+  }
+
+  if (parentOrder !== null && id.match(/^ch\d{2}-\d{2}-/)) {
+    errors.push('stage-bound canonical id must match spcg.difficulty.spcgLevel and spcg.parentOrder')
+  }
+
+  return null
 }
 
 function readOptionalRatio(raw: Record<string, unknown> | null, key: string): number | null {
@@ -1634,8 +1826,8 @@ function readOptionalString(raw: Record<string, unknown>, key: string): string |
 
 function readStageDisplayMode(value: unknown, errors: string[]): StageDisplayMode | null {
   if (value === undefined || value === null) return null
-  if (value === 'primary' || value === 'backup' || value === 'exam-only') return value
-  errors.push('spcg.defaultDisplayMode must be primary, backup, exam-only, or null')
+  if (isProblemSetItemDisplayMode(value)) return value
+  errors.push('spcg.defaultDisplayMode must be template, basic, variant, advanced, challenge, exam-only, primary, backup, or null')
   return null
 }
 

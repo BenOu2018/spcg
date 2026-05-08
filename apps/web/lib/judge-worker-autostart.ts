@@ -2,11 +2,12 @@ import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-export function wakeJudgeWorker() {
+export function wakeJudgeWorker(options: { drain?: boolean } = {}) {
   if (process.env.JUDGE_WORKER_AUTOSTART === 'false') return
   if (!process.env.DATABASE_URL || !process.env.JUDGE0_BASE_URL) return
 
-  const child = spawn('npm', ['run', 'judge:worker', '--', '--once'], {
+  const workerArgs = options.drain ? ['--drain'] : ['--once']
+  const child = spawn('npm', ['run', 'judge:worker', '--', ...workerArgs], {
     cwd: resolveWorkspaceRoot(),
     detached: true,
     env: {

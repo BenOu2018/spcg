@@ -8,6 +8,7 @@
 |---|---|---|
 | 项目进度 | [PROGRESS.md](./PROGRESS.md) | 当前完成状态、验证结果、Next Actions、长期产品路线 |
 | v0.2 路线 | [docs/v0.2-roadmap.md](./docs/v0.2-roadmap.md) | 后续版本规划参考 |
+| 1-3级上线测试清单 | [docs/level-1-3-launch-checklist.md](./docs/level-1-3-launch-checklist.md) | SPCG 1-3级上线测试前的题目、流程、权限、老师后台和部署验收清单 |
 
 ## Architecture And Engineering
 

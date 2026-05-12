@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Editor, loader, type BeforeMount, type OnMount } from '@monaco-editor/react'
+import type * as Monaco from 'monaco-editor'
 import type { editor as MonacoEditor } from 'monaco-editor'
 import { AlignLeft, ChevronsDown, ChevronsUp, FileCode2, History, RefreshCw, X } from 'lucide-react'
 import type { CodeErrorAnalysis, JudgeProgress, Level, Progress, SubmissionErrorAnalysis, Verdict } from '@spcg/shared/types'
@@ -28,6 +29,7 @@ import {
 } from '@/app/level/actions'
 import { AlgorithmWhiteboardButton, AlgorithmWhiteboardModal } from '@/components/AlgorithmWhiteboard'
 import { TestResults } from '@/components/TestResults'
+import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 import type { SampleRunResultMap } from '@/components/sample-run'
 
 loader.config({
@@ -46,6 +48,7 @@ type SubmissionAnalysisState =
 
 type CodeWorkspaceProps = {
   level: Level
+  userId: string
   initialProgress?: Progress | null
   layoutVersion?: number
   onRunStart?: () => void
@@ -57,6 +60,7 @@ type CodeWorkspaceProps = {
   assessmentNextQuestionTitle?: string | null
   onAssessmentNextQuestion?: () => void
   onAssessmentSubmissionSettled?: () => void | Promise<void>
+  messages?: StudentUiMessages
 }
 
 type StagePath = {
@@ -90,6 +94,21 @@ type IdeBugContext = {
   code: string
 }
 
+type CompileErrorMarker = {
+  lineNumber: number
+  column: number
+  message: string
+}
+
+type EditorThemeMode = 'monokai' | 'devcpp-light'
+
+const fallbackMessages = getStudentUiMessages('zh-CN')
+const EDITOR_FONT_SIZES = [13, 14, 15, 16, 17, 18, 19, 20] as const
+const DEFAULT_EDITOR_THEME: EditorThemeMode = 'monokai'
+const DEFAULT_EDITOR_FONT_SIZE = 15
+const MIN_EDITOR_FONT_SIZE = 13
+const MAX_EDITOR_FONT_SIZE = 20
+
 declare global {
   interface Window {
     __spcgCurrentIdeContext?: IdeBugContext
@@ -98,6 +117,7 @@ declare global {
 
 export function CodeWorkspace({
   level,
+  userId,
   initialProgress = null,
   layoutVersion = 0,
   onRunStart,
@@ -109,11 +129,14 @@ export function CodeWorkspace({
   assessmentNextQuestionTitle = null,
   onAssessmentNextQuestion,
   onAssessmentSubmissionSettled,
+  messages = fallbackMessages,
 }: CodeWorkspaceProps) {
-  const [languageMode, setLanguageMode] = useState<LanguageMode>(() => readCachedLanguageMode(level.id))
+  const [languageMode, setLanguageMode] = useState<LanguageMode>(() => readCachedLanguageMode(userId, level.id))
+  const [editorThemeMode, setEditorThemeMode] = useState<EditorThemeMode>(() => readCachedEditorThemeMode())
+  const [editorFontSize, setEditorFontSize] = useState(() => readCachedEditorFontSize())
   const [code, setCode] = useState(() => {
-    const cachedLanguage = readCachedLanguageMode(level.id)
-    return readCachedCode(level.id, cachedLanguage) ?? getStarterCodeForLanguage(level, cachedLanguage)
+    const cachedLanguage = readCachedLanguageMode(userId, level.id)
+    return readCachedCode(userId, level.id, cachedLanguage) ?? getStarterCodeForLanguage(level, cachedLanguage)
   })
   const [lastRunCode, setLastRunCode] = useState(level.starterCode)
   const [expanded, setExpanded] = useState(false)
@@ -123,6 +146,7 @@ export function CodeWorkspace({
   const [verdict, setVerdict] = useState<Verdict | null>(null)
   const [consoleInput, setConsoleInput] = useState(() => getDefaultConsoleInput(level))
   const [consoleOutput, setConsoleOutput] = useState('')
+  const [stdoutView, setStdoutView] = useState<'stdout' | 'cases'>('stdout')
   const [debugInfo, setDebugInfo] = useState<string[]>([])
   const [judgeProgress, setJudgeProgress] = useState<JudgeProgress | null>(null)
   const [sampleProgress, setSampleProgress] = useState<JudgeProgress | null>(null)
@@ -137,12 +161,19 @@ export function CodeWorkspace({
   const [historyError, setHistoryError] = useState('')
   const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null)
   const [toolbarRenderKey, setToolbarRenderKey] = useState(0)
+  const [compileErrorMarker, setCompileErrorMarker] = useState<CompileErrorMarker | null>(null)
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null)
+  const monacoRef = useRef<typeof Monaco | null>(null)
+  const compileErrorDecorationIdsRef = useRef<string[]>([])
+  const compileErrorViewZoneIdRef = useRef<string | null>(null)
   const workbenchRef = useRef<HTMLElement | null>(null)
   const editorShellRef = useRef<HTMLElement | null>(null)
   const ideLayoutFrameRef = useRef<number | null>(null)
   const ideLayoutSnapshotRef = useRef('')
   const statusRef = useRef(status)
+  const runInFlightRef = useRef(false)
+  const lastRunRequestRef = useRef<{ key: string; at: number } | null>(null)
+  const submitInFlightRef = useRef(false)
   const editorDisposablesRef = useRef<Array<{ dispose: () => void }>>([])
   const selectedHistory = historyItems.find((item) => item.id === selectedHistoryId) ?? null
   const selectedHistorySource = selectedHistory?.canViewCode && selectedHistory.code ? selectedHistory : null
@@ -158,8 +189,8 @@ export function CodeWorkspace({
   }, [status])
 
   useEffect(() => {
-    const cachedLanguage = readCachedLanguageMode(level.id)
-    const cachedCode = readCachedCode(level.id, cachedLanguage)
+    const cachedLanguage = readCachedLanguageMode(userId, level.id)
+    const cachedCode = readCachedCode(userId, level.id, cachedLanguage)
     const restoredCode = cachedCode ?? getStarterCodeForLanguage(level, cachedLanguage)
     const completedProgress = initialProgress?.passed ? initialProgress : null
     const completedVerdict = completedProgress ? buildCompletedProgressVerdict(level, completedProgress) : null
@@ -168,6 +199,7 @@ export function CodeWorkspace({
     setLastRunCode(restoredCode)
     setConsoleInput(getDefaultConsoleInput(level))
     setConsoleOutput('')
+    setStdoutView('stdout')
     setDebugInfo(completedProgress ? formatCompletedProgressDebugInfo(completedProgress) : [])
     setJudgeProgress(null)
     setSampleProgress(null)
@@ -185,7 +217,8 @@ export function CodeWorkspace({
     setHistoryStatus('idle')
     setHistoryError('')
     setSelectedHistoryId(null)
-  }, [level.id, initialProgress?.passed, initialProgress?.bestRuntimeMs, initialProgress?.attemptCount, initialProgress?.lastSubmittedAt])
+    clearCompileErrorMarker()
+  }, [userId, level.id, initialProgress?.passed, initialProgress?.bestRuntimeMs, initialProgress?.attemptCount, initialProgress?.lastSubmittedAt])
 
   useEffect(() => {
     if (!initialProgress?.passed || assessmentAttemptId) return
@@ -285,6 +318,7 @@ export function CodeWorkspace({
             result.verdict ??
             buildServiceVerdict('Judge Error', result.error ?? '远程判题结果暂未返回。')
           setVerdict(nextVerdict)
+          syncCompileErrorMarkerFromVerdict(nextVerdict)
           setDebugInfo(formatRemoteSubmissionDebugInfo(latestOwnSubmission.id, result, nextVerdict))
           setJudgeProgress(null)
           setStatus('done')
@@ -297,6 +331,7 @@ export function CodeWorkspace({
         if (latestOwnSubmission.verdict) {
           setStatus('done')
           setVerdict(latestOwnSubmission.verdict)
+          syncCompileErrorMarkerFromVerdict(latestOwnSubmission.verdict)
           setJudgeProgress(null)
           setOutputExpanded(true)
           setDebugInfo(
@@ -315,6 +350,7 @@ export function CodeWorkspace({
           const nextVerdict = buildServiceVerdict('Judge Error', '远程判题失败，请查看提交记录或重新提交。')
           setStatus('done')
           setVerdict(nextVerdict)
+          syncCompileErrorMarkerFromVerdict(nextVerdict)
           setJudgeProgress(null)
           setOutputExpanded(true)
           setDebugInfo(
@@ -344,7 +380,9 @@ export function CodeWorkspace({
 
   useEffect(() => {
     return () => {
+      clearCompileErrorMarker()
       editorRef.current = null
+      monacoRef.current = null
       if (ideLayoutFrameRef.current !== null) {
         window.cancelAnimationFrame(ideLayoutFrameRef.current)
       }
@@ -383,7 +421,7 @@ export function CodeWorkspace({
       window.cancelAnimationFrame(animationFrame)
       window.clearTimeout(timeout)
     }
-  }, [expanded, outputExpanded, resultsMaximized, layoutVersion])
+  }, [expanded, outputExpanded, resultsMaximized, layoutVersion, editorThemeMode, editorFontSize])
 
   useEffect(() => {
     const readLayoutSnapshot = () => {
@@ -449,8 +487,10 @@ export function CodeWorkspace({
     }
   }, [])
 
-  const handleEditorMount: OnMount = (editor) => {
+  const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor
+    monacoRef.current = monaco
+    syncCompileErrorMarker(compileErrorMarker)
     disposeEditorListeners(editorDisposablesRef.current)
     editorDisposablesRef.current = [
       editor.onDidFocusEditorText(() => {
@@ -463,27 +503,190 @@ export function CodeWorkspace({
   }
 
   function updateCode(nextCode: string) {
+    if (compileErrorMarker) clearCompileErrorMarker()
     setCode(nextCode)
-    writeCachedCode(level.id, languageMode, nextCode)
+    writeCachedCode(userId, level.id, languageMode, nextCode)
   }
 
   function updateLanguageMode(nextValue: string) {
     const nextLanguageMode = normalizeLanguageMode(nextValue)
-    const nextCode = readCachedCode(level.id, nextLanguageMode) ?? getStarterCodeForLanguage(level, nextLanguageMode)
-    writeCachedLanguageMode(level.id, nextLanguageMode)
+    const nextCode = readCachedCode(userId, level.id, nextLanguageMode) ?? getStarterCodeForLanguage(level, nextLanguageMode)
+    writeCachedLanguageMode(userId, level.id, nextLanguageMode)
     setLanguageMode(nextLanguageMode)
     setCode(nextCode)
     setLastRunCode(nextCode)
     setConsoleOutput('')
+    setStdoutView('stdout')
     setVerdict(null)
     setDebugInfo([])
     setJudgeProgress(null)
     setSampleProgress(null)
     setLearningFeedback(null)
     setStatus('idle')
+    clearCompileErrorMarker()
+  }
+
+  function updateEditorThemeMode(nextValue: string) {
+    const nextThemeMode = normalizeEditorThemeMode(nextValue)
+    setEditorThemeMode(nextThemeMode)
+    writeCachedEditorThemeMode(nextThemeMode)
+    window.requestAnimationFrame(() => editorRef.current?.layout())
+  }
+
+  function updateEditorFontSize(nextValue: string) {
+    const nextFontSize = normalizeEditorFontSize(Number(nextValue))
+    setEditorFontSize(nextFontSize)
+    writeCachedEditorFontSize(nextFontSize)
+    window.requestAnimationFrame(() => editorRef.current?.layout())
+  }
+
+  function syncCompileErrorMarkerFromVerdict(nextVerdict: Verdict) {
+    if (nextVerdict.result !== 'CE' || !nextVerdict.errorDetail) {
+      clearCompileErrorMarker()
+      return
+    }
+
+    syncCompileErrorMarker(
+      extractFirstCompileErrorMarker(nextVerdict.errorDetail) ?? {
+        lineNumber: 1,
+        column: 1,
+        message: cleanCompileErrorMessage(nextVerdict.errorDetail),
+      },
+    )
+  }
+
+  function syncCompileErrorMarker(marker: CompileErrorMarker | null) {
+    setCompileErrorMarker(marker)
+
+    const editor = editorRef.current
+    const monaco = monacoRef.current
+    const model = editor?.getModel()
+    if (!editor || !monaco || !model) return
+
+    monaco.editor.setModelMarkers(model, 'spcg-ce', [])
+    compileErrorDecorationIdsRef.current = editor.deltaDecorations(compileErrorDecorationIdsRef.current, [])
+    removeCompileErrorViewZone(editor)
+
+    if (!marker) return
+
+    const lineNumber = clampInteger(marker.lineNumber, 1, Math.max(1, model.getLineCount()))
+    const lineMaxColumn = Math.max(1, model.getLineMaxColumn(lineNumber))
+    const column = clampInteger(marker.column, 1, lineMaxColumn)
+    const inlineStartColumn = Math.min(column, Math.max(1, lineMaxColumn - 1))
+    const inlineEndColumn = Math.max(inlineStartColumn + 1, Math.min(lineMaxColumn, column + 1))
+
+    monaco.editor.setModelMarkers(model, 'spcg-ce', [
+      {
+        startLineNumber: lineNumber,
+        startColumn: inlineStartColumn,
+        endLineNumber: lineNumber,
+        endColumn: inlineEndColumn,
+        message: marker.message,
+        severity: monaco.MarkerSeverity.Error,
+      },
+    ])
+
+    compileErrorDecorationIdsRef.current = editor.deltaDecorations(compileErrorDecorationIdsRef.current, [
+      {
+        range: {
+          startLineNumber: lineNumber,
+          startColumn: 1,
+          endLineNumber: lineNumber,
+          endColumn: lineMaxColumn,
+        },
+        options: {
+          isWholeLine: true,
+          className: 'compile-error-line-highlight',
+          hoverMessage: { value: marker.message },
+        },
+      },
+      {
+        range: {
+          startLineNumber: lineNumber,
+          startColumn: inlineStartColumn,
+          endLineNumber: lineNumber,
+          endColumn: inlineEndColumn,
+        },
+        options: {
+          inlineClassName: 'compile-error-inline-highlight',
+          hoverMessage: { value: marker.message },
+        },
+      },
+    ])
+
+    addCompileErrorViewZone(editor, lineNumber, marker.message)
+    editor.revealPositionInCenter({ lineNumber, column })
+    editor.setPosition({ lineNumber, column })
+  }
+
+  function clearCompileErrorMarker() {
+    setCompileErrorMarker(null)
+
+    const editor = editorRef.current
+    const model = editor?.getModel()
+    if (model) monacoRef.current?.editor.setModelMarkers(model, 'spcg-ce', [])
+    if (editor) {
+      compileErrorDecorationIdsRef.current = editor.deltaDecorations(compileErrorDecorationIdsRef.current, [])
+      removeCompileErrorViewZone(editor)
+    } else {
+      compileErrorDecorationIdsRef.current = []
+      compileErrorViewZoneIdRef.current = null
+    }
+  }
+
+  function addCompileErrorViewZone(editor: MonacoEditor.IStandaloneCodeEditor, lineNumber: number, message: string) {
+    const domNode = document.createElement('div')
+    domNode.className = 'compile-error-line-message'
+    domNode.setAttribute('role', 'alert')
+
+    const locationNode = document.createElement('span')
+    locationNode.textContent = `第 ${lineNumber} 行`
+
+    const messageNode = document.createElement('strong')
+    messageNode.textContent = message
+
+    domNode.append(locationNode, messageNode)
+
+    editor.changeViewZones((accessor) => {
+      if (compileErrorViewZoneIdRef.current) {
+        accessor.removeZone(compileErrorViewZoneIdRef.current)
+      }
+      compileErrorViewZoneIdRef.current = accessor.addZone({
+        afterLineNumber: lineNumber,
+        domNode,
+        heightInPx: 42,
+        suppressMouseDown: true,
+      })
+    })
+  }
+
+  function removeCompileErrorViewZone(editor: MonacoEditor.IStandaloneCodeEditor) {
+    const zoneId = compileErrorViewZoneIdRef.current
+    if (!zoneId) return
+
+    editor.changeViewZones((accessor) => {
+      accessor.removeZone(zoneId)
+    })
+    compileErrorViewZoneIdRef.current = null
   }
 
   async function runCode() {
+    const runStdin = usesConsole ? consoleInput : ''
+    const requestKey = JSON.stringify({
+      levelId: level.id,
+      code,
+      languageMode,
+      stdin: runStdin,
+      assessmentAttemptId,
+    })
+    const now = Date.now()
+    const lastRunRequest = lastRunRequestRef.current
+    if (runInFlightRef.current || (lastRunRequest?.key === requestKey && now - lastRunRequest.at < 5000)) {
+      return
+    }
+    runInFlightRef.current = true
+    lastRunRequestRef.current = { key: requestKey, at: now }
+    clearCompileErrorMarker()
     setStatus('judging')
     setVerdict(null)
     setLearningFeedback(null)
@@ -492,6 +695,7 @@ export function CodeWorkspace({
     setSampleProgress(buildLocalSampleProgress(level, 1, 0))
     setOutputExpanded(true)
     setConsoleOutput('')
+    setStdoutView('stdout')
     setDebugInfo([`Action: Run`, `Language: ${getLanguageLabel(resolvedLanguage)}`, 'Status: running'])
     setLastRunCode(code)
     onRunStart?.()
@@ -502,12 +706,13 @@ export function CodeWorkspace({
           levelId: level.id,
           code,
           languageMode,
-          stdin: usesConsole ? consoleInput : '',
+          stdin: runStdin,
+          assessmentAttemptId,
         }),
         runVisiblePublicSamples(),
       ])
       const execution = runResult.execution
-      const nextVerdict = buildRunVerdict(level, consoleInput, execution, pickLocalMessage)
+      const nextVerdict = buildRunVerdict(level, runStdin, execution, pickLocalMessage)
 
       setConsoleOutput(execution.stdout ?? '')
       setDebugInfo([
@@ -517,6 +722,7 @@ export function CodeWorkspace({
       ])
       setSampleProgress(null)
       setVerdict(nextVerdict)
+      syncCompileErrorMarkerFromVerdict(nextVerdict)
       setStatus('done')
       onRunComplete?.(sampleResult.samples)
     } catch (error) {
@@ -526,7 +732,10 @@ export function CodeWorkspace({
       setDebugInfo([`Action: Run`, `Language: ${getLanguageLabel(resolvedLanguage)}`, `Status: Judge Error`])
       setSampleProgress(null)
       setVerdict(nextVerdict)
+      syncCompileErrorMarkerFromVerdict(nextVerdict)
       setStatus('done')
+    } finally {
+      runInFlightRef.current = false
     }
   }
 
@@ -548,6 +757,7 @@ export function CodeWorkspace({
           code,
           languageMode,
           stdin: sample.input,
+          assessmentAttemptId,
         })
         const execution = runResult.execution
         const passed = execution.result === 'AC' && normalizeOutput(execution.stdout) === normalizeOutput(sample.expectedOutput)
@@ -564,6 +774,9 @@ export function CodeWorkspace({
   }
 
   async function submitCode() {
+    if (submitInFlightRef.current) return
+    submitInFlightRef.current = true
+    clearCompileErrorMarker()
     setStatus('judging')
     setVerdict(null)
     setLastRemoteSubmissionId(null)
@@ -572,6 +785,7 @@ export function CodeWorkspace({
     setOutputExpanded(true)
     setLastRunCode(code)
     setConsoleOutput('')
+    setStdoutView('stdout')
     setDebugInfo([`Action: Submit`, `Language: ${getLanguageLabel(resolvedLanguage)}`, 'Status: submitting'])
     setLearningFeedback(null)
     onRunStart?.()
@@ -610,14 +824,10 @@ export function CodeWorkspace({
         setDebugInfo(formatRemoteSubmissionDebugInfo(remoteSubmission.submissionId, result, nextVerdict))
         setJudgeProgress(null)
         setVerdict(nextVerdict)
+        syncCompileErrorMarkerFromVerdict(nextVerdict)
         updateLearningFeedback(nextVerdict)
         setStatus('done')
-        const sampleResult = await runPublicSamplesAction({
-          levelId: level.id,
-          code,
-          languageMode,
-        })
-        onRunComplete?.(sampleResult.samples)
+        onRunComplete?.(buildPublicSampleResultsFromVerdict(level, nextVerdict))
         if (assessmentAttemptId) void onAssessmentSubmissionSettled?.()
         if (nextVerdict.result === 'AC') void onAccepted?.()
         void refreshHistory(false)
@@ -629,6 +839,7 @@ export function CodeWorkspace({
       setDebugInfo([`Action: Submit`, `Language: ${getLanguageLabel(resolvedLanguage)}`, `Status: Judge Error`])
       setJudgeProgress(null)
       setVerdict(nextVerdict)
+      syncCompileErrorMarkerFromVerdict(nextVerdict)
       updateLearningFeedback(nextVerdict)
       setStatus('done')
       void refreshHistory(false)
@@ -640,10 +851,13 @@ export function CodeWorkspace({
       setDebugInfo([`Action: Submit`, `Language: ${getLanguageLabel(resolvedLanguage)}`, `Status: Judge Error`])
       setJudgeProgress(null)
       setVerdict(nextVerdict)
+      syncCompileErrorMarkerFromVerdict(nextVerdict)
       updateLearningFeedback(nextVerdict)
       setStatus('done')
       void refreshHistory(false)
       return
+    } finally {
+      submitInFlightRef.current = false
     }
   }
 
@@ -691,10 +905,10 @@ export function CodeWorkspace({
   function loadHistoryCode(item: SubmissionHistoryItem) {
     if (!item.canViewCode || !item.code) return
     const nextLanguageMode = normalizeLanguageMode(item.language)
-    writeCachedLanguageMode(level.id, nextLanguageMode)
+    writeCachedLanguageMode(userId, level.id, nextLanguageMode)
     setLanguageMode(nextLanguageMode)
     setCode(item.code)
-    writeCachedCode(level.id, nextLanguageMode, item.code)
+    writeCachedCode(userId, level.id, nextLanguageMode, item.code)
     setLastRunCode(item.code)
     setHistoryOpen(false)
   }
@@ -767,36 +981,43 @@ export function CodeWorkspace({
         <SubmissionAnalysisPanel
           state={currentAnalysisState}
           onRetry={() => explainSubmissionError(lastRemoteSubmissionId)}
+          messages={messages}
         />
       ) : null}
     </>
   )
   const ideToolButtons = (
-    <div key={toolbarRenderKey} className="tool-buttons" aria-label="IDE 工具按钮">
-      <button type="button" aria-label="重置代码" title="重置代码" data-tooltip="重置代码" onClick={() => updateCode(level.starterCode)}>
+    <div key={toolbarRenderKey} className="tool-buttons" aria-label={messages.ide.editor}>
+      <button
+        type="button"
+        aria-label={messages.ide.resetCode}
+        title={messages.ide.resetCode}
+        data-tooltip={messages.ide.resetCode}
+        onClick={() => updateCode(level.starterCode)}
+      >
         <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-undo.svg" alt="" />
       </button>
       <button
         type="button"
-        aria-label="恢复上次运行代码"
-        title="恢复上次运行代码"
-        data-tooltip="恢复上次运行代码"
+        aria-label={messages.ide.restoreRunCode}
+        title={messages.ide.restoreRunCode}
+        data-tooltip={messages.ide.restoreRunCode}
         onClick={() => updateCode(lastRunCode)}
       >
         <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-redo.svg" alt="" />
       </button>
-      <button type="button" aria-label="查看历史提交" title="历史提交" data-tooltip="历史提交" onClick={openHistory}>
+      <button type="button" aria-label={messages.ide.history} title={messages.ide.history} data-tooltip={messages.ide.history} onClick={openHistory}>
         <History size={18} strokeWidth={2.4} />
       </button>
-      <button type="button" aria-label="自动排版代码" title="自动排版代码" data-tooltip="自动排版代码" onClick={formatCurrentCode}>
+      <button type="button" aria-label={messages.ide.formatCode} title={messages.ide.formatCode} data-tooltip={messages.ide.formatCode} onClick={formatCurrentCode}>
         <AlignLeft size={18} strokeWidth={2.4} />
       </button>
-      <AlgorithmWhiteboardButton onOpen={() => setWhiteboardOpen(true)} />
+      <AlgorithmWhiteboardButton label={messages.ide.whiteboard} onOpen={() => setWhiteboardOpen(true)} />
       <button
         type="button"
-        aria-label="展开编辑器"
-        title={expanded ? '收起编辑器' : '展开编辑器'}
-        data-tooltip={expanded ? '收起编辑器' : '展开编辑器'}
+        aria-label={expanded ? messages.ide.collapseEditor : messages.ide.expandEditor}
+        title={expanded ? messages.ide.collapseEditor : messages.ide.expandEditor}
+        data-tooltip={expanded ? messages.ide.collapseEditor : messages.ide.expandEditor}
         onClick={() => setExpanded((value) => !value)}
       >
         <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-expand.svg" alt="" />
@@ -809,6 +1030,7 @@ export function CodeWorkspace({
       ref={workbenchRef}
       className={[
         'workbench',
+        `ide-theme-${editorThemeMode}`,
         expanded ? 'expanded' : '',
         outputExpanded ? 'output-expanded' : '',
         resultsMaximized ? 'results-maximized' : '',
@@ -823,15 +1045,36 @@ export function CodeWorkspace({
       <section ref={editorShellRef} className="editor-shell">
         <div className="editor-toolbar">
           <div className="editor-language-control">
-            <span>{getLanguageLabel(resolvedLanguage)} Editor</span>
+            <span>{getLanguageLabel(resolvedLanguage)} {messages.ide.editor}</span>
             <select
-              aria-label="选择编程语言"
+              aria-label={messages.ide.chooseLanguage}
               value={languageMode}
               onChange={(event) => updateLanguageMode(event.target.value)}
             >
               {LANGUAGE_MODES.map((option) => (
                 <option key={option} value={option}>
                   {getLanguageLabel(option)}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="选择编辑器风格"
+              title="选择编辑器风格"
+              value={editorThemeMode}
+              onChange={(event) => updateEditorThemeMode(event.target.value)}
+            >
+              <option value="monokai">Monokai</option>
+              <option value="devcpp-light">Dev-C++ 经典白色</option>
+            </select>
+            <select
+              aria-label="选择编辑器字体大小"
+              title="选择编辑器字体大小"
+              value={editorFontSize}
+              onChange={(event) => updateEditorFontSize(event.target.value)}
+            >
+              {EDITOR_FONT_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size}px
                 </option>
               ))}
             </select>
@@ -843,12 +1086,12 @@ export function CodeWorkspace({
           height="100%"
           language={getMonacoLanguage(resolvedLanguage)}
           path={`${level.id}.${resolvedLanguage}`}
-          theme="sublime-monokai"
+          theme={getMonacoThemeName(editorThemeMode)}
           value={code}
-          beforeMount={configureMonokai}
+          beforeMount={configureEditorThemes}
           onMount={handleEditorMount}
           onChange={(value) => updateCode(value ?? '')}
-          loading={<div className="editor-loading">Loading editor...</div>}
+          loading={<div className="editor-loading">{messages.ide.loadingEditor}</div>}
           options={{
             autoIndent: 'advanced',
             automaticLayout: true,
@@ -857,38 +1100,58 @@ export function CodeWorkspace({
             formatOnType: true,
             fontFamily: '"SFMono-Regular", "Consolas", "Liberation Mono", monospace',
             fontLigatures: false,
-            fontSize: 15,
+            fontSize: editorFontSize,
             insertSpaces: true,
-            lineHeight: 24,
+            lineHeight: Math.round(editorFontSize * 1.6),
             minimap: { enabled: false },
             padding: { top: 14, bottom: 96 },
             renderLineHighlight: 'all',
+            scrollBeyondLastColumn: 120,
             scrollBeyondLastLine: false,
             smoothScrolling: true,
             tabSize: 4,
-            wordWrap: 'on',
+            wordWrap: 'off',
           }}
         />
         <div className="judge-actions editor-actions">
           <button className="asset-button run" type="button" onClick={runCode} disabled={status === 'judging'}>
             <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-play.svg" alt="" />
-            Run
+            {messages.ide.run}
           </button>
           <button className="asset-button submit" type="button" onClick={submitCode} disabled={status === 'judging'}>
             <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-star.svg" alt="" />
-            {status === 'judging' ? 'Judging' : 'Submit'}
+            {status === 'judging' ? messages.ide.judging : messages.ide.submit}
           </button>
         </div>
-        {whiteboardOpen ? <AlgorithmWhiteboardModal level={level} onClose={() => setWhiteboardOpen(false)} /> : null}
+        {whiteboardOpen ? (
+          <AlgorithmWhiteboardModal
+            anchorRef={editorShellRef}
+            level={level}
+            userId={userId}
+            onClose={() => setWhiteboardOpen(false)}
+          />
+        ) : null}
       </section>
 
       <section className="results-dock">
+        <button
+          className="results-dock-toggle"
+          type="button"
+          aria-label={resultsMaximized ? messages.ide.collapseEditor : messages.ide.expandEditor}
+          aria-pressed={resultsMaximized}
+          title={resultsMaximized ? messages.ide.collapseEditor : messages.ide.expandEditor}
+          onClick={() => setResultsMaximized((value) => !value)}
+        >
+          {resultsMaximized ? <ChevronsDown size={16} strokeWidth={2.6} /> : <ChevronsUp size={16} strokeWidth={2.6} />}
+        </button>
         <TestResults
           verdict={verdict}
           status={status}
           progress={sampleProgress ?? judgeProgress}
           progressKind={sampleProgress ? 'sample' : 'test'}
           debugInfo={debugInfo}
+          onCasesClick={verdict ? () => setStdoutView((view) => (view === 'cases' ? 'stdout' : 'cases')) : undefined}
+          messages={messages}
           action={
             <>
               {currentCanExplain && lastRemoteSubmissionId ? (
@@ -898,56 +1161,46 @@ export function CodeWorkspace({
                   disabled={currentAnalysisState?.status === 'loading'}
                   onClick={() => explainSubmissionError(lastRemoteSubmissionId)}
                 >
-                  {currentAnalysisState?.status === 'loading' ? '分析中' : 'AI 分析'}
+                  {currentAnalysisState?.status === 'loading' ? messages.ide.analyzing : messages.ide.analyze}
                 </button>
               ) : null}
               {status === 'done' && canAnalyzeVerdict(verdict) && !lastRemoteSubmissionId ? (
-                <span className="ai-analysis-hint">Submit 后可分析</span>
+                <span className="ai-analysis-hint">{messages.ide.analyzeAfterSubmit}</span>
               ) : null}
-              <button
-                className="results-dock-toggle"
-                type="button"
-                aria-label={resultsMaximized ? '收起调试区域' : '展开调试区域'}
-                aria-pressed={resultsMaximized}
-                title={resultsMaximized ? '收起调试区域' : '展开调试区域'}
-                onClick={() => setResultsMaximized((value) => !value)}
-              >
-                {resultsMaximized ? <ChevronsDown size={16} strokeWidth={2.6} /> : <ChevronsUp size={16} strokeWidth={2.6} />}
-              </button>
             </>
           }
           analysis={resultSupport}
         />
         <section className="console-panel">
           <div className="console-column">
-            <label htmlFor={`${level.id}-stdin`}>stdin</label>
+            <label htmlFor={`${level.id}-stdin`}>{messages.ide.stdin}</label>
             <textarea
               id={`${level.id}-stdin`}
               value={consoleInput}
               onChange={(event) => setConsoleInput(event.target.value)}
-              placeholder={usesConsole ? '输入运行数据' : '本题无输入'}
+              placeholder={usesConsole ? messages.ide.stdinPlaceholder : messages.ide.noInputPlaceholder}
               spellCheck={false}
             />
           </div>
           <div className="console-column">
-            <span>stdout</span>
-            <pre>{consoleOutput}</pre>
+            <span>{stdoutView === 'cases' ? 'cases' : messages.ide.stdout}</span>
+            <pre>{stdoutView === 'cases' ? formatCaseResultsForStdout(verdict) : consoleOutput}</pre>
           </div>
         </section>
       </section>
 
       {historyOpen ? (
-        <aside className="submission-history-panel" aria-label="历史提交记录">
+        <aside className="submission-history-panel" aria-label={messages.history.title}>
           <div className="history-panel-head">
             <div>
-              <span>History</span>
-              <strong>提交记录</strong>
+              <span>{messages.history.label}</span>
+              <strong>{messages.history.title}</strong>
             </div>
             <div className="history-panel-actions">
-              <button type="button" aria-label="刷新历史提交" title="刷新历史提交" onClick={() => refreshHistory(false)}>
+              <button type="button" aria-label={messages.common.refresh} title={messages.common.refresh} onClick={() => refreshHistory(false)}>
                 <RefreshCw size={16} strokeWidth={2.4} />
               </button>
-              <button type="button" aria-label="关闭历史提交" title="关闭历史提交" onClick={() => setHistoryOpen(false)}>
+              <button type="button" aria-label={messages.common.close} title={messages.common.close} onClick={() => setHistoryOpen(false)}>
                 <X size={18} strokeWidth={2.4} />
               </button>
             </div>
@@ -972,34 +1225,35 @@ export function CodeWorkspace({
                         disabled={analysisBySubmissionId[selectedHistorySource.id]?.status === 'loading'}
                         onClick={() => explainSubmissionError(selectedHistorySource.id)}
                       >
-                        {analysisBySubmissionId[selectedHistorySource.id]?.status === 'loading' ? '分析中' : 'AI 分析'}
+                        {analysisBySubmissionId[selectedHistorySource.id]?.status === 'loading' ? messages.ide.analyzing : messages.ide.analyze}
                       </button>
                     ) : null}
                     <button type="button" onClick={() => loadHistoryCode(selectedHistorySource)}>
-                      Load
+                      {messages.history.load}
                     </button>
                   </div>
                 </div>
                 <pre>{selectedHistorySource.code}</pre>
-                <SubmissionAnalysisPanel
-                  state={analysisBySubmissionId[selectedHistorySource.id]}
-                  fallback={selectedHistorySource.errorAnalysis}
-                  onRetry={() => explainSubmissionError(selectedHistorySource.id)}
-                />
+                  <SubmissionAnalysisPanel
+                    state={analysisBySubmissionId[selectedHistorySource.id]}
+                    fallback={selectedHistorySource.errorAnalysis}
+                    onRetry={() => explainSubmissionError(selectedHistorySource.id)}
+                    messages={messages}
+                  />
               </div>
             ) : null}
 
             <div className="history-list">
               <div className="history-table-head" aria-hidden="true">
-                <span>状态</span>
-                <span>提交人</span>
-                <span>提交时间</span>
-                <span>源码</span>
+                <span>{messages.history.status}</span>
+                <span>{messages.history.owner}</span>
+                <span>{messages.history.submittedAt}</span>
+                <span>{messages.history.source}</span>
               </div>
-              {historyStatus === 'loading' && historyItems.length === 0 ? <p className="history-empty">Loading...</p> : null}
+              {historyStatus === 'loading' && historyItems.length === 0 ? <p className="history-empty">{messages.history.loading}</p> : null}
               {historyError ? <p className="history-error">{historyError}</p> : null}
               {historyStatus !== 'loading' && historyItems.length === 0 && !historyError ? (
-                <p className="history-empty">暂无提交记录</p>
+                <p className="history-empty">{messages.history.empty}</p>
               ) : null}
               {historyItems.map((item) => (
                 <button
@@ -1016,7 +1270,7 @@ export function CodeWorkspace({
                   <strong className="history-cell history-cell-owner">{formatSubmissionOwner(item)}</strong>
                   <span className="history-cell history-cell-time">{formatHistoryTime(item.createdAt)}</span>
                   <em className={item.canViewCode ? 'history-source-allowed' : 'history-source-locked'}>
-                    {item.canViewCode ? '源码' : '仅基础信息'}
+                    {item.canViewCode ? messages.history.sourceAllowed : messages.history.sourceLocked}
                   </em>
                 </button>
               ))}
@@ -1032,10 +1286,12 @@ function SubmissionAnalysisPanel({
   state,
   fallback,
   onRetry,
+  messages = fallbackMessages,
 }: {
   state?: SubmissionAnalysisState
   fallback?: SubmissionErrorAnalysis | null
   onRetry: () => void
+  messages?: StudentUiMessages
 }) {
   const analysis = state?.analysis ?? fallback?.analysis
   const cached = state?.cached ?? Boolean(fallback)
@@ -1044,8 +1300,8 @@ function SubmissionAnalysisPanel({
     return (
       <section className="ai-analysis-panel loading">
         <div className="ai-analysis-panel-head">
-          <strong>AI 错误分析</strong>
-          <span>生成中...</span>
+          <strong>{messages.ide.analyze}</strong>
+          <span>{messages.ide.analyzing}</span>
         </div>
         <p>正在结合本次提交代码和判题结果分析错误原因。</p>
       </section>
@@ -1056,7 +1312,7 @@ function SubmissionAnalysisPanel({
     return (
       <section className="ai-analysis-panel error">
         <div className="ai-analysis-panel-head">
-          <strong>AI 错误分析</strong>
+          <strong>{messages.ide.analyze}</strong>
           <button type="button" onClick={onRetry}>
             重试
           </button>
@@ -1071,54 +1327,58 @@ function SubmissionAnalysisPanel({
   return (
     <section className="ai-analysis-panel">
       <div className="ai-analysis-panel-head">
-        <strong>AI 错误分析</strong>
+        <strong>{messages.ide.analyze}</strong>
         <span>{cached ? '已保存' : '新生成'}</span>
       </div>
       <p>{analysis.summary}</p>
-      <dl>
-        <div>
-          <dt>错在哪里</dt>
-          <dd>{analysis.whereWrong ?? analysis.summary}</dd>
-        </div>
-        <div>
-          <dt>原因分析</dt>
-          <dd>
-            <ul>
-              {readReasonList(analysis).map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </dd>
-        </div>
-        {analysis.lineHints.length > 0 ? (
+      {analysis.rawResponse ? (
+        <pre className="ai-analysis-raw">{analysis.rawResponse}</pre>
+      ) : (
+        <dl>
           <div>
-            <dt>定位提示</dt>
+            <dt>错在哪里</dt>
+            <dd>{analysis.whereWrong ?? analysis.summary}</dd>
+          </div>
+          <div>
+            <dt>原因分析</dt>
             <dd>
               <ul>
-                {analysis.lineHints.map((item) => (
+                {readReasonList(analysis).map((item) => (
                   <li key={item}>{item}</li>
                 ))}
               </ul>
             </dd>
           </div>
-        ) : null}
-        {analysis.nextSteps.length > 0 ? (
+          {analysis.lineHints.length > 0 ? (
+            <div>
+              <dt>定位提示</dt>
+              <dd>
+                <ul>
+                  {analysis.lineHints.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </dd>
+            </div>
+          ) : null}
+          {analysis.nextSteps.length > 0 ? (
+            <div>
+              <dt>下一步</dt>
+              <dd>
+                <ul>
+                  {analysis.nextSteps.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </dd>
+            </div>
+          ) : null}
           <div>
-            <dt>下一步</dt>
-            <dd>
-              <ul>
-                {analysis.nextSteps.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </dd>
+            <dt>知识点</dt>
+            <dd>{analysis.fixedConcept}</dd>
           </div>
-        ) : null}
-        <div>
-          <dt>知识点</dt>
-          <dd>{analysis.fixedConcept}</dd>
-        </div>
-      </dl>
+        </dl>
+      )}
     </section>
   )
 }
@@ -1142,7 +1402,7 @@ function LearningFeedbackCard({ feedback }: { feedback: LearningFeedback }) {
         </ul>
       ) : null}
       {feedback.nextHref && feedback.nextLabel ? (
-        <Link href={feedback.nextHref}>{feedback.nextLabel}</Link>
+        <Link href={feedback.nextHref} prefetch={false}>{feedback.nextLabel}</Link>
       ) : null}
       {feedback.nextAction && feedback.nextActionLabel ? (
         <button type="button" onClick={feedback.nextAction}>
@@ -1336,7 +1596,9 @@ function buildRunVerdict(
   execution: Awaited<ReturnType<typeof runCodeAction>>['execution'],
   childMessage: (result: Verdict['result']) => string,
 ): Verdict {
-  const matchingCase = level.publicCases.find((sample) => normalizeOutput(sample.input) === normalizeOutput(stdin))
+  const matchingCase =
+    level.publicCases.find((sample) => normalizeOutput(sample.input) === normalizeOutput(stdin)) ??
+    (normalizeOutput(stdin).length === 0 ? level.publicCases.find((sample) => normalizeOutput(sample.input).length === 0) : undefined)
   const result =
     execution.result !== 'AC'
       ? execution.result
@@ -1351,8 +1613,52 @@ function buildRunVerdict(
     maxRuntimeMs: execution.maxRuntimeMs,
     failedCaseIndex: result === 'AC' ? null : 0,
     childFriendlyMessage: childMessage(result),
+    caseResults: [
+      {
+        index: 1,
+        visibility: matchingCase?.visibility ?? 'public',
+        passed: result === 'AC',
+        result,
+        runtimeMs: execution.maxRuntimeMs,
+        memoryKb: null,
+      },
+    ],
     ...(execution.errorDetail ? { errorDetail: execution.errorDetail } : {}),
   }
+}
+
+function formatCaseResultsForStdout(verdict: Verdict | null): string {
+  if (!verdict) return '暂无判题样例数据。'
+
+  const caseResults = verdict.caseResults ?? []
+  const totalCases = Math.max(verdict.totalCases, caseResults.length)
+  const rows = [
+    `Cases: ${verdict.passedCases}/${verdict.totalCases}`,
+    `Max Runtime: ${verdict.maxRuntimeMs} ms`,
+    '',
+    'Case | Type   | Result | Time | Memory',
+    '-----+--------+--------+------+--------',
+  ]
+
+  for (let index = 1; index <= totalCases; index += 1) {
+    const item = caseResults.find((entry) => entry.index === index)
+    const visibility = item?.visibility === 'public' ? 'Public' : item?.visibility === 'hidden' ? 'Hidden' : 'Unknown'
+    const result = item ? (item.passed ? 'AC' : item.result) : 'Not Run'
+    const runtime = item ? `${item.runtimeMs} ms` : '-'
+    const memory = item?.memoryKb ? formatMemoryKb(item.memoryKb) : '-'
+    rows.push(`${padCaseColumn(`#${index}`, 5)}| ${padCaseColumn(visibility, 7)}| ${padCaseColumn(result, 7)}| ${padCaseColumn(runtime, 5)}| ${memory}`)
+  }
+
+  return rows.join('\n')
+}
+
+function formatMemoryKb(memoryKb: number): string {
+  if (memoryKb >= 1024) return `${(memoryKb / 1024).toFixed(1)} MB`
+  return `${memoryKb} KB`
+}
+
+function padCaseColumn(value: string, width: number): string {
+  return value.length >= width ? value : `${value}${' '.repeat(width - value.length)}`
 }
 
 function buildSubmissionProgress(level: Level, status: SubmissionPollResult['status'] | 'pending' | 'judging'): JudgeProgress | null {
@@ -1432,6 +1738,62 @@ function buildServiceVerdict(result: Verdict['result'], message: string): Verdic
   }
 }
 
+function extractFirstCompileErrorMarker(errorDetail: string): CompileErrorMarker | null {
+  const lines = stripAnsi(errorDetail).split(/\r?\n/)
+
+  for (const line of lines) {
+    const match =
+      line.match(/(?:^|\s)(?:[^:\n]*):(\d+):(\d+):\s*(?:fatal\s+)?error:\s*(.+)$/i) ??
+      line.match(/(?:^|\s)(?:[^:\n]*):(\d+):(\d+):\s*错误[：:]\s*(.+)$/i)
+    if (!match) continue
+
+    return {
+      lineNumber: Number(match[1]),
+      column: Number(match[2]),
+      message: cleanCompileErrorMessage(match[3] ?? line),
+    }
+  }
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const currentLine = lines[index]
+    if (!currentLine) continue
+
+    const fileMatch = currentLine.match(/^\s*File\s+"[^"]+",\s+line\s+(\d+)/i)
+    if (!fileMatch) continue
+
+    const lookahead = lines.slice(index + 1, index + 7)
+    const caretLine = lookahead.find((line) => line.includes('^'))
+    const messageLine =
+      lookahead.find((line) => /^\s*(?:SyntaxError|IndentationError|TabError):\s+/.test(line)) ??
+      lookahead.find((line) => line.trim().length > 0)
+
+    return {
+      lineNumber: Number(fileMatch[1]),
+      column: caretLine ? Math.max(1, caretLine.indexOf('^') + 1) : 1,
+      message: cleanCompileErrorMessage(messageLine ?? errorDetail),
+    }
+  }
+
+  return null
+}
+
+function cleanCompileErrorMessage(message: string): string {
+  const text = stripAnsi(message)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)[0]
+  return text ? text.slice(0, 220) : '编译错误，请检查这一行附近的语法。'
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*m/g, '')
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min
+  return Math.max(min, Math.min(max, Math.trunc(value)))
+}
+
 function formatRemoteSubmissionDebugInfo(submissionId: string, result: SubmissionPollResult, verdict?: Verdict): string[] {
   const visibleStatus = verdict?.result ?? result.verdict?.result ?? formatCompilerStatus(result.status)
   const visibleVerdict = verdict ?? result.verdict
@@ -1458,7 +1820,7 @@ function formatRemoteSubmissionDebugInfo(submissionId: string, result: Submissio
     if (result.reward.rankBefore !== result.reward.rankAfter) {
       lines.push(`Rank up: ${result.reward.rankBefore} -> ${result.reward.rankAfter}`)
     }
-    if (result.reward.title) lines.push(`Title: ${result.reward.title}`)
+    if (result.reward.titleAward) lines.push(`Title unlocked: ${result.reward.titleAward.titleLabel}`)
   }
   return lines
 }
@@ -1478,6 +1840,17 @@ function formatHistoryResult(item: SubmissionHistoryItem): string {
 function formatHistoryCases(verdict: Verdict | null): string {
   if (!verdict) return 'No result'
   return `${verdict.passedCases}/${verdict.totalCases} cases`
+}
+
+function buildPublicSampleResultsFromVerdict(level: Level, verdict: Verdict): SampleRunResultMap {
+  const publicCaseResults = (verdict.caseResults ?? []).filter((caseResult) => caseResult.visibility === 'public')
+  return Object.fromEntries(
+    level.publicCases.map((sample, index) => {
+      const caseResult = publicCaseResults[index]
+      const status = caseResult?.result ?? verdict.result
+      return [sample.id, { status, passed: caseResult?.passed ?? status === 'AC' }]
+    }),
+  )
 }
 
 function formatHistoryLanguage(item: SubmissionHistoryItem): string {
@@ -1517,45 +1890,50 @@ function statusClassName(status: string): string {
   return status.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 }
 
-function languageModeCacheKey(levelId: string): string {
-  return `spcg:language:${levelId}`
+function languageModeCacheKey(userId: string, levelId: string): string {
+  return `spcg:user:${encodeCachePart(userId)}:language:${levelId}`
 }
 
-function codeCacheKey(levelId: string, languageMode: LanguageMode): string {
-  return `spcg:code:${levelId}:${languageMode}`
+function codeCacheKey(userId: string, levelId: string, languageMode: LanguageMode): string {
+  return `spcg:user:${encodeCachePart(userId)}:code:${levelId}:${languageMode}`
 }
 
-function readCachedLanguageMode(levelId: string): LanguageMode {
+function editorThemeCacheKey(): string {
+  return 'spcg:ide:theme'
+}
+
+function editorFontSizeCacheKey(): string {
+  return 'spcg:ide:font-size'
+}
+
+function readCachedLanguageMode(userId: string, levelId: string): LanguageMode {
   if (typeof window === 'undefined') return 'auto'
 
   try {
-    return normalizeLanguageMode(window.localStorage.getItem(languageModeCacheKey(levelId)))
+    if (!canReadCachedDrafts(userId)) return 'auto'
+    return normalizeLanguageMode(window.localStorage.getItem(languageModeCacheKey(userId, levelId)))
   } catch {
     return 'auto'
   }
 }
 
-function writeCachedLanguageMode(levelId: string, languageMode: LanguageMode) {
+function writeCachedLanguageMode(userId: string, levelId: string, languageMode: LanguageMode) {
   if (typeof window === 'undefined') return
 
   try {
-    window.localStorage.setItem(languageModeCacheKey(levelId), languageMode)
+    window.localStorage.setItem(languageModeCacheKey(userId, levelId), languageMode)
   } catch {
     // Local storage can be disabled in private browsing; editing should still work.
   }
 }
 
-function readCachedCode(levelId: string, languageMode: LanguageMode): string | null {
+function readCachedCode(userId: string, levelId: string, languageMode: LanguageMode): string | null {
   if (typeof window === 'undefined') return null
 
   try {
-    const value = window.localStorage.getItem(codeCacheKey(levelId, languageMode))
+    if (!canReadCachedDrafts(userId)) return null
+    const value = window.localStorage.getItem(codeCacheKey(userId, levelId, languageMode))
     if (value && value.trim().length > 0) return value
-
-    if (languageMode === 'auto') {
-      const legacyValue = window.localStorage.getItem(`spcg:code:${levelId}`)
-      if (legacyValue && legacyValue.trim().length > 0) return legacyValue
-    }
 
     return value && value.trim().length > 0 ? value : null
   } catch {
@@ -1563,14 +1941,78 @@ function readCachedCode(levelId: string, languageMode: LanguageMode): string | n
   }
 }
 
-function writeCachedCode(levelId: string, languageMode: LanguageMode, code: string) {
+function writeCachedCode(userId: string, levelId: string, languageMode: LanguageMode, code: string) {
   if (typeof window === 'undefined') return
 
   try {
-    window.localStorage.setItem(codeCacheKey(levelId, languageMode), code)
+    window.localStorage.setItem(codeCacheKey(userId, levelId, languageMode), code)
   } catch {
     // Local storage can be disabled in private browsing; editing should still work.
   }
+}
+
+function readCachedEditorThemeMode(): EditorThemeMode {
+  if (typeof window === 'undefined') return DEFAULT_EDITOR_THEME
+
+  try {
+    return normalizeEditorThemeMode(window.localStorage.getItem(editorThemeCacheKey()))
+  } catch {
+    return DEFAULT_EDITOR_THEME
+  }
+}
+
+function writeCachedEditorThemeMode(themeMode: EditorThemeMode) {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.setItem(editorThemeCacheKey(), themeMode)
+  } catch {
+    // Local storage can be disabled in private browsing; editor preferences are optional.
+  }
+}
+
+function normalizeEditorThemeMode(value: unknown): EditorThemeMode {
+  return value === 'devcpp-light' ? 'devcpp-light' : DEFAULT_EDITOR_THEME
+}
+
+function getMonacoThemeName(themeMode: EditorThemeMode): string {
+  return themeMode === 'devcpp-light' ? 'sublime-devcpp-light' : 'sublime-monokai'
+}
+
+function readCachedEditorFontSize(): number {
+  if (typeof window === 'undefined') return DEFAULT_EDITOR_FONT_SIZE
+
+  try {
+    return normalizeEditorFontSize(Number(window.localStorage.getItem(editorFontSizeCacheKey())))
+  } catch {
+    return DEFAULT_EDITOR_FONT_SIZE
+  }
+}
+
+function writeCachedEditorFontSize(fontSize: number) {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.setItem(editorFontSizeCacheKey(), String(normalizeEditorFontSize(fontSize)))
+  } catch {
+    // Local storage can be disabled in private browsing; editor preferences are optional.
+  }
+}
+
+function normalizeEditorFontSize(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_EDITOR_FONT_SIZE
+  const rounded = Math.round(value)
+  if (rounded < MIN_EDITOR_FONT_SIZE) return MIN_EDITOR_FONT_SIZE
+  if (rounded > MAX_EDITOR_FONT_SIZE) return MAX_EDITOR_FONT_SIZE
+  return EDITOR_FONT_SIZES.includes(rounded as (typeof EDITOR_FONT_SIZES)[number]) ? rounded : DEFAULT_EDITOR_FONT_SIZE
+}
+
+function encodeCachePart(value: string): string {
+  return encodeURIComponent(value)
+}
+
+function canReadCachedDrafts(userId: string): boolean {
+  return window.localStorage.getItem('spcg:last-user-id') === userId
 }
 
 function formatCodeForLanguage(source: string, language: ResolvedLanguage): string {
@@ -1780,7 +2222,7 @@ function disposeEditorListeners(disposables: Array<{ dispose: () => void }>) {
   }
 }
 
-const configureMonokai: BeforeMount = (monaco) => {
+const configureEditorThemes: BeforeMount = (monaco) => {
   monaco.editor.defineTheme('sublime-monokai', {
     base: 'vs-dark',
     inherit: true,
@@ -1805,6 +2247,38 @@ const configureMonokai: BeforeMount = (monaco) => {
       'editor.lineHighlightBackground': '#3E3D32',
       'editorIndentGuide.background1': '#3B3A32',
       'editorIndentGuide.activeBackground1': '#9D550F',
+    },
+  })
+
+  monaco.editor.defineTheme('sublime-devcpp-light', {
+    base: 'vs',
+    inherit: true,
+    rules: [
+      { token: '', foreground: '000000', background: 'FFFFFF' },
+      { token: 'comment', foreground: '008000' },
+      { token: 'keyword', foreground: '0000FF' },
+      { token: 'number', foreground: '800080' },
+      { token: 'string', foreground: 'A31515' },
+      { token: 'type', foreground: '2B91AF' },
+      { token: 'identifier', foreground: '000000' },
+      { token: 'delimiter', foreground: '000000' },
+    ],
+    colors: {
+      'editor.background': '#FFFFFF',
+      'editor.foreground': '#000000',
+      'editorCursor.foreground': '#000000',
+      'editorLineNumber.foreground': '#6A737D',
+      'editorLineNumber.activeForeground': '#1F2328',
+      'editor.selectionBackground': '#ADD6FF',
+      'editor.inactiveSelectionBackground': '#E5EBF1',
+      'editor.lineHighlightBackground': '#F3F3F3',
+      'editorIndentGuide.background1': '#D8DEE4',
+      'editorIndentGuide.activeBackground1': '#8C959F',
+      'editorGutter.background': '#F6F8FA',
+      'editorWidget.background': '#FFFFFF',
+      'editorWidget.border': '#D0D7DE',
+      'input.background': '#FFFFFF',
+      'input.foreground': '#000000',
     },
   })
 }

@@ -1,6 +1,11 @@
 import type { RewardGrantResult } from '@spcg/shared/types'
 import { isDatabaseConfigured } from '@/lib/repositories/database-repository'
-import { grantRewards, listLedgerBySubmissionId, type GrantRewardInput } from '@/lib/repositories/reward-repository'
+import {
+  getUserTitleRecordBySubmissionId,
+  grantRewards,
+  listLedgerBySubmissionId,
+  type GrantRewardInput,
+} from '@/lib/repositories/reward-repository'
 import {
   deterministicGarlicDrop,
   getDifficultyCoefficient,
@@ -16,20 +21,35 @@ export async function getRewardSummaryForSubmission(input: {
   if (!input.userId || !isDatabaseConfigured()) return null
   const ledger = await listLedgerBySubmissionId(input.userId, input.submissionId)
   if (ledger.length === 0) return null
+  const titleRecord = await getUserTitleRecordBySubmissionId(input.userId, input.submissionId)
+  const titleAward = titleRecord
+    ? {
+        titleKey: titleRecord.titleKey,
+        titleLabel: titleRecord.titleLabel,
+        rankAtAward: titleRecord.rankAtAward,
+        poolKey: titleRecord.poolKey,
+        levelId: titleRecord.levelId,
+        submissionId: titleRecord.submissionId,
+        awardedAt: titleRecord.awardedAt,
+      }
+    : ((ledger[ledger.length - 1]?.metadata.titleAward as RewardGrantResult['titleAward']) ?? null)
 
   return {
     coinDelta: ledger.reduce((sum, entry) => sum + entry.coinDelta, 0),
     garlicDelta: ledger.reduce((sum, entry) => sum + entry.garlicDelta, 0),
-    items: ledger
-      .filter((entry) => entry.itemId && entry.itemQuantity > 0)
-      .map((entry) => ({
-        itemId: entry.itemId!,
-        name: String(entry.metadata.itemName ?? entry.itemId),
-        quantity: entry.itemQuantity,
-      })),
+    items: readKnowledgeItemsFromLedger(ledger).concat(
+      ledger
+        .filter((entry) => entry.itemId && entry.itemQuantity > 0)
+        .map((entry) => ({
+          itemId: entry.itemId!,
+          name: String(entry.metadata.itemName ?? entry.itemId),
+          quantity: entry.itemQuantity,
+        })),
+    ),
     rankBefore: (ledger[0]?.metadata.rankBefore as RewardGrantResult['rankBefore']) ?? 'scrap_iron',
     rankAfter: (ledger[ledger.length - 1]?.metadata.rankAfter as RewardGrantResult['rankAfter']) ?? 'scrap_iron',
-    title: String(ledger[ledger.length - 1]?.metadata.title ?? ''),
+    title: titleAward?.titleLabel ?? String(ledger[ledger.length - 1]?.metadata.title ?? ''),
+    titleAward,
     ledgerIds: ledger.map((entry) => entry.id),
   }
 }
@@ -93,6 +113,26 @@ export async function grantAcceptedSubmissionRewardWithRepository(input: {
   }
 
   return grantRewards(rewards)
+}
+
+function readKnowledgeItemsFromLedger(
+  ledger: Awaited<ReturnType<typeof listLedgerBySubmissionId>>,
+): RewardGrantResult['items'] {
+  const items: RewardGrantResult['items'] = []
+  for (const entry of ledger) {
+    const rawItems = entry.metadata.knowledgeItems
+    if (!Array.isArray(rawItems)) continue
+    for (const rawItem of rawItems) {
+      if (!rawItem || typeof rawItem !== 'object' || Array.isArray(rawItem)) continue
+      const record = rawItem as Record<string, unknown>
+      const itemId = typeof record.itemId === 'string' ? record.itemId : typeof record.tagId === 'string' ? record.tagId : ''
+      const name = typeof record.name === 'string' ? record.name : typeof record.zhName === 'string' ? record.zhName : itemId
+      const quantity = typeof record.quantity === 'number' ? record.quantity : 1
+      if (!itemId || quantity <= 0) continue
+      items.push({ itemId, name, quantity })
+    }
+  }
+  return items
 }
 
 export async function grantAssessmentReward(input: {

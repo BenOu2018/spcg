@@ -78,11 +78,26 @@ export async function getSubmissionErrorAnalysisContextForAdmin(input: {
   })
 }
 
+export async function getSubmissionErrorAnalysisContextForTeacher(input: {
+  submissionId: string
+  teacherUserId: string
+}): Promise<SubmissionErrorAnalysisContext | null> {
+  return getSubmissionErrorAnalysisContext({
+    submissionId: input.submissionId,
+    teacherUserId: input.teacherUserId,
+  })
+}
+
 async function getSubmissionErrorAnalysisContext(input: {
   submissionId: string
   userId?: string
+  teacherUserId?: string
 }): Promise<SubmissionErrorAnalysisContext | null> {
-  const values = input.userId ? [input.submissionId, input.userId] : [input.submissionId]
+  const values = input.userId
+    ? [input.submissionId, input.userId]
+    : input.teacherUserId
+      ? [input.submissionId, input.teacherUserId]
+      : [input.submissionId]
   const row = await queryOne<ContextRow>(
     `
     SELECT
@@ -106,6 +121,19 @@ async function getSubmissionErrorAnalysisContext(input: {
     JOIN levels l ON l.id = s.level_id
     WHERE s.id = $1
       ${input.userId ? 'AND s.user_id = $2' : ''}
+      ${
+        input.teacherUserId
+          ? `
+      AND EXISTS (
+        SELECT 1
+        FROM teacher_students ts
+        WHERE ts.teacher_user_id = $2
+          AND ts.student_user_id = s.user_id
+          AND ts.status = 'active'
+      )
+      `
+          : ''
+      }
     `,
     values,
   )
@@ -187,7 +215,13 @@ export async function insertSubmissionErrorAnalysis(input: {
     )
     VALUES ($1, $2, $3, $4, $5, $6, $7)
     ON CONFLICT (submission_id, provider) DO UPDATE
-      SET submission_id = EXCLUDED.submission_id
+      SET
+        model = EXCLUDED.model,
+        verdict_result = EXCLUDED.verdict_result,
+        analysis = EXCLUDED.analysis,
+        raw_error = EXCLUDED.raw_error,
+        prompt_hash = EXCLUDED.prompt_hash,
+        created_at = NOW()
     RETURNING id, submission_id, provider, model, verdict_result, analysis, raw_error, prompt_hash, created_at
     `,
     [

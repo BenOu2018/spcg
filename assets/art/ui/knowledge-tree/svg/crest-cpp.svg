@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="SPCG C++ crest">
+  <defs>
+    <linearGradient id="g" x1="24" x2="104" y1="8" y2="118" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#42c9ff"/>
+      <stop offset=".46" stop-color="#146dcb"/>
+      <stop offset="1" stop-color="#0b2f75"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="17" x2="112" y1="7" y2="121" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff2a8"/>
+      <stop offset=".5" stop-color="#e4a83b"/>
+      <stop offset="1" stop-color="#8a5618"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#gold)" d="M64 5l47 16v36c0 31-18 53-47 66-29-13-47-35-47-66V21L64 5z"/>
+  <path fill="url(#g)" d="M64 16l36 12v30c0 24-13 40-36 52-23-12-36-28-36-52V28l36-12z"/>
+  <path fill="none" stroke="#e7fbff" stroke-width="5" d="M78 43c-5-6-14-9-23-6-12 4-18 17-14 29s17 18 29 14c4-1 8-4 11-7"/>
+  <path fill="#fff2a8" d="M82 46h8v8h8v8h-8v8h-8v-8h-8v-8h8v-8zm21 0h6v8h8v6h-8v8h-6v-8h-8v-6h8v-8z"/>
+  <path fill="none" stroke="#ffffff" stroke-opacity=".7" stroke-width="2" d="M64 22l30 10v26c0 20-10 33-30 44"/>
+</svg>

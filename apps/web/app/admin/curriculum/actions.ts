@@ -274,6 +274,8 @@ function buildDraftLevel(input: {
     difficulty: input.difficulty,
     description: `# ${input.title}\n\nTODO: 在这里填写题面。`,
     statementAssets: [],
+    algorithmGraphs: [],
+    localizedContent: {},
     inputFormat: 'TODO: 填写输入格式。',
     outputFormat: 'TODO: 填写输出格式。',
     testCases: Array.from({ length: 20 }, (_, index) => ({

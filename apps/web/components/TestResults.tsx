@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { JudgeProgress, Verdict } from '@spcg/shared/types'
+import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 
 type TestResultsProps = {
   verdict: Verdict | null
@@ -9,7 +10,11 @@ type TestResultsProps = {
   debugInfo?: string[]
   action?: ReactNode
   analysis?: ReactNode
+  messages?: StudentUiMessages
+  onCasesClick?: () => void
 }
+
+const fallbackMessages = getStudentUiMessages('zh-CN')
 
 export function TestResults({
   verdict,
@@ -19,15 +24,17 @@ export function TestResults({
   debugInfo = [],
   action,
   analysis,
+  messages = fallbackMessages,
+  onCasesClick,
 }: TestResultsProps) {
   if (status === 'judging') {
-    const progressLine = formatProgressLine(progress, progressKind)
+    const progressLine = formatProgressLine(progress, progressKind, messages)
 
     return (
       <div className="result-list pending">
         <div className="result-title">
           <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-play.svg" alt="" />
-          Judging
+          {messages.results.judging}
           <TitleAction action={action} />
         </div>
         <div className="case muted-case">
@@ -46,13 +53,13 @@ export function TestResults({
       <div className="result-list">
         <div className="result-title">
           <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-check.svg" alt="" />
-          Test Results
+          {messages.results.title}
           <TitleAction action={action} />
         </div>
         <div className="case muted-case">
           <span />
-          <span>Ready</span>
-          <span>Submit when done.</span>
+          <span>{messages.results.ready}</span>
+          <span>{messages.results.submitWhenDone}</span>
         </div>
         <DebugInfo items={debugInfo} />
         {analysis}
@@ -61,6 +68,7 @@ export function TestResults({
   }
 
   const passed = verdict.result === 'AC'
+
   return (
     <div className={`result-list result-${resultClassName(verdict.result)}`}>
       <div className="result-title">
@@ -68,56 +76,66 @@ export function TestResults({
         {verdict.result}
         <TitleAction action={action} />
       </div>
-      <div className="case">
+      <button
+        className="case case-button"
+        type="button"
+        title="查看所有判题样例"
+        onClick={onCasesClick}
+        aria-disabled={onCasesClick ? 'false' : 'true'}
+      >
         <ResultIcon passed={passed} />
-        <span>Cases</span>
+        <span>{messages.results.cases}</span>
         <span>
           {verdict.passedCases}/{verdict.totalCases} · {verdict.maxRuntimeMs} ms
         </span>
-      </div>
+      </button>
       <div className="case">
         <span />
-        <span>Message</span>
+        <span>{messages.results.message}</span>
         <span>{verdict.childFriendlyMessage}</span>
       </div>
       {verdict.failedCaseIndex !== null ? (
         <div className="case failed-case">
           <span />
-          <span>Failed</span>
+          <span>{messages.results.failed}</span>
           <span>#{verdict.failedCaseIndex + 1}</span>
         </div>
       ) : null}
       {verdict.errorDetail ? <pre className="result-error">{verdict.errorDetail}</pre> : null}
-      <DebugInfo items={debugInfo} />
+      <DebugInfo items={debugInfo} onCasesClick={onCasesClick} />
       {analysis}
     </div>
   )
 }
 
-function formatProgressLine(progress: JudgeProgress | null, kind: NonNullable<TestResultsProps['progressKind']>) {
-  const singleLabel = kind === 'sample' ? 'Public Sample' : 'Test Case'
-  const pluralLabel = kind === 'sample' ? 'Public Samples' : 'Test Cases'
+function formatProgressLine(
+  progress: JudgeProgress | null,
+  kind: NonNullable<TestResultsProps['progressKind']>,
+  messages: StudentUiMessages,
+) {
+  const singleLabel = kind === 'sample' ? messages.results.publicSample : messages.results.testCase
+  const pluralLabel = kind === 'sample' ? messages.results.publicSamples : messages.results.testCases
 
   if (!progress || progress.totalCases <= 0) {
-    return { label: singleLabel, value: 'Running...' }
+    return { label: singleLabel, value: messages.results.running }
   }
 
   if (progress.phase === 'queued') {
-    return { label: pluralLabel, value: `Queued... ${progress.completedCases}/${progress.totalCases}` }
+    return { label: pluralLabel, value: `${messages.results.queued} ${progress.completedCases}/${progress.totalCases}` }
   }
 
   if (progress.runningCaseRange) {
     const { from, to } = progress.runningCaseRange
     return {
       label: `${pluralLabel} ${from}-${to}`,
-      value: `Running... Completed ${progress.completedCases}/${progress.totalCases}`,
+      value: `${messages.results.running} ${messages.results.completedCount} ${progress.completedCases}/${progress.totalCases}`,
     }
   }
 
   if (progress.currentCaseIndex) {
     return {
       label: `${singleLabel} ${progress.currentCaseIndex} / ${progress.totalCases}`,
-      value: `Running... Completed ${progress.completedCases}/${progress.totalCases}`,
+      value: `${messages.results.running} ${messages.results.completedCount} ${progress.completedCases}/${progress.totalCases}`,
     }
   }
 
@@ -125,8 +143,8 @@ function formatProgressLine(progress: JudgeProgress | null, kind: NonNullable<Te
     label: pluralLabel,
     value:
       progress.phase === 'completed'
-        ? `Completed ${progress.completedCases}/${progress.totalCases}`
-        : `Running... Completed ${progress.completedCases}/${progress.totalCases}`,
+        ? `${messages.results.completed} ${progress.completedCases}/${progress.totalCases}`
+        : `${messages.results.running} ${messages.results.completedCount} ${progress.completedCases}/${progress.totalCases}`,
   }
 }
 
@@ -136,14 +154,20 @@ function TitleAction({ action }: { action?: ReactNode }) {
   return <span className="result-title-action">{action}</span>
 }
 
-function DebugInfo({ items }: { items: string[] }) {
+function DebugInfo({ items, onCasesClick }: { items: string[]; onCasesClick?: () => void }) {
   if (items.length === 0) return null
 
   return (
     <div className="result-debug-info">
-      {items.map((item) => (
-        <span key={item}>{item}</span>
-      ))}
+      {items.map((item) =>
+        onCasesClick && /^Cases:\s*\d+\/\d+/.test(item) ? (
+          <button className="result-debug-info-button cases-debug-button" type="button" key={item} onClick={onCasesClick}>
+            {item}
+          </button>
+        ) : (
+          <span key={item}>{item}</span>
+        ),
+      )}
     </div>
   )
 }

@@ -52,6 +52,7 @@ export default async function AdminCurriculumPage({ searchParams }: AdminCurricu
   const selectedItem =
     selectedSet?.items.find((item) => item.levelId === requestedProblemId) ?? selectedSet?.items[0] ?? null
   const selectedProblem = selectedItem ? await getAdminLevel(selectedItem.levelId) : null
+  const selectedKnowledgeSnapshots = selectedProblem?.importMeta.knowledgePointSnapshots ?? []
   const selectedItemIds = new Set(selectedSet?.items.map((item) => item.levelId) ?? [])
   const importCandidates = candidates.filter(
     (level) =>
@@ -212,6 +213,26 @@ export default async function AdminCurriculumPage({ searchParams }: AdminCurricu
               Open level detail
             </Link>
           </header>
+          <article className="admin-panel">
+            <div className="admin-panel-head">
+              <h2>标准知识点标签</h2>
+              <span className="admin-count">{selectedKnowledgeSnapshots.length} tag(s)</span>
+            </div>
+            {selectedKnowledgeSnapshots.length > 0 ? (
+              <dl className="admin-dl">
+                {selectedKnowledgeSnapshots.map((tag) => (
+                  <div key={`${tag.classification}:${tag.tagId}`}>
+                    <dt>{tag.zhName}</dt>
+                    <dd>
+                      {tag.tagId} · {tag.enName} · {tag.classification} · {tag.domain} · {tag.bandOrLevel} · {tag.role}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="admin-help-text">当前题目还没有导入标准知识点标签。</p>
+            )}
+          </article>
           <article className="admin-panel">
             <h2>题面预览</h2>
             <div className="admin-statement-preview">
@@ -698,6 +719,14 @@ function LevelContentEditor({ level }: { level: NonNullable<Awaited<ReturnType<t
         <label className="admin-form-full">
           <span>Statement Assets JSON</span>
           <textarea className="admin-json-textarea" name="statementAssetsJson" defaultValue={json(level.statementAssets)} rows={8} required />
+        </label>
+        <label className="admin-form-full">
+          <span>Algorithm Graphs JSON</span>
+          <textarea className="admin-json-textarea" name="algorithmGraphsJson" defaultValue={json(level.algorithmGraphs)} rows={8} required />
+        </label>
+        <label className="admin-form-full">
+          <span>Localized Content JSON</span>
+          <textarea className="admin-json-textarea" name="localizedContentJson" defaultValue={json(level.localizedContent)} rows={10} required />
         </label>
         <label className="admin-form-full">
           <span>Test Cases JSON</span>

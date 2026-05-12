@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS levels (
   difficulty JSONB NOT NULL,
   description TEXT NOT NULL,
   statement_assets JSONB NOT NULL DEFAULT '[]'::jsonb,
+  algorithm_graphs JSONB NOT NULL DEFAULT '[]'::jsonb,
+  localized_content JSONB NOT NULL DEFAULT '{}'::jsonb,
   input_format TEXT NOT NULL,
   output_format TEXT NOT NULL,
   test_cases JSONB NOT NULL,
@@ -87,6 +89,8 @@ CREATE TABLE IF NOT EXISTS levels (
     AND difficulty->>'label' IN ('入门','基础','提高','挑战','综合')
   ),
   CONSTRAINT levels_statement_assets_array CHECK (jsonb_typeof(statement_assets) = 'array'),
+  CONSTRAINT levels_algorithm_graphs_array CHECK (jsonb_typeof(algorithm_graphs) = 'array'),
+  CONSTRAINT levels_localized_content_object CHECK (jsonb_typeof(localized_content) = 'object'),
   CONSTRAINT levels_sister_problem_object CHECK (
     sister_problem IS NULL
     OR (
@@ -323,6 +327,8 @@ SELECT
   l.sister_problem,
   l.description,
   l.statement_assets,
+  l.algorithm_graphs,
+  l.localized_content,
   l.input_format,
   l.output_format,
   COALESCE(public_cases.value, '[]'::jsonb) AS public_cases,

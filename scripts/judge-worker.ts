@@ -1,10 +1,13 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import { createHash } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { isAbsolute, relative, resolve } from 'node:path'
 import pg from 'pg'
-import type { JudgeProgress, Language, ResolvedLanguage, TestCase, Verdict } from '../shared/types.js'
+import type { JudgeProgress, Language, ResolvedLanguage, RewardRank, TestCase, TestCaseDataRef, Verdict } from '../shared/types.js'
 import { runJudge0 } from '../shared/judge0-client.js'
 import { getDifficultyCoefficient, getLevelCoinReward } from '../shared/difficulty.js'
 import { normalizeLanguageMode, resolveLanguageMode } from '../shared/language-config.js'
+import { getEarnedTitlePoolKeyForRank, pickEarnedTitleFromPool } from '../shared/earned-titles.js'
 import { generateTitle, getRankForCoins } from '../shared/reward-ranks.js'
 
 type Args = {
@@ -23,6 +26,7 @@ type ClaimedSubmission = {
   resolved_language: ResolvedLanguage | null
   knowledge_point: string
   difficulty: { spcgLevel?: number; stars?: number } | null
+  import_meta: Record<string, unknown> | null
   test_cases: TestCase[]
   time_limit_ms: number
   memory_limit_mb: number
@@ -30,6 +34,15 @@ type ClaimedSubmission = {
   assessment_phase: 'realtime' | 'final' | null
   judge_mode: 'fast' | 'full' | null
   max_score: number | null
+}
+
+type KnowledgeUsageItem = {
+  tagId: string
+  classification: '编程算法'
+  zhName: string
+  enName: string
+  domain: string
+  bandOrLevel: string
 }
 
 const { Pool } = pg
@@ -78,6 +91,7 @@ async function claimSubmission(pool: pg.Pool): Promise<ClaimedSubmission | null>
         s.resolved_language,
         l.knowledge_point,
         l.difficulty,
+        l.import_meta,
         l.test_cases,
         l.time_limit_ms,
         l.memory_limit_mb,
@@ -108,13 +122,15 @@ async function claimSubmission(pool: pg.Pool): Promise<ClaimedSubmission | null>
       `,
       [
         row.id,
-        buildJudgeProgress({
-          phase: 'queued',
-          currentCaseIndex: null,
-          runningCaseRange: null,
-          completedCases: 0,
-          totalCases: row.test_cases.length,
-        }),
+        toJsonb(
+          buildJudgeProgress({
+            phase: 'queued',
+            currentCaseIndex: null,
+            runningCaseRange: null,
+            completedCases: 0,
+            totalCases: row.test_cases.length,
+          }),
+        ),
       ],
     )
 
@@ -130,13 +146,14 @@ async function claimSubmission(pool: pg.Pool): Promise<ClaimedSubmission | null>
 
 async function judgeSubmission(pool: pg.Pool, submission: ClaimedSubmission, workerIndex: number) {
   const language = submission.resolved_language ?? resolveLanguageMode(normalizeLanguageMode(submission.language), submission.code)
+  const testCases = await resolveFileBackedTestCases(submission.test_cases)
 
   try {
     console.log(`worker-${workerIndex} judging ${submission.id} (${language})`)
     const verdict = await runJudge0({
       code: submission.code,
       language,
-      cases: submission.test_cases,
+      cases: testCases,
       timeLimitMs: submission.time_limit_ms,
       memoryLimitMb: submission.memory_limit_mb,
       childMessage: pickMessage,
@@ -144,20 +161,75 @@ async function judgeSubmission(pool: pg.Pool, submission: ClaimedSubmission, wor
       onProgress: (progress) => updateSubmissionJudgeProgress(pool, submission.id, progress),
     })
 
-    await finishSubmission(pool, submission, verdict, 'done', language)
+    await finishSubmission(pool, submission, verdict, 'done', language, testCases.length)
   } catch (error) {
     const verdict: Verdict = {
       result: 'Judge Error',
       passedCases: 0,
-      totalCases: submission.test_cases.length,
+      totalCases: testCases.length,
       maxRuntimeMs: 0,
       failedCaseIndex: null,
       childFriendlyMessage: '判题服务暂时没有跑完，请稍后再试一次。',
       errorDetail: error instanceof Error ? error.message : String(error),
     }
 
-    await finishSubmission(pool, submission, verdict, 'error', language)
+    await finishSubmission(pool, submission, verdict, 'error', language, testCases.length)
   }
+}
+
+async function resolveFileBackedTestCases(testCases: TestCase[]): Promise<TestCase[]> {
+  const hasFileBackedCase = testCases.some((testCase) => testCase.inputRef || testCase.expectedOutputRef)
+  if (!hasFileBackedCase) return testCases
+
+  return Promise.all(
+    testCases.map(async (testCase) => {
+      if (!testCase.inputRef && !testCase.expectedOutputRef) return testCase
+      if (!testCase.inputRef || !testCase.expectedOutputRef) {
+        throw new Error(`test case ${testCase.id} must provide both inputRef and expectedOutputRef`)
+      }
+
+      const [input, expectedOutput] = await Promise.all([
+        readProblemCaseFile(testCase.inputRef),
+        readProblemCaseFile(testCase.expectedOutputRef),
+      ])
+      const { inputRef, expectedOutputRef, inputPreview, ...resolvedTestCase } = testCase
+      return {
+        ...resolvedTestCase,
+        input,
+        expectedOutput,
+      }
+    }),
+  )
+}
+
+async function readProblemCaseFile(ref: TestCaseDataRef): Promise<string> {
+  if (ref.type !== 'file') {
+    throw new Error(`unsupported problem case ref type: ${ref.type}`)
+  }
+
+  const path = resolveProblemCasePath(ref.path)
+  const content = await readFile(path)
+  if (process.env.PROBLEM_CASES_VERIFY_HASH === 'true') {
+    const sha256 = createHash('sha256').update(content).digest('hex')
+    if (sha256 !== ref.sha256) {
+      throw new Error(`problem case checksum mismatch: ${ref.path}`)
+    }
+  }
+  return content.toString('utf8')
+}
+
+function resolveProblemCasePath(relativePath: string): string {
+  if (relativePath.includes('\0') || isAbsolute(relativePath)) {
+    throw new Error(`invalid problem case path: ${relativePath}`)
+  }
+
+  const baseDir = resolve(process.env.PROBLEM_CASES_DIR ?? 'problem-cases')
+  const target = resolve(baseDir, relativePath)
+  const rel = relative(baseDir, target)
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(`problem case path escapes base directory: ${relativePath}`)
+  }
+  return target
 }
 
 async function finishSubmission(
@@ -166,6 +238,7 @@ async function finishSubmission(
   verdict: Verdict,
   status: 'done' | 'error',
   resolvedLanguage: ResolvedLanguage,
+  totalCases: number,
 ) {
   const client = await pool.connect()
 
@@ -180,15 +253,17 @@ async function finishSubmission(
       [
         submission.id,
         status,
-        verdict,
+        toJsonb(verdict),
         resolvedLanguage,
-        buildJudgeProgress({
-          phase: 'completed',
-          currentCaseIndex: null,
-          runningCaseRange: null,
-          completedCases: verdict.caseResults?.length ?? countCompletedCases(verdict, submission.test_cases.length),
-          totalCases: submission.test_cases.length,
-        }),
+        toJsonb(
+          buildJudgeProgress({
+            phase: 'completed',
+            currentCaseIndex: null,
+            runningCaseRange: null,
+            completedCases: verdict.caseResults?.length ?? countCompletedCases(verdict, totalCases),
+            totalCases,
+          }),
+        ),
       ],
     )
 
@@ -199,11 +274,18 @@ async function finishSubmission(
       SET score = $2, case_results = $3
       WHERE id = $1
       `,
-      [submission.id, score, verdict.caseResults ?? null],
+      [submission.id, score, verdict.caseResults ? toJsonb(verdict.caseResults) : null],
     )
 
     if (submission.assessment_attempt_id) {
       await updateAssessmentAttemptItem(client, submission, verdict, score)
+      if (submission.assessment_phase === 'final') {
+        const previousProgress = await updateProgress(client, submission, verdict)
+        if (verdict.result === 'AC') {
+          await grantAcceptedSubmissionReward(client, submission)
+          await grantRepairSuccessReward(client, submission, previousProgress)
+        }
+      }
       await refreshAssessmentAttemptIfReady(client, submission.assessment_attempt_id)
       await client.query('COMMIT')
       console.log(`${submission.id} ${verdict.result} ${verdict.passedCases}/${verdict.totalCases} score=${score}`)
@@ -236,8 +318,12 @@ async function updateSubmissionJudgeProgress(
     SET judge_progress = $2, updated_at = NOW()
     WHERE id = $1 AND status IN ('pending','judging')
     `,
-    [submissionId, buildJudgeProgress(progress)],
+    [submissionId, toJsonb(buildJudgeProgress(progress))],
   )
+}
+
+function toJsonb(value: unknown): string {
+  return JSON.stringify(value)
 }
 
 function buildJudgeProgress(progress: Omit<JudgeProgress, 'updatedAt'>): JudgeProgress {
@@ -438,15 +524,14 @@ async function grantAcceptedSubmissionReward(client: pg.PoolClient, submission: 
   }
   const difficultyCoefficient = getDifficultyCoefficient(difficulty)
   const coinDelta = getLevelCoinReward(difficulty)
-  const itemId = pickItemForKnowledgePoint(submission.knowledge_point)
-  const inserted = await insertRewardLedger(client, {
+  const firstAcLedgerId = await insertRewardLedger(client, {
     userId: submission.user_id,
     source: 'level_first_ac',
     sourceRef: submission.level_id,
     coinDelta,
     garlicDelta: 0,
-    itemId,
-    itemQuantity: 1,
+    itemId: null,
+    itemQuantity: 0,
     metadata: {
       levelId: submission.level_id,
       submissionId: submission.id,
@@ -454,13 +539,35 @@ async function grantAcceptedSubmissionReward(client: pg.PoolClient, submission: 
       spcgLevel: difficulty.spcgLevel,
       stars: difficulty.stars,
       difficultyCoefficient,
-      itemName: await getItemName(client, itemId),
     },
   })
 
-  if (!inserted) return
+  if (!firstAcLedgerId) return
 
-  await addInventoryItem(client, submission.user_id, itemId, 1)
+  const knowledgeItems = await recordKnowledgeUsageForFirstAc(client, submission)
+  if (knowledgeItems.length > 0) {
+    await client.query(
+      `
+      UPDATE reward_ledger
+      SET metadata = metadata || $2::jsonb
+      WHERE id = $1
+      `,
+      [
+        firstAcLedgerId,
+        JSON.stringify({
+          knowledgeItems: knowledgeItems.map((item) => ({
+            itemId: item.tagId,
+            tagId: item.tagId,
+            name: item.zhName,
+            zhName: item.zhName,
+            domain: item.domain,
+            quantity: 1,
+          })),
+        }),
+      ],
+    )
+  }
+  const ledgerIds = [firstAcLedgerId]
 
   const drop = deterministicGarlicDrop({
     userId: submission.user_id,
@@ -468,7 +575,7 @@ async function grantAcceptedSubmissionReward(client: pg.PoolClient, submission: 
     submissionId: submission.id,
   })
   if (drop.dropped) {
-    await insertRewardLedger(client, {
+    const hiddenLedgerId = await insertRewardLedger(client, {
       userId: submission.user_id,
       source: 'hidden_garlic_drop',
       sourceRef: submission.level_id,
@@ -482,9 +589,258 @@ async function grantAcceptedSubmissionReward(client: pg.PoolClient, submission: 
         roll: drop.roll,
       },
     })
+    if (hiddenLedgerId) ledgerIds.push(hiddenLedgerId)
   }
 
-  await refreshWallet(client, submission.user_id)
+  await refreshWallet(client, submission.user_id, {
+    firstAcLevelId: submission.level_id,
+    firstAcSubmissionId: submission.id,
+    ledgerIds,
+  })
+}
+
+async function recordKnowledgeUsageForFirstAc(
+  client: pg.PoolClient,
+  submission: ClaimedSubmission,
+): Promise<KnowledgeUsageItem[]> {
+  const knowledgeItems = await resolveKnowledgeUsageItems(client, submission)
+  const insertedItems: KnowledgeUsageItem[] = []
+
+  for (const item of knowledgeItems) {
+    const inserted = await client.query<{ tag_id: string }>(
+      `
+      INSERT INTO user_knowledge_usage_events (
+        user_id,
+        level_id,
+        submission_id,
+        assessment_attempt_id,
+        classification,
+        tag_id,
+        zh_name,
+        en_name,
+        domain,
+        band_or_level,
+        source,
+        metadata
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'first_ac',$11::jsonb)
+      ON CONFLICT (user_id, level_id, classification, tag_id) DO NOTHING
+      RETURNING tag_id
+      `,
+      [
+        submission.user_id,
+        submission.level_id,
+        submission.id,
+        submission.assessment_attempt_id,
+        item.classification,
+        item.tagId,
+        item.zhName,
+        item.enName,
+        item.domain,
+        item.bandOrLevel,
+        JSON.stringify({
+          submissionId: submission.id,
+          assessmentAttemptId: submission.assessment_attempt_id,
+          assessmentPhase: submission.assessment_phase,
+        }),
+      ],
+    )
+
+    if (!inserted.rows[0]) continue
+    insertedItems.push(item)
+
+    await client.query(
+      `
+      INSERT INTO user_knowledge_usage (
+        user_id,
+        classification,
+        tag_id,
+        zh_name,
+        en_name,
+        domain,
+        band_or_level,
+        usage_count,
+        passed_level_count,
+        first_used_at,
+        last_used_at
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,1,1,NOW(),NOW())
+      ON CONFLICT (user_id, classification, tag_id)
+      DO UPDATE SET
+        zh_name = EXCLUDED.zh_name,
+        en_name = EXCLUDED.en_name,
+        domain = EXCLUDED.domain,
+        band_or_level = EXCLUDED.band_or_level,
+        usage_count = user_knowledge_usage.usage_count + 1,
+        passed_level_count = user_knowledge_usage.passed_level_count + 1,
+        last_used_at = NOW(),
+        updated_at = NOW()
+      `,
+      [submission.user_id, item.classification, item.tagId, item.zhName, item.enName, item.domain, item.bandOrLevel],
+    )
+  }
+
+  return insertedItems
+}
+
+async function resolveKnowledgeUsageItems(
+  client: pg.PoolClient,
+  submission: ClaimedSubmission,
+): Promise<KnowledgeUsageItem[]> {
+  const snapshotItems = readKnowledgeSnapshotItems(submission.import_meta)
+  if (snapshotItems.length > 0) return uniqueKnowledgeItems(snapshotItems)
+
+  const tagIds = readKnowledgeTagIds(submission.import_meta)
+  if (tagIds.length > 0) {
+    const registryItems = await loadKnowledgeItemsByTagIds(client, tagIds)
+    if (registryItems.length > 0) return uniqueKnowledgeItems(registryItems)
+  }
+
+  const matched = await findKnowledgeItemByName(client, submission.knowledge_point)
+  if (matched) return [matched]
+
+  return [
+    {
+      tagId: `legacy-${createHash('sha256').update(submission.knowledge_point).digest('hex').slice(0, 12)}`,
+      classification: '编程算法',
+      zhName: submission.knowledge_point || '算法知识点',
+      enName: '',
+      domain: 'algorithm',
+      bandOrLevel: '',
+    },
+  ]
+}
+
+function readKnowledgeSnapshotItems(importMeta: Record<string, unknown> | null): KnowledgeUsageItem[] {
+  const snapshots = Array.isArray(importMeta?.knowledgePointSnapshots) ? importMeta.knowledgePointSnapshots : []
+  return snapshots
+    .map((snapshot) => {
+      if (!isRecord(snapshot)) return null
+      if (snapshot.classification !== '编程算法') return null
+      const tagId = readNonEmptyString(snapshot.tagId)
+      const zhName = readNonEmptyString(snapshot.zhName)
+      if (!tagId || !zhName) return null
+      return {
+        tagId,
+        classification: '编程算法' as const,
+        zhName,
+        enName: readNonEmptyString(snapshot.enName) ?? '',
+        domain: readNonEmptyString(snapshot.domain) ?? 'algorithm',
+        bandOrLevel: readNonEmptyString(snapshot.bandOrLevel) ?? '',
+      }
+    })
+    .filter((item): item is KnowledgeUsageItem => Boolean(item))
+}
+
+function readKnowledgeTagIds(importMeta: Record<string, unknown> | null): string[] {
+  const tags = Array.isArray(importMeta?.knowledgeTags) ? importMeta.knowledgeTags : []
+  return Array.from(
+    new Set(
+      tags
+        .map((tag) => {
+          if (!isRecord(tag)) return ''
+          if (tag.classification !== '编程算法') return ''
+          return readNonEmptyString(tag.tagId) ?? ''
+        })
+        .filter(Boolean),
+    ),
+  )
+}
+
+async function loadKnowledgeItemsByTagIds(client: pg.PoolClient, tagIds: string[]): Promise<KnowledgeUsageItem[]> {
+  const result = await client.query<{
+    tag_id: string
+    zh_name: string
+    en_name: string
+    domain: string
+    band_or_level: string
+  }>(
+    `
+    SELECT tag_id, zh_name, en_name, domain, band_or_level
+    FROM knowledge_points
+    WHERE classification = '编程算法'
+      AND tag_id = ANY($1::text[])
+    `,
+    [tagIds],
+  )
+  const byTagId = new Map(result.rows.map((row) => [row.tag_id, row]))
+  return tagIds.flatMap((tagId) => {
+    const row = byTagId.get(tagId)
+    return row
+      ? [
+          {
+            tagId: row.tag_id,
+            classification: '编程算法' as const,
+            zhName: row.zh_name,
+            enName: row.en_name,
+            domain: row.domain,
+            bandOrLevel: row.band_or_level,
+          },
+        ]
+      : []
+  })
+}
+
+async function findKnowledgeItemByName(
+  client: pg.PoolClient,
+  knowledgePoint: string,
+): Promise<KnowledgeUsageItem | null> {
+  const title = knowledgePoint.trim()
+  if (!title) return null
+  const result = await client.query<{
+    tag_id: string
+    zh_name: string
+    en_name: string
+    domain: string
+    band_or_level: string
+  }>(
+    `
+    SELECT tag_id, zh_name, en_name, domain, band_or_level
+    FROM knowledge_points
+    WHERE classification = '编程算法'
+      AND (
+        zh_name = $1
+        OR $1 ILIKE '%' || zh_name || '%'
+        OR zh_name ILIKE '%' || $1 || '%'
+      )
+    ORDER BY
+      CASE WHEN zh_name = $1 THEN 0 ELSE 1 END,
+      sort_order ASC
+    LIMIT 1
+    `,
+    [title],
+  )
+  const row = result.rows[0]
+  return row
+    ? {
+        tagId: row.tag_id,
+        classification: '编程算法',
+        zhName: row.zh_name,
+        enName: row.en_name,
+        domain: row.domain,
+        bandOrLevel: row.band_or_level,
+      }
+    : null
+}
+
+function uniqueKnowledgeItems(items: KnowledgeUsageItem[]): KnowledgeUsageItem[] {
+  const seen = new Set<string>()
+  const unique: KnowledgeUsageItem[] = []
+  for (const item of items) {
+    const key = `${item.classification}:${item.tagId}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    unique.push(item)
+  }
+  return unique
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
 async function grantRepairSuccessReward(
@@ -500,7 +856,7 @@ async function grantRepairSuccessReward(
   }
   const firstAcCoinReward = getLevelCoinReward(difficulty)
   const repairCoinReward = Math.max(1, Math.floor(firstAcCoinReward / 3))
-  const inserted = await insertRewardLedger(client, {
+  const insertedLedgerId = await insertRewardLedger(client, {
     userId: submission.user_id,
     source: 'repair_ac',
     sourceRef: submission.level_id,
@@ -517,8 +873,8 @@ async function grantRepairSuccessReward(
     },
   })
 
-  if (inserted) {
-    await refreshWallet(client, submission.user_id)
+  if (insertedLedgerId) {
+    await refreshWallet(client, submission.user_id, { ledgerIds: [insertedLedgerId] })
   }
 }
 
@@ -534,8 +890,8 @@ async function insertRewardLedger(
     itemQuantity: number
     metadata: Record<string, unknown>
   },
-): Promise<boolean> {
-  const result = await client.query(
+): Promise<string | null> {
+  const result = await client.query<{ id: string }>(
     `
     INSERT INTO reward_ledger
       (user_id, source, source_ref, coin_delta, garlic_delta, item_id, item_quantity, metadata)
@@ -555,7 +911,7 @@ async function insertRewardLedger(
     ],
   )
 
-  return Boolean(result.rows[0])
+  return result.rows[0]?.id ?? null
 }
 
 async function addInventoryItem(client: pg.PoolClient, userId: string, itemId: string, quantity: number) {
@@ -572,7 +928,16 @@ async function addInventoryItem(client: pg.PoolClient, userId: string, itemId: s
   )
 }
 
-async function refreshWallet(client: pg.PoolClient, userId: string) {
+async function refreshWallet(
+  client: pg.PoolClient,
+  userId: string,
+  input: {
+    firstAcLevelId?: string
+    firstAcSubmissionId?: string
+    ledgerIds?: string[]
+  } = {},
+) {
+  const before = await client.query<{ rank: RewardRank }>('SELECT rank FROM user_wallets WHERE user_id = $1', [userId])
   const totals = await client.query<{ coin_total: string | number; garlic_balance: string | number }>(
     `
     SELECT
@@ -586,7 +951,16 @@ async function refreshWallet(client: pg.PoolClient, userId: string) {
   const coinTotal = toNumber(totals.rows[0]?.coin_total)
   const garlicBalance = toNumber(totals.rows[0]?.garlic_balance)
   const rank = getRankForCoins(coinTotal).rank
-  const title = generateTitle({ garlicBalance, rank })
+  const generatedTitle = generateTitle({ garlicBalance, rank })
+  const titleAward = input.ledgerIds?.length
+    ? await awardEarnedTitleForRankOnce(client, {
+        userId,
+        levelId: input.firstAcLevelId ?? null,
+        submissionId: input.firstAcSubmissionId ?? null,
+        rankAfter: rank,
+      })
+    : null
+  const title = titleAward?.titleLabel ?? (await getLatestEarnedTitleLabel(client, userId)) ?? generatedTitle
 
   await client.query(
     `
@@ -601,6 +975,25 @@ async function refreshWallet(client: pg.PoolClient, userId: string) {
     `,
     [userId, coinTotal, garlicBalance, rank, title],
   )
+
+  if (input.ledgerIds?.length) {
+    await client.query(
+      `
+      UPDATE reward_ledger
+      SET metadata = metadata || $2::jsonb
+      WHERE id = ANY($1::uuid[])
+      `,
+      [
+        input.ledgerIds,
+        {
+          rankBefore: before.rows[0]?.rank ?? 'scrap_iron',
+          rankAfter: rank,
+          title,
+          titleAward,
+        },
+      ],
+    )
+  }
 }
 
 async function getItemName(client: pg.PoolClient, itemId: string): Promise<string> {
@@ -687,6 +1080,113 @@ function deterministicGarlicDrop(input: { userId: string; levelId: string; submi
     garlic: roll < 2 ? 2 : 1,
     roll,
   }
+}
+
+async function awardEarnedTitleForRankOnce(
+  client: pg.PoolClient,
+  input: {
+    userId: string
+    levelId: string | null
+    submissionId: string | null
+    rankAfter: RewardRank
+  },
+) {
+  const existing = await client.query<{ title_key: string }>(
+    `
+    SELECT title_key
+    FROM user_title_records
+    WHERE user_id = $1 AND rank_at_award = $2
+    LIMIT 1
+    `,
+    [input.userId, input.rankAfter],
+  )
+  if (existing.rows[0]) return null
+
+  const poolKey = getEarnedTitlePoolKeyForRank(input.rankAfter)
+  const usedRows = await client.query<{ title_label: string }>(
+    `
+    SELECT title_label
+    FROM user_title_records
+    WHERE user_id = $1 AND pool_key = $2
+    `,
+    [input.userId, poolKey],
+  )
+  const seed = deterministicEarnedTitleSeed({
+    userId: input.userId,
+    levelId: input.levelId ?? input.rankAfter,
+    submissionId: input.submissionId ?? input.rankAfter,
+  })
+  const title = pickEarnedTitleFromPool({
+    poolKey,
+    seed,
+    usedLabels: usedRows.rows.map((row) => row.title_label),
+  })
+  const result = await client.query<{
+    title_key: string
+    title_label: string
+    rank_at_award: RewardRank
+    pool_key: string
+    level_id: string | null
+    submission_id: string | null
+    awarded_at: Date | string
+  }>(
+    `
+    INSERT INTO user_title_records
+      (user_id, title_key, title_label, rank_at_award, pool_key, source, source_ref, level_id, submission_id, metadata)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    ON CONFLICT (user_id, rank_at_award) DO NOTHING
+    RETURNING title_key, title_label, rank_at_award, pool_key, level_id, submission_id, awarded_at
+    `,
+    [
+      input.userId,
+      title.key,
+      title.label,
+      input.rankAfter,
+      poolKey,
+      input.levelId ? 'level_first_ac' : 'rank_reached',
+      input.levelId ?? input.rankAfter,
+      input.levelId,
+      input.submissionId,
+      {
+        titleIndex: title.index,
+        seed,
+        reason: 'rank_reached',
+      },
+    ],
+  )
+  const row = result.rows[0]
+  if (!row) return null
+  return {
+    titleKey: row.title_key,
+    titleLabel: row.title_label,
+    rankAtAward: row.rank_at_award,
+    poolKey: row.pool_key,
+    levelId: row.level_id,
+    submissionId: row.submission_id,
+    awardedAt: row.awarded_at instanceof Date ? row.awarded_at.toISOString() : new Date(row.awarded_at).toISOString(),
+  }
+}
+
+async function getLatestEarnedTitleLabel(client: pg.PoolClient, userId: string): Promise<string | null> {
+  const result = await client.query<{ title_label: string }>(
+    `
+    SELECT title_label
+    FROM user_title_records
+    WHERE user_id = $1
+    ORDER BY awarded_at DESC
+    LIMIT 1
+    `,
+    [userId],
+  )
+  return result.rows[0]?.title_label ?? null
+}
+
+function deterministicEarnedTitleSeed(input: { userId: string; levelId: string; submissionId: string }): number {
+  const salt = process.env.REWARD_SALT ?? 'spcg-local-reward-salt'
+  const hash = createHash('sha256')
+    .update(`${input.userId}:${input.levelId}:${input.submissionId}:earned-title:${salt}`)
+    .digest('hex')
+  return Number.parseInt(hash.slice(0, 8), 16)
 }
 
 function toNumber(value: string | number | null | undefined): number {

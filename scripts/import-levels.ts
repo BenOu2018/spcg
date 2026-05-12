@@ -313,6 +313,8 @@ function buildLevelRecord(
     officialCodeLanguage,
     description: body.trim(),
     statementAssets,
+    algorithmGraphs: [],
+    localizedContent: {},
     inputFormat,
     outputFormat,
     testCases,

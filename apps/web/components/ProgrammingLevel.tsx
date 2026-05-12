@@ -5,6 +5,7 @@ import type { Level, Progress } from '@spcg/shared/types'
 import { getUnlockedLevelSolutionAction } from '@/app/level/actions'
 import { CodeWorkspace } from '@/components/CodeWorkspace'
 import { TaskCard } from '@/components/TaskCard'
+import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 import type { SampleRunResultMap } from '@/components/sample-run'
 
 type StagePathMenu = {
@@ -20,11 +21,25 @@ type StagePathMenu = {
 
 type ProgrammingLevelProps = {
   level: Level
+  userId: string
   stageMenu?: StagePathMenu
   progressRecords?: Progress[]
+  canViewHints?: boolean
+  hintsUpgradeMessage?: string
+  messages?: StudentUiMessages
 }
 
-export function ProgrammingLevel({ level, stageMenu = null, progressRecords = [] }: ProgrammingLevelProps) {
+const fallbackMessages = getStudentUiMessages('zh-CN')
+
+export function ProgrammingLevel({
+  level,
+  userId,
+  stageMenu = null,
+  progressRecords = [],
+  canViewHints = true,
+  hintsUpgradeMessage,
+  messages = fallbackMessages,
+}: ProgrammingLevelProps) {
   const [activeLevel, setActiveLevel] = useState(level)
   const [sampleResults, setSampleResults] = useState<SampleRunResultMap>({})
   const [videoOpen, setVideoOpen] = useState(false)
@@ -82,14 +97,19 @@ export function ProgrammingLevel({ level, stageMenu = null, progressRecords = []
         expanded={taskExpanded}
         onToggleExpanded={() => setTaskExpanded((value) => !value)}
         onPlayVideo={videoUrl ? () => setVideoOpen(true) : undefined}
+        canViewHints={canViewHints}
+        hintsUpgradeMessage={hintsUpgradeMessage}
+        messages={messages}
       />
       <CodeWorkspace
         level={activeLevel}
+        userId={userId}
         initialProgress={activeProgress}
         layoutVersion={layoutVersion + (taskExpanded ? 1 : 0)}
         onRunStart={() => setSampleResults(buildJudgingSamples(activeLevel))}
         onRunComplete={setSampleResults}
         onAccepted={refreshSolutionUnlock}
+        messages={messages}
         stagePath={
           stageMenu
             ? {
@@ -102,7 +122,12 @@ export function ProgrammingLevel({ level, stageMenu = null, progressRecords = []
         }
       />
       {videoOpen && videoUrl ? (
-        <FloatingVideoPlayer title={`${activeLevel.title} · Algorithm Video`} url={videoUrl} onClose={() => setVideoOpen(false)} />
+        <FloatingVideoPlayer
+          title={`${activeLevel.title} · ${messages.task.algorithmVideo}`}
+          closeLabel={messages.common.close}
+          url={videoUrl}
+          onClose={() => setVideoOpen(false)}
+        />
       ) : null}
     </div>
   )
@@ -201,16 +226,17 @@ function buildJudgingSamples(level: Level): SampleRunResultMap {
 
 type FloatingVideoPlayerProps = {
   title: string
+  closeLabel: string
   url: string
   onClose: () => void
 }
 
-function FloatingVideoPlayer({ title, url, onClose }: FloatingVideoPlayerProps) {
+function FloatingVideoPlayer({ title, closeLabel, url, onClose }: FloatingVideoPlayerProps) {
   return (
     <aside className="floating-video" aria-label={title}>
       <div className="floating-video-head">
         <span>{title}</span>
-        <button type="button" onClick={onClose} aria-label="关闭视频">
+        <button type="button" onClick={onClose} aria-label={closeLabel}>
           x
         </button>
       </div>

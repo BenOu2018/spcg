@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SPCG 冒险榜</title>
+    <link rel="stylesheet" href="./leaderboard-rpg.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="topBar">
+        <div class="guildMark"><img src="./svg/guild-crest.svg" alt="" /></div>
+        <div class="heroTitle">
+          <span>Shadow Programming Challenge Guild</span>
+          <strong>SPCG 冒险榜</strong>
+        </div>
+        <nav class="levelTabs" aria-label="选择等级">
+          <span>选择等级</span>
+          <div>
+            <a href="#">1</a><a href="#">2</a><a href="#">3</a><a href="#">4</a><a href="#">5</a>
+            <a href="#">6</a><a href="#">7</a><a class="activeLevel" href="#">8</a><a href="#">9</a>
+          </div>
+        </nav>
+        <div class="seasonTimer">
+          <img src="./svg/decay-hourglass.svg" alt="" />
+          <span>赛季结算倒计时</span>
+          <strong>03:42:18</strong>
+          <small>今日 24:00 结算</small>
+        </div>
+        <img class="topChest" src="./svg/treasure-chest.svg" alt="" />
+      </header>
+
+      <section class="boardLayout">
+        <aside class="levelPanel">
+          <div class="levelBanner"><img src="./svg/level-gem.svg" alt="" /><strong>第 8 级 · 影网枢纽</strong></div>
+          <div class="portalCard">
+            <div class="portalArt"><img src="./svg/level-gem.svg" alt="" /></div>
+            <span>当前等级概况</span>
+          </div>
+          <div class="rewardPool">
+            <span>本级总奖金池</span>
+            <div><img src="./svg/coin.svg" alt="" /><strong>42,860</strong><em>金币</em></div>
+            <small>完成题目、AK、连续训练共同计入</small>
+          </div>
+          <div class="decayNotice"><img src="./svg/decay-hourglass.svg" alt="" /><p>超过 14 天未在当前级别获得积分后，旧积分进入衰减。</p></div>
+          <div class="sideStats">
+            <div><img src="./svg/guild-crest.svg" alt="" /><span>活跃学员</span><strong>286</strong></div>
+            <div><img src="./svg/scroll-pass.svg" alt="" /><span>今日通关</span><strong>914</strong></div>
+            <div><img src="./svg/ak-star.svg" alt="" /><span>今日 AK</span><strong>73</strong></div>
+          </div>
+          <div class="honorBadges">
+            <img src="./svg/guild-crest.svg" alt="" /><img src="./svg/level-gem.svg" alt="" /><img src="./svg/scroll-pass.svg" alt="" /><img src="./svg/ak-star.svg" alt="" /><img src="./svg/treasure-chest.svg" alt="" />
+          </div>
+        </aside>
+
+        <section class="rankBoard">
+          <div class="boardRibbon"><span></span><strong>冒险者排行</strong><span></span></div>
+          <div class="podium">
+            <article class="podiumCard silver"><img class="medal" src="./svg/medal-2.svg" alt="" /><img class="avatar" src="./svg/avatar-knight.svg" alt="" /><strong>星灯拾荒者</strong><small>网流校官 · 进阶 4</small><span>37,910 金币</span></article>
+            <article class="podiumCard gold"><img class="medal" src="./svg/medal-1.svg" alt="" /><img class="avatar" src="./svg/avatar-ranger.svg" alt="" /><strong>雾桥小判官</strong><small>图路使者 · 连胜 6</small><span>42,860 金币</span></article>
+            <article class="podiumCard bronze"><img class="medal" src="./svg/medal-3.svg" alt="" /><img class="avatar" src="./svg/avatar-mage.svg" alt="" /><strong>影链巡路人</strong><small>暗边潜客 · 新题胚 2</small><span>35,740 金币</span></article>
+          </div>
+          <div class="tableWrap">
+            <div class="tableHead"><span>排名</span><span>学员</span><span>金币</span><span>通关</span><span>错误</span><span>AK</span><span>活跃状态</span><span>当前积分</span></div>
+            <div class="rankRow championRow"><img class="rankMedal" src="./svg/medal-1.svg" alt="" /><div class="studentCell"><img src="./svg/avatar-ranger.svg" alt="" /><div><strong>雾桥小判官</strong><small>图路使者 · 连胜 6</small></div></div><span class="coinCell"><img src="./svg/coin.svg" alt="" />42,860</span><span>14/14</span><span class="errorCell">18</span><span class="akCell"><img src="./svg/ak-star.svg" alt="" />9</span><span class="activityBadge fresh"><img src="./svg/streak-leaf.svg" alt="" />今日活跃</span><span class="scoreCell">42,860</span></div>
+            <div class="rankRow"><img class="rankMedal" src="./svg/medal-2.svg" alt="" /><div class="studentCell"><img src="./svg/avatar-knight.svg" alt="" /><div><strong>星灯拾荒者</strong><small>网流校官 · 进阶 4</small></div></div><span class="coinCell"><img src="./svg/coin.svg" alt="" />37,910</span><span>14/14</span><span class="errorCell">26</span><span class="akCell"><img src="./svg/ak-star.svg" alt="" />6</span><span class="activityBadge normal"><img src="./svg/level-gem.svg" alt="" />2 天前</span><span class="scoreCell">37,910</span></div>
+            <div class="rankRow"><img class="rankMedal" src="./svg/medal-3.svg" alt="" /><div class="studentCell"><img src="./svg/avatar-mage.svg" alt="" /><div><strong>影链巡路人</strong><small>暗边潜客 · 新题胚 2</small></div></div><span class="coinCell"><img src="./svg/coin.svg" alt="" />35,740</span><span>13/14</span><span class="errorCell">21</span><span class="akCell"><img src="./svg/ak-star.svg" alt="" />5</span><span class="activityBadge normal"><img src="./svg/level-gem.svg" alt="" />5 天前</span><span class="scoreCell">35,740</span></div>
+            <div class="rankRow decayRow"><span class="rankNumber">4</span><div class="studentCell"><img src="./svg/avatar-scout.svg" alt="" /><div><strong>旧桥观测员</strong><small>14 天无新增积分</small></div></div><span class="coinCell"><img src="./svg/coin.svg" alt="" />34,200</span><span>14/14</span><span class="errorCell">35</span><span class="akCell"><img src="./svg/ak-star.svg" alt="" />4</span><span class="activityBadge decay"><img src="./svg/decay-hourglass.svg" alt="" />衰减中</span><span class="scoreCell">34,080</span></div>
+          </div>
+        </section>
+
+        <aside class="rulesPanel">
+          <div class="panelTitle"><img src="./svg/scroll-pass.svg" alt="" /><strong>积分规则</strong></div>
+          <div class="ruleList">
+            <div><img src="./svg/scroll-pass.svg" alt="" /><span>通关题目</span><strong>+150 金币 / 题</strong></div>
+            <div><img src="./svg/error-rune.svg" alt="" /><span>错误提交</span><strong>-20 金币 / 次</strong></div>
+            <div><img src="./svg/ak-star.svg" alt="" /><span>AK 击杀</span><strong>+200 金币 / 次</strong></div>
+            <div><img src="./svg/streak-leaf.svg" alt="" /><span>连续训练</span><strong>+300 金币 / 日</strong></div>
+          </div>
+          <div class="decayPanel">
+            <div class="panelTitle"><img src="./svg/decay-hourglass.svg" alt="" /><strong>旧积分衰减</strong></div>
+            <p>超过 14 天未获得新积分，旧积分将每日按一定比例衰减，直至清零。</p>
+            <div><span>第 15 天起</span><strong>-10% / 天</strong></div>
+            <div><span>第 30 天起</span><strong>-20% / 天</strong></div>
+            <div><span>第 45 天起</span><strong>-30% / 天</strong></div>
+            <small>当前有 42 人处于衰减中</small>
+          </div>
+        </aside>
+      </section>
+
+      <section class="myRankBar">
+        <div class="myRank"><span>我的排名</span><strong>12</strong></div>
+        <div class="myProfile"><img src="./svg/avatar-ranger.svg" alt="" /><div><strong>码界新兵</strong><span>网流学员 · 新兵</span></div></div>
+        <div class="summary"><span>当前积分</span><strong>24,560 金币</strong></div>
+        <div class="summary"><span>距下一名差距</span><strong class="positive">1,320</strong></div>
+        <div class="progressBlock"><span>本级进度</span><div><i></i></div><strong>12/14</strong></div>
+        <div class="rewardCard"><img src="./svg/treasure-chest.svg" alt="" /><span>本级排名奖励</span><strong>前 20% 可获得</strong></div>
+      </section>
+    </main>
+  </body>
+</html>

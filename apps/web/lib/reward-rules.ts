@@ -1,6 +1,13 @@
 import { createHash } from 'node:crypto'
 export { getDifficultyCoefficient, getLevelCoinReward, getLevelLabel } from '@spcg/shared/difficulty'
 export {
+  EARNED_TITLE_CATALOG,
+  EARNED_TITLE_POOLS,
+  getEarnedTitlePoolKeyForRank,
+  pickEarnedTitleFromPool,
+} from '@spcg/shared/earned-titles'
+export type { EarnedTitlePoolKey, EarnedTitleSelection } from '@spcg/shared/earned-titles'
+export {
   DEFAULT_REWARD_RANK,
   generateTitle,
   getRankForCoins,
@@ -34,4 +41,17 @@ export function deterministicGarlicDrop(input: {
     garlic: roll < 2 ? 2 : 1,
     roll,
   }
+}
+
+export function deterministicEarnedTitleSeed(input: {
+  userId: string
+  levelId: string
+  submissionId: string
+  salt?: string
+}): number {
+  const salt = input.salt ?? process.env.REWARD_SALT ?? 'spcg-local-reward-salt'
+  const hash = createHash('sha256')
+    .update(`${input.userId}:${input.levelId}:${input.submissionId}:earned-title:${salt}`)
+    .digest('hex')
+  return Number.parseInt(hash.slice(0, 8), 16)
 }

@@ -1,6 +1,6 @@
 # SPCG Ubuntu Deployment Plan
 
-Last checked: 2026-05-06 20:20 CST
+Last checked: 2026-05-08 22:32 CST
 
 Target server:
 
@@ -44,9 +44,11 @@ Current Nginx routing:
 | `erp.kidoj.com` | `/api/` | `proxy_pass http://127.0.0.1:8080` |
 | `erp.kidoj.com` | `/admin/` | `proxy_pass http://127.0.0.1:8080` |
 
-## Planned SPCG Services
+## Current SPCG Services
 
 Deployment strategy: same server, side-by-side with existing services.
+
+Status as of 2026-05-08: Web, PostgreSQL, Judge0, Judge worker, Nginx, and HTTPS are deployed on the Ubuntu server.
 
 Public domain: `spcg.kidoj.com`.
 
@@ -54,7 +56,7 @@ Application directory: `/opt/spcg/current`.
 
 Use the current local workspace as the deployment source. Exclude local-only artifacts such as `node_modules`, `.next`, logs, and temporary files.
 
-| SPCG component | Container/service | Planned bind/listen | Public access | Internal access | Reasoning |
+| SPCG component | Container/service | Current bind/listen | Public access | Internal access | Reasoning |
 | --- | --- | --- | --- | --- | --- |
 | SPCG Web | `web` | `127.0.0.1:3000 -> container:3000` | Via Nginx `https://spcg.kidoj.com` | Other local services may call `http://127.0.0.1:3000` if needed | Avoids exposing Next.js directly. Port `3000` is currently free. |
 | SPCG business PostgreSQL | `spcg-postgres` | Prefer no host publish; optional `127.0.0.1:15432 -> container:5432` for maintenance | No | Compose DNS `spcg-postgres:5432` | Avoids conflict with existing public `5432`. |
@@ -63,13 +65,19 @@ Use the current local workspace as the deployment source. Exclude local-only art
 | Judge0 PostgreSQL | `judge0-db` | No host publish | No | Compose internal only | Avoids conflict and prevents accidental external DB access. |
 | Judge0 Redis | `judge0-redis` | No host publish | No | Compose internal only | Avoids conflict with existing public `6379`. |
 | SPCG judge worker | `judge-worker` | No published port | No | Uses `spcg-postgres` and `judge0-server` | Processes pending submissions. |
-| Nginx site | systemd `nginx.service` | existing `80/443` | `https://spcg.kidoj.com` | Proxies to `127.0.0.1:3000` | Reuse existing HTTPS termination. |
+| Nginx site | systemd `nginx.service` | existing `80/443` | `https://spcg.kidoj.com` | Proxies to `127.0.0.1:3000` | HTTPS certificate issued by Certbot. |
 
-Planned Nginx routing:
+Large generated judge cases are stored outside PostgreSQL under `/opt/spcg/current/problem-cases`.
+Keep `PROBLEM_CASES_DIR=/workspace/problem-cases` in the `judge-worker` environment and sync this directory whenever a package imports file-backed cases.
+For output-heavy cases, keep `JUDGE0_MAX_FILE_SIZE_KB` large enough for the expected output plus margin.
+
+Current Nginx routing:
 
 | Host | Route | Upstream/Root |
 | --- | --- | --- |
 | `spcg.kidoj.com` | `/` | `proxy_pass http://127.0.0.1:3000` |
+
+Production Web environment is stored on the server at `/opt/spcg/infra/web.env` with `0600` permissions. Do not commit this file.
 
 Ports after SPCG deployment:
 
@@ -175,6 +183,8 @@ If `postgres:16`, `postgres:16.2`, `redis:7.2.4`, or `node:22-alpine` cannot be 
    - Set `AUTH_URL=https://spcg.kidoj.com` and `NEXTAUTH_URL=https://spcg.kidoj.com`.
    - Set `DATABASE_URL=postgres://spcg:<password>@spcg-postgres:5432/spcg`.
    - Set `JUDGE0_BASE_URL=http://judge0-server:2358`.
+   - Set `PROBLEM_CASES_DIR=/workspace/problem-cases` for file-backed judge cases.
+   - Set `JUDGE0_MAX_FILE_SIZE_KB=32768` or larger when output-heavy cases are enabled.
    - Keep Judge0 and database credentials out of Git.
 
 6. Prepare production Compose.
@@ -221,7 +231,7 @@ If `postgres:16`, `postgres:16.2`, `redis:7.2.4`, or `node:22-alpine` cannot be 
 | --- | --- |
 | `docker compose config` | Valid configuration |
 | `docker compose ps` | SPCG services running/healthy |
-| `https://spcg.kidoj.com/` | HTTP 200 via Nginx HTTPS |
+| `https://spcg.kidoj.com/` | HTTPS reaches Next.js; unauthenticated users redirect to `/auth/sign-in` |
 | SPCG Web logs | No repeated database or auth errors |
 | SPCG PostgreSQL | Migrations applied successfully |
 | Judge0 server | Responds from internal Compose network |

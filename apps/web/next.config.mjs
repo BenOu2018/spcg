@@ -9,12 +9,30 @@ const privateNetworkDevOrigins = [
   ...Array.from({ length: 64 }, (_, index) => `100.${64 + index}.*.*`),
 ]
 const lanDevOrigins = uniqueDevHosts([...privateNetworkDevOrigins, ...readConfiguredDevHosts(), ...readLocalIPv4Hosts()])
+const serverActionBodySizeLimit = process.env.SPCG_SERVER_ACTION_BODY_SIZE_LIMIT ?? '100mb'
+const staticAssetCacheHeaders = [
+  {
+    key: 'Cache-Control',
+    value: 'public, max-age=31536000, immutable',
+  },
+]
 
 const nextConfig = {
   reactStrictMode: true,
   devIndicators: false,
   allowedDevOrigins: ['localhost', '127.0.0.1', '0.0.0.0', ...lanDevOrigins],
   outputFileTracingRoot: new URL('../..', import.meta.url).pathname,
+  experimental: {
+    serverActions: {
+      bodySizeLimit: serverActionBodySizeLimit,
+    },
+  },
+  async headers() {
+    return ['/assets/:path*', '/monaco/:path*', '/video/:path*', '/uploads/:path*'].map((source) => ({
+      source,
+      headers: staticAssetCacheHeaders,
+    }))
+  },
 }
 
 export default nextConfig

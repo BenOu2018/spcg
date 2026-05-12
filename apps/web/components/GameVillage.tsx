@@ -2,31 +2,38 @@ import Link from 'next/link'
 import type { Level, Progress } from '@spcg/shared/types'
 import { getGameChapter, listGameChapters } from '@spcg/shared/game-chapters'
 import { isRankedAssessmentEnabledLevel } from '@spcg/shared/ranked-assessment'
+import type { Session } from 'next-auth'
 import { GameMapMenus } from '@/components/GameMapMenus'
 import { LevelMap } from '@/components/LevelMap'
+import { TopbarAccountActions } from '@/components/TopbarAccountActions'
+import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 
 type StageProgressMenu = {
   items: Array<{ levelId: string }>
 }
 
 type GameVillageProps = {
+  session: Session
   levels: Level[]
-  testLevels: Level[]
   progress: Progress[]
   activeChapterId?: string | null
   allowFreeJump?: boolean
   currentLevelIdOverride?: string | null
   stageMenus?: StageProgressMenu[]
+  messages?: StudentUiMessages
 }
 
+const fallbackMessages = getStudentUiMessages('zh-CN')
+
 export function GameVillage({
+  session,
   levels,
-  testLevels,
   progress,
   activeChapterId,
   allowFreeJump = false,
   currentLevelIdOverride = null,
   stageMenus = [],
+  messages = fallbackMessages,
 }: GameVillageProps) {
   const availableChapters = listGameChapters().filter((chapter) =>
     levels.some((level) => level.chapterId === chapter.chapterId),
@@ -43,9 +50,6 @@ export function GameVillage({
   const activeLevels = levels
     .filter((level) => level.chapterId === chapter.chapterId)
     .sort((a, b) => a.order - b.order)
-  const activeTestLevels = testLevels
-    .filter((level) => level.difficulty.spcgLevel === chapter.spcgLevel)
-    .sort((a, b) => a.order - b.order || a.title.localeCompare(b.title, 'zh-Hans-CN') || a.id.localeCompare(b.id))
   const activeLevelIds = new Set(activeLevels.map((level) => level.id))
   const activeProgress = progress.filter((item) => activeLevelIds.has(item.levelId))
   const activePassedIds = new Set(activeProgress.filter((item) => item.passed).map((item) => item.levelId))
@@ -63,7 +67,11 @@ export function GameVillage({
   const activeOverrideLevel = currentLevelIdOverride
     ? activeLevels.find((level) => level.id === currentLevelIdOverride)
     : undefined
-  const currentLevel = activeOverrideLevel ?? activeLevels.find((level) => !activeCompletedIds.has(level.id)) ?? activeLevels[0]
+  const hasFixedStudentCurrent = Boolean(currentLevelIdOverride && !allowFreeJump)
+  const activeCurrentLevel =
+    activeOverrideLevel ??
+    (hasFixedStudentCurrent ? undefined : activeLevels.find((level) => !activeCompletedIds.has(level.id)) ?? activeLevels[0])
+  const ctaLevel = activeCurrentLevel ?? firstUnpassedLevel
   const globalCurrentIndex = firstUnpassedLevel
     ? orderedGlobalLevels.findIndex((level) => level.id === firstUnpassedLevel.id)
     : -1
@@ -77,17 +85,12 @@ export function GameVillage({
         <GameMapMenus
           chapters={availableChapters}
           currentChapter={chapter}
-          currentLevelId={currentLevel?.id}
+          currentLevelId={activeCurrentLevel?.id}
           levels={activeLevels}
-          testLevels={activeTestLevels}
+          messages={messages}
         />
         <div className="village-actions">
-          <Link className="hud-icon" href="/me" aria-label="进度">
-            <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-star.svg" alt="" />
-          </Link>
-          <Link className="hud-icon" href="/auth/sign-in" aria-label="账号">
-            <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-settings.svg" alt="" />
-          </Link>
+          <TopbarAccountActions session={session} messages={messages} />
         </div>
       </header>
 
@@ -100,13 +103,19 @@ export function GameVillage({
         examSpcgLevel={chapter.spcgLevel}
         freeJump={allowFreeJump}
         currentLevelIdOverride={activeOverrideLevel?.id ?? null}
+        strictCurrentLevel={hasFixedStudentCurrent}
         unlockedLevelIds={unlockedMapLevelIds}
+        messages={messages}
       />
 
-      {currentLevel ? (
-        <Link className="current-level-cta" href={`/level/${currentLevel.id}`}>
-          <span>第{currentLevel.order}层</span>
-          <strong>{currentLevel.title}</strong>
+      {ctaLevel ? (
+        <Link className="current-level-cta" href={`/level/${ctaLevel.id}`} prefetch={false}>
+          <span>
+            {messages.map.levelPrefix}
+            {ctaLevel.order}
+            {messages.map.stageSuffix}
+          </span>
+          <strong>{ctaLevel.title}</strong>
         </Link>
       ) : null}
     </main>

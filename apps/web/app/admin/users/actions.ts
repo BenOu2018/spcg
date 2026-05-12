@@ -8,19 +8,24 @@ import { requireAdmin, type AdminContext } from '@/lib/admin-auth'
 import type { UserAccountStatus } from '@/lib/admin-data'
 import { isDbConfigured, withTransaction } from '@/lib/db'
 import { hashPassword } from '@/lib/password'
+import { isValidUsername, normalizeUsername } from '@/lib/user-identity'
+import { isStudentUserType, setStudentUserType } from '@/lib/services/entitlement-service'
 
 const validStatuses = new Set<UserAccountStatus>(['active', 'suspended', 'deleted'])
 const validAdminRoles = new Set(['owner', 'admin', 'editor', 'reviewer', 'support'])
-const validUserRoles = new Set<UserRole>(['admin', 'teacher', 'student'])
+const validUserRoles = new Set<UserRole>(['admin', 'teacher', 'student', 'parent'])
 
 type AdminRoleFormValue = 'none' | 'owner' | 'admin' | 'editor' | 'reviewer' | 'support'
 
 export async function createAdminUser(formData: FormData) {
-  const email = readRequired(formData, 'email').toLowerCase()
+  const username = normalizeUsername(readRequired(formData, 'username'))
+  const email = readOptionalEmail(formData, 'email')
   const displayName = readRequired(formData, 'displayName')
   const password = readRequired(formData, 'password')
   const parentEmail = readOptionalEmail(formData, 'parentEmail')
   const age = readOptionalInteger(formData, 'age')
+  const realName = readOptional(formData, 'realName')
+  const idCardNumber = normalizeIdCardNumber(readOptional(formData, 'idCardNumber'))
   const status = readStatus(formData)
   const isTestAccount = readBoolean(formData, 'isTestAccount')
   const notes = readOptional(formData, 'notes')
@@ -28,7 +33,7 @@ export async function createAdminUser(formData: FormData) {
   const userRole = readUserRole(formData)
   const adminActive = readBoolean(formData, 'adminActive')
 
-  if (!isEmail(email) || !displayName || password.length < 8) {
+  if (!isValidUsername(username) || (email && !isEmail(email)) || !displayName || password.length < 8) {
     throw new Error('Invalid user create request')
   }
 
@@ -44,22 +49,22 @@ export async function createAdminUser(formData: FormData) {
   await withTransaction(async (client) => {
     const user = await client.query<{ id: string }>(
       `
-      INSERT INTO users (email, password_hash, display_name)
-      VALUES ($1, $2, $3)
+      INSERT INTO users (username, email, password_hash, display_name)
+      VALUES ($1, $2, $3, $4)
       RETURNING id
       `,
-      [email, passwordHash, displayName],
+      [username, email, passwordHash, displayName],
     )
     userId = user.rows[0]?.id ?? ''
     if (!userId) throw new Error('Failed to create user')
 
-    await upsertProfile(client, userId, displayName, parentEmail, age)
+    await upsertProfile(client, userId, displayName, parentEmail, age, realName, idCardNumber)
     await upsertAdminState(client, userId, status, isTestAccount, notes, context.userId)
     await upsertAdminRole(client, userId, role, adminActive, displayName, context.userId)
     await upsertUserRole(client, userId, userRole, context.userId)
 
     const after = await readUserAuditSnapshot(client, userId)
-    await writeAudit(client, context, 'user.create', userId, null, after, { email, isTestAccount, role, userRole })
+    await writeAudit(client, context, 'user.create', userId, null, after, { username, email, isTestAccount, role, userRole })
   })
 
   revalidateUserPaths(userId)
@@ -68,11 +73,14 @@ export async function createAdminUser(formData: FormData) {
 
 export async function updateAdminUser(formData: FormData) {
   const userId = readRequired(formData, 'userId')
-  const email = readRequired(formData, 'email').toLowerCase()
+  const username = normalizeUsername(readRequired(formData, 'username'))
+  const email = readOptionalEmail(formData, 'email')
   const displayName = readRequired(formData, 'displayName')
   const password = readRequired(formData, 'password')
   const parentEmail = readOptionalEmail(formData, 'parentEmail')
   const age = readOptionalInteger(formData, 'age')
+  const realName = readOptional(formData, 'realName')
+  const idCardNumber = normalizeIdCardNumber(readOptional(formData, 'idCardNumber'))
   const status = readStatus(formData)
   const isTestAccount = readBoolean(formData, 'isTestAccount')
   const notes = readOptional(formData, 'notes')
@@ -80,7 +88,7 @@ export async function updateAdminUser(formData: FormData) {
   const userRole = readUserRole(formData)
   const adminActive = readBoolean(formData, 'adminActive')
 
-  if (!userId || !isEmail(email) || !displayName || (password && password.length < 8)) {
+  if (!userId || !isValidUsername(username) || (email && !isEmail(email)) || !displayName || (password && password.length < 8)) {
     throw new Error('Invalid user update request')
   }
 
@@ -105,20 +113,22 @@ export async function updateAdminUser(formData: FormData) {
     await client.query(
       `
       UPDATE users
-      SET email = $2,
-          display_name = $3,
-          password_hash = COALESCE($4, password_hash)
+      SET username = $2,
+          email = $3,
+          display_name = $4,
+          password_hash = COALESCE($5, password_hash)
       WHERE id = $1
       `,
-      [userId, email, displayName, passwordHash],
+      [userId, username, email, displayName, passwordHash],
     )
-    await upsertProfile(client, userId, displayName, parentEmail, age)
+    await upsertProfile(client, userId, displayName, parentEmail, age, realName, idCardNumber)
     await upsertAdminState(client, userId, status, isTestAccount, notes, context.userId)
     await upsertAdminRole(client, userId, role, adminActive, displayName, context.userId)
     await upsertUserRole(client, userId, userRole, context.userId)
 
     const after = await readUserAuditSnapshot(client, userId)
     await writeAudit(client, context, 'user.update', userId, before, after, {
+      username,
       email,
       displayName,
       status,
@@ -296,6 +306,23 @@ export async function resetUserProgress(formData: FormData) {
   revalidateUserPaths(userId)
 }
 
+export async function setAdminStudentUserType(formData: FormData) {
+  const userId = readRequired(formData, 'userId')
+  const userType = readRequired(formData, 'userType')
+  const note = readOptional(formData, 'note')
+  if (!userId || !isStudentUserType(userType)) throw new Error('Invalid user type request')
+
+  const context = await requireAdmin('support')
+  await setStudentUserType({
+    actorUserId: context.userId,
+    studentUserId: userId,
+    userType,
+    note,
+  })
+
+  revalidateUserPaths(userId)
+}
+
 async function writeUserAudit(
   client: PoolClient,
   context: AdminContext,
@@ -373,24 +400,35 @@ function isEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
 
+function normalizeIdCardNumber(value: string | null): string | null {
+  const text = value?.trim().toUpperCase() ?? ''
+  if (!text) return null
+  if (!/^[0-9X]{15,18}$/.test(text)) throw new Error('Invalid id card number')
+  return text
+}
+
 async function upsertProfile(
   client: PoolClient,
   userId: string,
   displayName: string,
   parentEmail: string | null,
   age: number | null,
+  realName: string | null,
+  idCardNumber: string | null,
 ) {
   await client.query(
     `
-    INSERT INTO profiles (user_id, display_name, parent_email, age)
-    VALUES ($1, $2, $3, $4)
+    INSERT INTO profiles (user_id, display_name, parent_email, age, real_name, id_card_number)
+    VALUES ($1, $2, $3, $4, $5, $6)
     ON CONFLICT (user_id)
     DO UPDATE SET
       display_name = EXCLUDED.display_name,
       parent_email = EXCLUDED.parent_email,
-      age = EXCLUDED.age
+      age = EXCLUDED.age,
+      real_name = EXCLUDED.real_name,
+      id_card_number = EXCLUDED.id_card_number
     `,
-    [userId, displayName, parentEmail, age],
+    [userId, displayName, parentEmail, age, realName, idCardNumber],
   )
 }
 

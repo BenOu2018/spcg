@@ -1,9 +1,9 @@
 import type { ExcalidrawElementSkeleton } from '@excalidraw/excalidraw/data/transform'
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types'
 import type { AppState, BinaryFiles } from '@excalidraw/excalidraw/types'
-import type { Level } from '@spcg/shared/types'
+import type { AlgorithmGraph, Level } from '@spcg/shared/types'
 
-export type WhiteboardTemplateKind = 'binary_tree' | 'graph' | 'array_1d' | 'matrix_2d' | 'dp_table' | 'blank'
+export type WhiteboardTemplateKind = 'algorithm_graph' | 'binary_tree' | 'graph' | 'array_1d' | 'matrix_2d' | 'dp_table' | 'blank'
 
 export type WhiteboardSeedInput = {
   level: Level
@@ -42,6 +42,9 @@ const FONT_FAMILY = 1
 
 export function buildWhiteboardSeed(input: WhiteboardSeedInput): WhiteboardSeedResult {
   try {
+    const algorithmGraph = input.level.algorithmGraphs?.find((graph) => graph.visibility === 'always')
+    if (algorithmGraph) return buildAlgorithmGraphSeed(input.level, algorithmGraph)
+
     const kind = detectTemplateKind(input.level, input.sampleInput)
 
     if (kind === 'binary_tree') return buildBinaryTreeSeed(input)
@@ -53,6 +56,121 @@ export function buildWhiteboardSeed(input: WhiteboardSeedInput): WhiteboardSeedR
   } catch {
     return buildBlankSeed(input.level)
   }
+}
+
+function buildAlgorithmGraphSeed(level: Level, graph: AlgorithmGraph): WhiteboardSeedResult {
+  const positions = layoutAlgorithmGraph(graph)
+  const skeletons: ExcalidrawElementSkeleton[] = []
+
+  skeletons.push(text(30, 28, graph.title, 21, STROKE))
+  if (graph.description) skeletons.push(text(30, 58, graph.description, 14, '#647076'))
+
+  for (const edge of graph.edges) {
+    const from = positions.get(edge.from)
+    const to = positions.get(edge.to)
+    if (!from || !to) continue
+
+    skeletons.push(line(from.x + 28, from.y + 28, to.x + 28, to.y + 28, Boolean(edge.directed)))
+    const label = edge.label ?? (edge.weight === undefined || edge.weight === null ? null : String(edge.weight))
+    if (label) {
+      skeletons.push(text((from.x + to.x) / 2 + 22, (from.y + to.y) / 2 + 8, label, 14, '#795c14'))
+    }
+  }
+
+  for (const graphNode of graph.nodes) {
+    const point = positions.get(graphNode.id)
+    if (point) skeletons.push(node(point.x, point.y, graphNode.label))
+  }
+
+  return {
+    kind: 'algorithm_graph',
+    elements: toElements(skeletons),
+    appState: makeWhiteboardAppState(level),
+    files: EMPTY_FILES,
+  }
+}
+
+function layoutAlgorithmGraph(graph: AlgorithmGraph): Map<string, { x: number; y: number }> {
+  if (graph.layout === 'manual' && graph.nodes.every((node) => typeof node.x === 'number' && typeof node.y === 'number')) {
+    return new Map(graph.nodes.map((node) => [node.id, { x: node.x ?? 0, y: node.y ?? 0 }]))
+  }
+
+  if (graph.layout === 'tree' || graph.kind === 'tree') return layoutTreeGraph(graph)
+  if (graph.layout === 'grid' || graph.kind === 'table') return layoutGridGraph(graph)
+  return layoutCircleGraph(graph)
+}
+
+function layoutCircleGraph(graph: AlgorithmGraph): Map<string, { x: number; y: number }> {
+  const radius = graph.nodes.length <= 4 ? 150 : 210
+  const centerX = 390
+  const centerY = 330
+  const positions = new Map<string, { x: number; y: number }>()
+
+  graph.nodes.forEach((graphNode, index) => {
+    const angle = -Math.PI / 2 + (index / Math.max(graph.nodes.length, 1)) * Math.PI * 2
+    positions.set(graphNode.id, {
+      x: centerX + Math.cos(angle) * radius,
+      y: centerY + Math.sin(angle) * radius,
+    })
+  })
+
+  return positions
+}
+
+function layoutGridGraph(graph: AlgorithmGraph): Map<string, { x: number; y: number }> {
+  const cols = Math.max(1, Math.ceil(Math.sqrt(graph.nodes.length)))
+  const positions = new Map<string, { x: number; y: number }>()
+  graph.nodes.forEach((graphNode, index) => {
+    positions.set(graphNode.id, {
+      x: 80 + (index % cols) * 120,
+      y: 125 + Math.floor(index / cols) * 100,
+    })
+  })
+  return positions
+}
+
+function layoutTreeGraph(graph: AlgorithmGraph): Map<string, { x: number; y: number }> {
+  const children = new Map<string, string[]>()
+  const incoming = new Set<string>()
+  graph.nodes.forEach((graphNode) => children.set(graphNode.id, []))
+  graph.edges.forEach((edge) => {
+    children.get(edge.from)?.push(edge.to)
+    incoming.add(edge.to)
+  })
+
+  const roots = graph.nodes.filter((graphNode) => !incoming.has(graphNode.id)).map((graphNode) => graphNode.id)
+  const queue = (roots.length > 0 ? roots : graph.nodes.slice(0, 1).map((graphNode) => graphNode.id)).map((id) => ({ id, depth: 0 }))
+  const visited = new Set<string>()
+  const levels = new Map<number, string[]>()
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (!current || visited.has(current.id)) continue
+    visited.add(current.id)
+    const bucket = levels.get(current.depth) ?? []
+    bucket.push(current.id)
+    levels.set(current.depth, bucket)
+    for (const child of children.get(current.id) ?? []) queue.push({ id: child, depth: current.depth + 1 })
+  }
+
+  graph.nodes.forEach((graphNode) => {
+    if (visited.has(graphNode.id)) return
+    const bucket = levels.get(0) ?? []
+    bucket.push(graphNode.id)
+    levels.set(0, bucket)
+  })
+
+  const positions = new Map<string, { x: number; y: number }>()
+  for (const [depth, ids] of levels) {
+    const gap = 720 / (ids.length + 1)
+    ids.forEach((id, index) => {
+      positions.set(id, {
+        x: 40 + gap * (index + 1),
+        y: 120 + depth * 110,
+      })
+    })
+  }
+  return positions
 }
 
 export function buildWhiteboardPreset(kind: WhiteboardPresetKind, options: WhiteboardPresetOptions = {}): ExcalidrawElement[] {
@@ -370,7 +488,7 @@ function rect(
   } as ExcalidrawElementSkeleton
 }
 
-function line(x1: number, y1: number, x2: number, y2: number): ExcalidrawElementSkeleton {
+function line(x1: number, y1: number, x2: number, y2: number, directed = false): ExcalidrawElementSkeleton {
   return {
     type: 'line',
     x: x1,
@@ -384,6 +502,7 @@ function line(x1: number, y1: number, x2: number, y2: number): ExcalidrawElement
     strokeColor: SOFT_STROKE,
     strokeWidth: 2,
     roughness: 1,
+    endArrowhead: directed ? 'arrow' : null,
   } as ExcalidrawElementSkeleton
 }
 
@@ -412,20 +531,38 @@ function toElements(skeletons: ExcalidrawElementSkeleton[]): ExcalidrawElement[]
       label?: { text?: string; fontSize?: number; textAlign?: string; verticalAlign?: string }
     }
     const element = makeShapeElement(shape)
-    elements.push(element)
-
     const label = shape.label?.text
     if (label) {
-      elements.push(makeCenteredTextElement(element, label, shape.label?.fontSize ?? 16, skeleton.strokeColor ?? STROKE))
+      const groupId = makeElementId()
+      const groupedElement = withGroupIds(element, [groupId])
+      const labelElement = withGroupIds(
+        makeCenteredTextElement(groupedElement, label, shape.label?.fontSize ?? 16, skeleton.strokeColor ?? STROKE),
+        [groupId],
+      )
+      elements.push(groupedElement, labelElement)
+      return
     }
+
+    elements.push(element)
   })
 
   return elements
 }
 
+function withGroupIds(element: ExcalidrawElement, groupIds: string[]): ExcalidrawElement {
+  return {
+    ...element,
+    groupIds,
+  } as ExcalidrawElement
+}
+
 function makeShapeElement(skeleton: ExcalidrawElementSkeleton): ExcalidrawElement {
   const type = skeleton.type === 'ellipse' || skeleton.type === 'line' ? skeleton.type : 'rectangle'
-  const skeletonWithPoints = skeleton as ExcalidrawElementSkeleton & { points?: readonly [number, number][] }
+  const skeletonWithPoints = skeleton as ExcalidrawElementSkeleton & {
+    points?: readonly [number, number][]
+    startArrowhead?: unknown
+    endArrowhead?: unknown
+  }
   const points = type === 'line'
     ? ((skeletonWithPoints.points ?? [[0, 0], [skeleton.width ?? 0, skeleton.height ?? 0]]) as [[number, number], [number, number]])
     : undefined
@@ -457,7 +594,16 @@ function makeShapeElement(skeleton: ExcalidrawElementSkeleton): ExcalidrawElemen
     updated: Date.now(),
     link: null,
     locked: false,
-    ...(points ? { points, startBinding: null, endBinding: null, lastCommittedPoint: null, startArrowhead: null, endArrowhead: null } : {}),
+    ...(points
+      ? {
+          points,
+          startBinding: null,
+          endBinding: null,
+          lastCommittedPoint: null,
+          startArrowhead: skeletonWithPoints.startArrowhead ?? null,
+          endArrowhead: skeletonWithPoints.endArrowhead ?? null,
+        }
+      : {}),
   } as unknown as ExcalidrawElement
 }
 

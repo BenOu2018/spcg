@@ -1,6 +1,6 @@
 # SPCG v0.1 Progress
 
-> Last updated: 2026-05-08
+> Last updated: 2026-05-11
 > Branch: `feature/v0.1-problem-core`
 > Current focus: 后台三级题库结构管理与导入归类
 
@@ -70,6 +70,15 @@
 - 本次已 AC 结果区恢复验证已通过：`npm run web:typecheck`、`npm run web:build`
 - 编程 IDE 已增强自动缩进：Monaco 开启 advanced auto indent、format on type/paste、固定 4 空格缩进；右上角新增“自动排版代码”按钮，第一版本地轻量整理 C/C++/Python 缩进并写回代码缓存
 - 编程 IDE 右上角 6 个工具按钮已统一悬浮提示：重置、恢复、历史提交、自动排版、逻辑画板、展开/收起编辑器均支持鼠标 hover 和键盘 focus 提示
+- 编程 IDE 已新增编辑器外观设置：支持当前 Monokai 风格与经典 Dev-C++ 白色背景风格切换，并支持 13px-20px 字体大小选择；主题和字号会保存到浏览器本地偏好
+- Dev-C++ 白色主题已补齐右上角 6 个工具按钮的浅色模式对比样式：按钮底色、边框、SVG 和图片图标会转为深色，避免白底下看不清
+- 编程 IDE 判题结果里的 `Cases: x/y` 已可点击；点击后会把右侧 STDOUT 区域切换为当前题目所有测试点的通过状态、耗时和内存占用明细，新一轮 Run/Submit 会自动恢复为 STDOUT
+- `Cases: x/y` 可点击区域已改成按钮视觉：保持原行高和布局尺寸，增加轻量边框、底色和 hover/focus 高亮，明确提示可操作
+- 已修复 `Cases: x/y` 按钮视觉调整后点击不生效的问题：移除原生 disabled 依赖，改用 aria-disabled 样式状态，并支持点击在测试点明细和 STDOUT 间切换
+- 调试信息里的 `Cases: x/y` 小标签也已改成可点击按钮；上方结果行和下方 `Cases` 标签都会切换 STDOUT/测试点明细，并用更明显的金色按钮视觉区分普通标签
+- 编程 IDE “提交记录”面板已调整源码详情布局：选中提交并弹出源码时，面板扩展到更宽，源码详情占约 2/3，右侧提交列表压缩为约 1/3，并使用紧凑列表列宽
+- 编程 IDE 已关闭代码自动换行：超长代码行默认保持单行显示，可通过横向滑动查看完整内容，并设置 `scrollBeyondLastColumn: 120` 提供额外横向滚动余量
+- 逻辑画板快速输入已增强：选中表格格子、数组格子、数字球或其文字标签后可直接键入数字/字母修改值；新生成的数组/表格格子和数字球会把形状与文字放入同一组，减少圆形和数字分离的问题
 - 本次顶部栏改动验证已通过：`npm run web:typecheck`、`npm run web:build`
 - 当前新增验证已通过：`DATABASE_URL=postgres://spcg:spcg@localhost:5432/spcg npm run db:migrate`、`DATABASE_URL=postgres://spcg:spcg@localhost:5432/spcg npm run db:seed`、`npm run web:typecheck`、`npm run check:architecture`、`npm run check`、`npm run web:build`
 - v0.2 闭环规则已开始落地：新增 `docs/v0.2-roadmap.md`，每关默认固定 5 题，前 3 题主线必做，4-5 提高题不阻塞地图推进
@@ -625,6 +634,38 @@ SPCG 3 ranked match -> enabled SPCG 3 in `shared/ranked-assessment.ts` and added
 SPCG 3 ranked match -> updated `RANKED_ASSESSMENT_RULES.md`; the persistent rule source remains `shared/ranked-assessment.ts`, with the root markdown file as the human-readable rule record
 SPCG 3 ranked match -> verified local DB candidate pool before enabling: 12 lesson basic, 12 lesson variant, 6 exam-only candidates for SPCG 3
 SPCG 3 ranked match -> `npm run web:typecheck`, `npm run typecheck`, `npm run check`, `npm run web:build` passed; production route table includes `/exam/spcg-level-3`
+Me page navigation -> added a left-top `返回地图` button on `/me` linking back to `/map`
+Me page navigation -> `npm run web:typecheck` and `git diff --check` passed
+Map account settings -> changed the logged-in map HUD account icon from sign-in to `/settings`, added account settings page for display name, avatar URL, password change, and sign-out
+Map account settings -> moved the map `Me` and `Settings` HUD buttons 50px toward the page center
+Map account settings -> added `026_profile_avatar_url.sql`; migration applied successfully to the running compose PostgreSQL at `localhost:5432`
+Map account settings -> `npm run web:typecheck`, `npm run typecheck`, and `npm run web:build` passed; production route table includes `/settings`
+Login switch isolation -> changed the global logged-in user badge to client-refresh `/api/auth/session`, so switching from teacher to student updates the top-right name without carrying the old account label
+Login switch isolation -> session callback now refreshes current email/display name from the database by `userId`, so account settings and account switching do not rely on stale token names
+Login switch isolation -> scoped IDE code/language drafts and whiteboard drafts by `userId`; switching users clears legacy and user-scoped IDE draft caches so one student cannot see another student's cached code
+Login switch isolation -> `npm run web:typecheck`, `npm run typecheck`, `npm run web:build`, and `git diff --check` passed
+Map star progress fix -> confirmed admin-local SPCG 3 stage progress in DB is correct: stages 1-4 are 5/5 passed; root `/` map entry was missing `stageMenus`, causing LevelMap fallback to show representative AC as `1/5`
+Map star progress fix -> updated root `/` map page to load the same lesson stage menus and navigation state as `/map`, so completed stage stars use full 5-problem progress
+Map star progress fix -> `npm run web:typecheck`, `npm run typecheck`, `npm run web:build`, and `git diff --check` passed
+Topbar account actions -> unified `/map` and `/level/*` right-top controls with compact programming-page sizing: progress star opens `/me`, avatar opens a settings/sign-out menu, and programming pages add a return-map button
+Topbar account actions -> hidden the old global user badge on map/programming pages to avoid duplicate account controls
+Topbar account actions -> `npm run web:typecheck`, `npm run typecheck`, `npm run web:build`, and `git diff --check` passed
+Topbar account actions -> account button now shows avatar plus full display name, with constrained width and ellipsis so it stays inside the original topbar
+Topbar account actions -> moved return-map, progress, and user account controls to the page right-top edge; on programming pages the user button right edge aligns with the IDE right edge
+Topbar account actions -> latest placement check passed with `npm run web:typecheck`, `npm run web:build`, and `git diff --check`
+Topbar account actions -> made the avatar account popover and menu items opaque so settings/sign-out are readable over map and IDE backgrounds
+Account settings DB alignment -> fixed `/settings` crash `column u.username does not exist` by applying `026_profile_avatar_url.sql` and `027_username_phone_identity.sql` to the actual web dev database in `apps/web/.env.local` (`127.0.0.1:15432/spcg`)
+Account settings DB alignment -> verified `users.username`, nullable `users.email`, `profiles.avatar_url`, `profiles.phone_number`, and `profiles.phone_verified_at`; `npm run web:typecheck` passed
+Programming account menu -> forced the IDE topbar avatar popover and its menu items to use solid opaque backgrounds with no backdrop blur, so settings/sign-out do not show through the programming UI
+Programming account menu -> moved the avatar menu into a React portal attached to `document.body`, with fixed positioning and `z-index: 7000`, so IDE controls cannot visually overlap the menu and make it look transparent
+Whiteboard pointer alignment -> moved the programming IDE whiteboard modal into a fixed `document.body` portal and refreshes Excalidraw layout after mount/resize, fixing laser pointer and eraser brush cursor offset caused by nested IDE layout measurements
+Whiteboard fullscreen overlay -> superseded the temporary fullscreen backdrop approach because the desired behavior is to keep the board visually inside the IDE editor area
+Whiteboard IDE-sized overlay -> corrected the whiteboard display back to the original IDE editor area by syncing the portal overlay to `editorShellRef.getBoundingClientRect()`, keeping portal-based pointer alignment without forcing fullscreen
+Whiteboard keyboard delete -> added Backspace/Delete handling for selected whiteboard controls; selected elements and their bound/centered labels are removed and saved, while numeric quick-label editing remains available
+IDE compile error highlight -> Run/Submit CE results now parse the first compiler error location from `verdict.errorDetail`, add Monaco red marker/decorations at the line/column, reveal the position, and show a compact Chinese error banner above the editor
+IDE results layout -> adjusted the debug/output dock to `debug 50% / stdin 15% / stdout 35%` by making the outer results dock 50/50 and the inner console panel 3:7
+IDE compile error placement -> replaced the fixed top CE banner with a Monaco view zone inserted directly below the highlighted compile-error line, so the message scrolls with the error location and no longer stays at the editor top
+IDE results resize control -> moved the debug dock expand/collapse button out of the results title and made it float on the results dock top border, so it travels with the dock as it expands/collapses and stays visible above the panel
 ```
 
 Docker / DB 当前状态：

@@ -1,4 +1,4 @@
-import type { Level, Progress, UserRole } from '@spcg/shared/types'
+import type { Level, Progress, StudentUserType, UserRole } from '@spcg/shared/types'
 import type { LessonStageProblemMenu } from '@/lib/repositories/problem-set-repository'
 import { isDatabaseConfigured } from '@/lib/repositories/database-repository'
 import {
@@ -14,6 +14,7 @@ import {
 } from '@/lib/services/level-service'
 import { getProgressForUser } from '@/lib/services/progress-service'
 import { ServiceError } from '@/lib/services/errors'
+import { getLevelEntitlementAccess } from '@/lib/services/entitlement-service'
 
 export type LevelAccessResult = {
   role: UserRole
@@ -23,6 +24,9 @@ export type LevelAccessResult = {
   currentEntryLevelId: string | null
   redirectLevelId: string | null
   reason: string | null
+  upgradeRequired: boolean
+  requiredUserType: StudentUserType | null
+  userType: StudentUserType | null
 }
 
 export type StudentCurrentLevelSummary = {
@@ -51,6 +55,9 @@ const DEV_ALLOW_ACCESS: LevelAccessResult = {
   currentEntryLevelId: null,
   redirectLevelId: null,
   reason: null,
+  upgradeRequired: false,
+  requiredUserType: null,
+  userType: null,
 }
 
 export async function getLevelNavigationForUser(userId?: string | null): Promise<LevelAccessResult> {
@@ -67,6 +74,9 @@ export async function getLevelNavigationForUser(userId?: string | null): Promise
       currentEntryLevelId: null,
       redirectLevelId: null,
       reason: null,
+      upgradeRequired: false,
+      requiredUserType: null,
+      userType: null,
     }
   }
 
@@ -79,6 +89,9 @@ export async function getLevelNavigationForUser(userId?: string | null): Promise
     currentEntryLevelId: state.currentEntryLevelId,
     redirectLevelId: null,
     reason: null,
+    upgradeRequired: false,
+    requiredUserType: null,
+    userType: null,
   }
 }
 
@@ -99,6 +112,9 @@ export async function getLevelAccessForUser(input: {
       currentEntryLevelId: null,
       redirectLevelId: null,
       reason: null,
+      upgradeRequired: false,
+      requiredUserType: null,
+      userType: null,
     }
   }
 
@@ -108,6 +124,28 @@ export async function getLevelAccessForUser(input: {
   const redirectLevelId = currentEntryLevelId ?? currentMapLevelId
   const targetStageIndex = state.stages.findIndex((stage) => stage.items.some((item) => item.levelId === input.levelId))
   const targetStage = targetStageIndex >= 0 ? state.stages[targetStageIndex] : null
+  const targetLevel = state.levels.find((level) => level.id === input.levelId)
+  const entitlementAccess = await getLevelEntitlementAccess({
+    userId: input.userId,
+    role,
+    spcgLevel: targetStage?.spcgLevel ?? Number(targetLevel?.difficulty.spcgLevel ?? 0),
+    stageNo: targetStage?.stageNo ?? targetLevel?.order ?? null,
+  })
+
+  if (!entitlementAccess.allowed) {
+    return {
+      role,
+      allowed: false,
+      canFreeJump: false,
+      currentMapLevelId,
+      currentEntryLevelId,
+      redirectLevelId: null,
+      reason: entitlementAccess.reason,
+      upgradeRequired: true,
+      requiredUserType: entitlementAccess.requiredUserType,
+      userType: entitlementAccess.userType,
+    }
+  }
 
   if (state.passedLevelIds.has(input.levelId)) {
     return allowStudentAccess(role, currentMapLevelId, currentEntryLevelId)
@@ -122,7 +160,7 @@ export async function getLevelAccessForUser(input: {
   }
 
   if (state.stages.length === 0) {
-    const target = state.levels.find((level) => level.id === input.levelId)
+    const target = targetLevel
     const current = state.levels.find((level) => level.id === state.fallbackCurrentLevelId)
     if (target && current && compareLevelPosition(target, current) <= 0) {
       return allowStudentAccess(role, currentMapLevelId, currentEntryLevelId)
@@ -137,6 +175,9 @@ export async function getLevelAccessForUser(input: {
     currentEntryLevelId,
     redirectLevelId,
     reason: '请先完成当前关卡，再进入后续关卡。',
+    upgradeRequired: false,
+    requiredUserType: null,
+    userType: entitlementAccess.userType,
   }
 }
 
@@ -311,6 +352,9 @@ function allowStudentAccess(
     currentEntryLevelId,
     redirectLevelId: null,
     reason: null,
+    upgradeRequired: false,
+    requiredUserType: null,
+    userType: null,
   }
 }
 
@@ -323,5 +367,8 @@ function denyAnonymousAccess(): LevelAccessResult {
     currentEntryLevelId: null,
     redirectLevelId: null,
     reason: '当前未登录。',
+    upgradeRequired: false,
+    requiredUserType: null,
+    userType: null,
   }
 }

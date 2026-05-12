@@ -5,6 +5,8 @@ import { auth } from '@/auth'
 import { BugReportWidget } from '@/components/BugReportWidget'
 import { LoggedInUserBadge } from '@/components/LoggedInUserBadge'
 import { getBugReportRuntimeSettings } from '@/lib/services/system-settings-service'
+import { getStudentUiMessages } from '@/lib/student-ui'
+import { getRequestUiLocale } from '@/lib/student-ui-server'
 import './globals.css'
 
 export const dynamic = 'force-dynamic'
@@ -16,13 +18,15 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   const [bugReportSettings, session] = await Promise.all([getBugReportRuntimeSettings(), auth()])
+  const locale = await getRequestUiLocale(session?.user?.id)
+  const messages = getStudentUiMessages(locale)
 
   return (
-    <html lang="zh-CN">
+    <html lang={locale}>
       <body>
         {children}
         <LoggedInUserBadge session={session} />
-        <BugReportWidget enabled={bugReportSettings.enabled} />
+        <BugReportWidget enabled={bugReportSettings.enabled} messages={messages.bug} />
       </body>
     </html>
   )

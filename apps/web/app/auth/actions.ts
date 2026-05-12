@@ -1,12 +1,14 @@
 'use server'
 
+import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { signIn, signOut } from '@/auth'
-import { isDbConfigured, withTransaction } from '@/lib/db'
-import { hashPassword } from '@/lib/password'
+import { isDbConfigured } from '@/lib/db'
+import { requestPasswordReset, resetPasswordWithToken } from '@/lib/services/password-reset-service'
+import { registerStudentWithEmail } from '@/lib/services/public-auth-service'
 
 export async function signInAction(formData: FormData) {
-  const email = readRequired(formData, 'email').toLowerCase()
+  const identifier = readRequired(formData, 'identifier') || readRequired(formData, 'username')
   const password = readRequired(formData, 'password')
   const next = sanitizeNextPath(readOptional(formData, 'next') ?? '/')
 
@@ -16,70 +18,33 @@ export async function signInAction(formData: FormData) {
 
   try {
     await signIn('credentials', {
-      email,
+      username: identifier,
       password,
       redirectTo: next,
     })
   } catch (error) {
     if (isCredentialsError(error)) {
-      redirectWithError('/auth/sign-in', next, '邮箱或密码不正确。')
+      redirectWithError('/auth/sign-in', next, '邮箱/用户名/昵称或密码不正确。')
     }
     throw error
   }
 }
 
 export async function signUpAction(formData: FormData) {
+  const email = readRequired(formData, 'email')
   const displayName = readRequired(formData, 'displayName')
-  const email = readRequired(formData, 'email').toLowerCase()
-  const parentEmail = readOptional(formData, 'parentEmail')
   const password = readRequired(formData, 'password')
+  const confirmPassword = readRequired(formData, 'confirmPassword')
 
   if (!isDbConfigured()) {
     redirectWithError('/auth/sign-up', '/', '数据库环境变量未配置。')
   }
-
-  try {
-    const passwordHash = await hashPassword(password)
-    await withTransaction(async (client) => {
-      const result = await client.query<{ id: string }>(
-        `
-        INSERT INTO users (email, password_hash, display_name)
-        VALUES ($1, $2, $3)
-        RETURNING id
-        `,
-        [email, passwordHash, displayName],
-      )
-      const userId = result.rows[0]?.id
-      if (!userId) throw new Error('Failed to create user')
-
-      await client.query(
-        `
-        INSERT INTO profiles (user_id, display_name, parent_email)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (user_id)
-        DO UPDATE SET display_name = EXCLUDED.display_name, parent_email = EXCLUDED.parent_email
-        `,
-        [userId, displayName, parentEmail],
-      )
-      await client.query(
-        `
-        INSERT INTO user_roles (user_id, role)
-        VALUES ($1, 'student')
-        ON CONFLICT (user_id) DO NOTHING
-        `,
-        [userId],
-      )
-    })
-  } catch (error) {
-    if (isUniqueViolation(error)) {
-      redirectWithError('/auth/sign-up', '/', '这个邮箱已经注册。')
-    }
-    throw error
-  }
+  const result = await registerStudentWithEmail({ email, displayName, password, confirmPassword })
+  if (!result.ok) redirectWithError('/auth/sign-up', '/', getSignUpErrorMessage(result.code))
 
   try {
     await signIn('credentials', {
-      email,
+      username: result.email,
       password,
       redirectTo: '/',
     })
@@ -89,6 +54,39 @@ export async function signUpAction(formData: FormData) {
     }
     throw error
   }
+}
+
+export async function requestPasswordResetAction(formData: FormData) {
+  const email = readRequired(formData, 'email')
+  if (!isDbConfigured()) {
+    redirectWithError('/auth/forgot-password', '/', '数据库环境变量未配置。')
+  }
+
+  const result = await requestPasswordReset({
+    email,
+    origin: await getRequestOrigin(),
+  })
+  if (!result.ok) redirectWithError('/auth/forgot-password', '/', getPasswordResetRequestErrorMessage(result.code))
+
+  redirect('/auth/forgot-password?sent=1')
+}
+
+export async function resetPasswordAction(formData: FormData) {
+  const token = readRequired(formData, 'token')
+  const password = readRequired(formData, 'password')
+  const confirmPassword = readRequired(formData, 'confirmPassword')
+  if (!isDbConfigured()) {
+    redirectWithError('/auth/reset-password', '/', '数据库环境变量未配置。')
+  }
+
+  const result = await resetPasswordWithToken({ token, password, confirmPassword })
+  if (!result.ok) {
+    const params = new URLSearchParams({ error: getPasswordResetErrorMessage(result.code) })
+    if (token) params.set('token', token)
+    redirect(`/auth/reset-password?${params.toString()}`)
+  }
+
+  redirect('/auth/sign-in?reset=1')
 }
 
 export async function signOutAction() {
@@ -116,12 +114,60 @@ function redirectWithError(path: string, next: string, error: string): never {
   redirect(`${path}?${params.toString()}`)
 }
 
-function isUniqueViolation(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505'
-}
-
 function isCredentialsError(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false
   const record = error as Record<string, unknown>
   return record.type === 'CredentialsSignin' || record.name === 'CredentialsSignin'
+}
+
+function getSignUpErrorMessage(code: string): string {
+  switch (code) {
+    case 'invalid-email':
+      return '请输入有效的邮箱地址。'
+    case 'email-taken':
+      return '这个邮箱已经注册。'
+    case 'invalid-name':
+      return '昵称需要 2-24 个字符。'
+    case 'too-short':
+      return '密码至少需要 8 位。'
+    case 'mismatch':
+      return '两次输入的密码不一致。'
+    default:
+      return '注册失败，请稍后再试。'
+  }
+}
+
+function getPasswordResetRequestErrorMessage(code: string): string {
+  switch (code) {
+    case 'invalid-email':
+      return '请输入有效的邮箱地址。'
+    case 'mail-failed':
+      return '邮件发送失败，请稍后再试。'
+    default:
+      return '请求失败，请稍后再试。'
+  }
+}
+
+function getPasswordResetErrorMessage(code: string): string {
+  switch (code) {
+    case 'expired-token':
+      return '重置链接已过期，请重新申请。'
+    case 'too-short':
+      return '密码至少需要 8 位。'
+    case 'mismatch':
+      return '两次输入的密码不一致。'
+    case 'invalid-token':
+    default:
+      return '重置链接无效，请重新申请。'
+  }
+}
+
+async function getRequestOrigin(): Promise<string> {
+  const headerStore = await headers()
+  const origin = headerStore.get('origin')
+  if (origin) return origin
+  const host = headerStore.get('host')
+  if (!host) return ''
+  const protocol = headerStore.get('x-forwarded-proto') ?? 'http'
+  return `${protocol}://${host}`
 }

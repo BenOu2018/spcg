@@ -150,7 +150,7 @@ export async function listStuckProblemRank(limit = 10): Promise<StuckProblemRank
     SELECT
       rf.user_id,
       u.email AS user_email,
-      COALESCE(p.display_name, u.display_name) AS user_display_name,
+      COALESCE(p.display_name, u.display_name, u.username) AS user_display_name,
       rf.level_id,
       l.title AS level_title,
       l.chapter_id,

@@ -93,6 +93,35 @@ const checks: Array<[string, () => void]> = [
     },
   ],
   [
+    'mock empty source compile error',
+    () => {
+      const execution = mockExecuteCpp('', '')
+
+      if (execution.result !== 'CE') throw new Error(`expected mock execution CE, got ${execution.result}`)
+      if (!execution.errorDetail) throw new Error('expected empty source compile error detail')
+    },
+  ],
+  [
+    'mock no-output starter remains WA for fixed-output task',
+    () => {
+      const verdict = mockJudgeSubmission({
+        code: '#include <iostream>\nusing namespace std;\nint main(){ return 0; }',
+        cases: [
+          {
+            id: 'case-01',
+            visibility: 'public',
+            input: '',
+            expectedOutput: '  *\n ***\n*****\n',
+          },
+        ],
+        timeLimitMs: 1000,
+        childMessage: message,
+      })
+
+      assertVerdict(verdict, 'WA', 0, 0)
+    },
+  ],
+  [
     'mock single cin cout echo output',
     () => {
       const execution = mockExecuteCpp(

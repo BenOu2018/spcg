@@ -424,6 +424,77 @@ export async function getLessonStageProblemMenuForLevel(levelId: string): Promis
   }
 }
 
+export async function listPublishedLessonStageProblemMenus(input: {
+  track?: LessonTrack
+} = {}): Promise<LessonStageProblemMenu[]> {
+  const track = input.track ?? 'A'
+  const rows = await query<
+    {
+      problem_set_id: string
+      problem_set_title: string
+      spcg_level: number
+      stage_no: number
+      track: LessonTrack
+      lesson_focus: string | null
+      level_id: string
+      level_title: string
+      position: number
+      display_mode: ProblemSetItemDisplayMode | null
+    } & Record<string, unknown>
+  >(
+    `
+    SELECT
+      ps.id AS problem_set_id,
+      ps.title AS problem_set_title,
+      ps.spcg_level,
+      ps.stage_no,
+      ps.track,
+      ps.lesson_focus,
+      psi.level_id,
+      l.title AS level_title,
+      psi.position,
+      COALESCE(psi.metadata->>'displayMode', 'primary') AS display_mode
+    FROM problem_sets ps
+    JOIN problem_set_items psi ON psi.problem_set_id = ps.id
+    JOIN levels l ON l.id = psi.level_id
+    WHERE
+      ps.type = 'lesson'
+      AND ps.status = 'published'
+      AND ps.visibility = 'student'
+      AND ps.track = $1
+      AND l.status = 'published'
+      AND COALESCE(psi.metadata->>'displayMode', 'primary') = ANY($2::text[])
+    ORDER BY ps.spcg_level ASC, ps.stage_no ASC, psi.position ASC, psi.level_id ASC
+    `,
+    [track, FRONTEND_LESSON_DISPLAY_MODES],
+  )
+
+  const menus = new Map<string, LessonStageProblemMenu>()
+  for (const row of rows) {
+    const existing = menus.get(row.problem_set_id)
+    const menu =
+      existing ??
+      {
+        problemSetId: row.problem_set_id,
+        title: row.problem_set_title,
+        spcgLevel: row.spcg_level,
+        stageNo: row.stage_no,
+        track: row.track,
+        lessonFocus: row.lesson_focus,
+        items: [],
+      }
+    menu.items.push({
+      levelId: row.level_id,
+      title: row.level_title,
+      position: row.position,
+      displayMode: isProblemSetItemDisplayMode(row.display_mode) ? row.display_mode : 'primary',
+    })
+    menus.set(row.problem_set_id, menu)
+  }
+
+  return [...menus.values()]
+}
+
 export async function createProblemSet(
   input: {
     id: string

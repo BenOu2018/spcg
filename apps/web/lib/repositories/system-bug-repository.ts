@@ -85,7 +85,7 @@ export async function createSystemBug(input: SystemBugCreateInput): Promise<Syst
     SELECT
       b.*,
       u.email AS user_email,
-      COALESCE(p.display_name, u.display_name) AS user_display_name
+      COALESCE(p.display_name, u.display_name, u.username) AS user_display_name
     FROM inserted b
     LEFT JOIN users u ON u.id = b.user_id
     LEFT JOIN profiles p ON p.user_id = u.id
@@ -116,7 +116,7 @@ export async function listSystemBugs(limit = 100): Promise<SystemBugRecord[]> {
     SELECT
       b.*,
       u.email AS user_email,
-      COALESCE(p.display_name, u.display_name) AS user_display_name
+      COALESCE(p.display_name, u.display_name, u.username) AS user_display_name
     FROM system_bugs b
     LEFT JOIN users u ON u.id = b.user_id
     LEFT JOIN profiles p ON p.user_id = u.id
@@ -135,7 +135,7 @@ export async function getSystemBug(id: string): Promise<SystemBugRecord | null> 
     SELECT
       b.*,
       u.email AS user_email,
-      COALESCE(p.display_name, u.display_name) AS user_display_name
+      COALESCE(p.display_name, u.display_name, u.username) AS user_display_name
     FROM system_bugs b
     LEFT JOIN users u ON u.id = b.user_id
     LEFT JOIN profiles p ON p.user_id = u.id
@@ -192,7 +192,7 @@ async function readSystemBugFull(client: PoolClient, id: string): Promise<System
     SELECT
       b.*,
       u.email AS user_email,
-      COALESCE(p.display_name, u.display_name) AS user_display_name
+      COALESCE(p.display_name, u.display_name, u.username) AS user_display_name
     FROM system_bugs b
     LEFT JOIN users u ON u.id = b.user_id
     LEFT JOIN profiles p ON p.user_id = u.id

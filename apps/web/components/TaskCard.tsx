@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { CheckCircle2, LoaderCircle, Maximize2, Minimize2, XCircle } from 'lucide-react'
 import type { Level, SisterProblem } from '@spcg/shared/types'
 import { getDifficultyCoefficient } from '@spcg/shared/difficulty'
+import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 import { StatementMarkdown } from './StatementMarkdown'
 import type { SampleRunResultMap, SampleRunStatus } from './sample-run'
 
@@ -11,9 +12,23 @@ type TaskCardProps = {
   expanded?: boolean
   onToggleExpanded?: () => void
   onPlayVideo?: () => void
+  canViewHints?: boolean
+  hintsUpgradeMessage?: string
+  messages?: StudentUiMessages
 }
 
-export function TaskCard({ level, sampleResults, expanded = false, onToggleExpanded, onPlayVideo }: TaskCardProps) {
+const fallbackMessages = getStudentUiMessages('zh-CN')
+
+export function TaskCard({
+  level,
+  sampleResults,
+  expanded = false,
+  onToggleExpanded,
+  onPlayVideo,
+  canViewHints = true,
+  hintsUpgradeMessage = '升级到高级学习版后可查看提示。',
+  messages = fallbackMessages,
+}: TaskCardProps) {
   const visibleSamples = level.publicCases.slice(0, 2)
   const visibleDescription = stripPrivateStatementSections(level.description)
   const difficultyCoefficient = getDifficultyCoefficient(level.difficulty)
@@ -29,7 +44,7 @@ export function TaskCard({ level, sampleResults, expanded = false, onToggleExpan
         <div className="task-top">
           <div className="section-label">
             <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-book.svg" alt="" />
-            Goal
+            {messages.task.goal}
           </div>
           <div className="task-title-row">
             <h1>{level.title}</h1>
@@ -37,9 +52,9 @@ export function TaskCard({ level, sampleResults, expanded = false, onToggleExpan
           <button
             className="task-expand-button"
             type="button"
-            aria-label={expanded ? '缩小题目阅读栏' : '放大题目阅读栏'}
+            aria-label={expanded ? messages.task.shrinkTask : messages.task.expandTask}
             aria-pressed={expanded}
-            title={expanded ? '缩小题目阅读栏' : '放大题目阅读栏'}
+            title={expanded ? messages.task.shrinkTask : messages.task.expandTask}
             disabled={!onToggleExpanded}
             onClick={onToggleExpanded}
           >
@@ -51,13 +66,13 @@ export function TaskCard({ level, sampleResults, expanded = false, onToggleExpan
           <span>{level.difficulty.levelLabel}</span>
           <span>{level.difficulty.stars}层</span>
           <span>{level.difficulty.label}</span>
-          <span>难度系数 {difficultyCoefficient}</span>
+          <span>{messages.task.difficulty} {difficultyCoefficient}</span>
         </div>
 
         {level.sisterProblem ? (
           <section>
-            <h2>Sister Quest</h2>
-            <Link className="sister-card" href={`/level/${level.sisterProblem.levelId}`}>
+            <h2>{messages.task.sisterQuest}</h2>
+            <Link className="sister-card" href={`/level/${level.sisterProblem.levelId}`} prefetch={false}>
               <span className="sister-card-icon">
                 <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-star.svg" alt="" />
               </span>
@@ -75,24 +90,24 @@ export function TaskCard({ level, sampleResults, expanded = false, onToggleExpan
         </section>
 
         <section>
-          <h2>Input</h2>
+          <h2>{messages.task.input}</h2>
           <StatementMarkdown markdown={level.inputFormat} assets={[]} hideImages />
         </section>
 
         <section>
-          <h2>Output</h2>
+          <h2>{messages.task.output}</h2>
           <StatementMarkdown markdown={level.outputFormat} assets={[]} hideImages />
         </section>
 
         {symbolNotes ? (
           <section className="symbol-glossary">
-            <h2>符号说明</h2>
+            <h2>{messages.task.symbolNotes}</h2>
             <StatementMarkdown markdown={symbolNotes} assets={[]} hideImages />
           </section>
         ) : null}
 
         <section>
-          <h2>Samples</h2>
+          <h2>{messages.task.samples}</h2>
           <div className="sample-list">
             {visibleSamples.map((sample, index) => {
               const result = sampleResults[sample.id]
@@ -102,20 +117,20 @@ export function TaskCard({ level, sampleResults, expanded = false, onToggleExpan
               return (
                 <div className={`sample-row sample-row-${statusClassName(status)}`} key={sample.id}>
                   <div className="sample-head">
-                    <span>样例 {sampleNumber}</span>
+                    <span>{messages.task.samples} {sampleNumber}</span>
                     <strong className={`sample-status sample-status-${statusClassName(status)}`}>
                       <SampleStatusIcon status={status} />
-                      {formatStatus(status)}
+                      {formatStatus(status, messages)}
                     </strong>
                   </div>
                   <div className="sample-io-grid">
                     <div className="sample-io-panel">
-                      <div className="sample-io-title">Input</div>
-                      <pre>{formatCaseText(sample.input)}</pre>
+                      <div className="sample-io-title">{messages.task.input}</div>
+                      <pre>{formatCaseText(sample.input, messages)}</pre>
                     </div>
                     <div className="sample-io-panel">
-                      <div className="sample-io-title">Expected</div>
-                      <pre>{formatCaseText(sample.expectedOutput)}</pre>
+                      <div className="sample-io-title">{messages.task.expected}</div>
+                      <pre>{formatCaseText(sample.expectedOutput, messages)}</pre>
                     </div>
                   </div>
                 </div>
@@ -125,33 +140,37 @@ export function TaskCard({ level, sampleResults, expanded = false, onToggleExpan
         </section>
 
         <section>
-          <h2>Algorithm Video</h2>
+          <h2>{messages.task.algorithmVideo}</h2>
           <button className="video-card" type="button" onClick={onPlayVideo} disabled={!onPlayVideo}>
             <span className="video-card-icon">
               <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-play.svg" alt="" />
             </span>
             <strong>{level.title}</strong>
-            <span>{onPlayVideo ? 'Play' : 'Waiting'}</span>
+            <span>{onPlayVideo ? messages.task.play : messages.task.waiting}</span>
           </button>
         </section>
 
         <section className="task-foldouts">
           <details>
-            <summary>Hints</summary>
-            <div className="hint-list">
-              {level.hints.map((hint) => (
-                <details key={hint.step}>
-                  <summary>
-                    {hint.step}. {hint.title}
-                  </summary>
-                  <StatementMarkdown markdown={hint.content} assets={[]} hideImages />
-                </details>
-              ))}
-            </div>
+            <summary>{messages.task.hints}</summary>
+            {canViewHints ? (
+              <div className="hint-list">
+                {level.hints.map((hint) => (
+                  <details key={hint.step}>
+                    <summary>
+                      {hint.step}. {hint.title}
+                    </summary>
+                    <StatementMarkdown markdown={hint.content} assets={[]} hideImages />
+                  </details>
+                ))}
+              </div>
+            ) : (
+              <p className="solution-locked">{hintsUpgradeMessage}</p>
+            )}
           </details>
 
           <details>
-            <summary>Solution</summary>
+            <summary>{messages.task.solution}</summary>
             {level.solutionUnlocked && level.solution ? (
               <div className="solution-foldout">
                 <StatementMarkdown markdown={level.solution.explanation} assets={[]} hideImages />
@@ -164,16 +183,16 @@ export function TaskCard({ level, sampleResults, expanded = false, onToggleExpan
                 </ul>
                 <div className="solution-complexity">
                   <div className="solution-complexity-item">
-                    Time <StatementMarkdown markdown={level.solution.complexity.time} assets={[]} hideImages />
+                    {messages.task.time} <StatementMarkdown markdown={level.solution.complexity.time} assets={[]} hideImages />
                   </div>
                   <div className="solution-complexity-item">
-                    Memory <StatementMarkdown markdown={level.solution.complexity.memory} assets={[]} hideImages />
+                    {messages.task.memory} <StatementMarkdown markdown={level.solution.complexity.memory} assets={[]} hideImages />
                   </div>
                 </div>
                 {level.officialCode ? <pre>{level.officialCode}</pre> : null}
               </div>
             ) : (
-              <p className="solution-locked">AC 后解锁题解。</p>
+              <p className="solution-locked">{messages.task.solutionLocked}</p>
             )}
           </details>
         </section>
@@ -216,8 +235,8 @@ function collectSymbolNotes(input: { description: string; inputFormat: string; o
   return notes.join('\n')
 }
 
-function formatCaseText(value: string): string {
-  return value.trim().length > 0 ? value.trimEnd() : '无输入'
+function formatCaseText(value: string, messages: StudentUiMessages): string {
+  return value.trim().length > 0 ? value.trimEnd() : messages.task.noInput
 }
 
 function formatRelation(relation: SisterProblem['relation']): string {
@@ -230,10 +249,10 @@ function formatRelation(relation: SisterProblem['relation']): string {
   return labels[relation]
 }
 
-function formatStatus(status: SampleRunStatus): string {
+function formatStatus(status: SampleRunStatus, messages: StudentUiMessages): string {
   const labels: Record<SampleRunStatus, string> = {
-    idle: 'Ready',
-    judging: 'Running',
+    idle: messages.task.ready,
+    judging: messages.task.running,
     AC: 'AC',
     WA: 'WA',
     CE: 'CE',

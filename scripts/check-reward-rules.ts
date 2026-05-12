@@ -1,4 +1,9 @@
 import { getDifficultyCoefficient, getLevelCoinReward, getLevelLabel } from '../shared/difficulty.js'
+import {
+  EARNED_TITLE_CATALOG,
+  getEarnedTitlePoolKeyForRank,
+  pickEarnedTitleFromPool,
+} from '../shared/earned-titles.js'
 import { generateTitle, getRankForCoins, getRankLabel } from '../shared/reward-ranks.js'
 
 const checks: Array<[string, () => void]> = [
@@ -23,13 +28,13 @@ const checks: Array<[string, () => void]> = [
   [
     '0 coins starts at scrap iron',
     () => {
-      assertRank(0, 'scrap_iron', '烂铁')
+      assertRank(0, 'scrap_iron', '黑铁')
     },
   ],
   [
     '71 coins remains scrap iron',
     () => {
-      assertRank(71, 'scrap_iron', '烂铁')
+      assertRank(71, 'scrap_iron', '黑铁')
     },
   ],
   [
@@ -57,6 +62,43 @@ const checks: Array<[string, () => void]> = [
       if (title !== '宗师二分星尘守卫') throw new Error(`expected 宗师二分星尘守卫, got ${title}`)
     },
   ],
+  [
+    'earned title catalog has 100 normal titles',
+    () => {
+      if (EARNED_TITLE_CATALOG.length !== 100) {
+        throw new Error(`expected 100 earned titles, got ${EARNED_TITLE_CATALOG.length}`)
+      }
+    },
+  ],
+  [
+    'earned title rank pools match product mapping',
+    () => {
+      assertTitlePool('scrap_iron', 'scrap_iron')
+      assertTitlePool('bronze', 'bronze')
+      assertTitlePool('silver', 'silver')
+      assertTitlePool('gold', 'gold')
+      assertTitlePool('platinum', 'platinum')
+      assertTitlePool('diamond', 'diamond')
+      assertTitlePool('stellar', 'stellar')
+      assertTitlePool('king', 'king')
+      assertTitlePool('master', 'master')
+      assertTitlePool('grandmaster', 'grandmaster')
+      assertTitlePool('legend', 'king')
+      assertTitlePool('server', 'king')
+    },
+  ],
+  [
+    'earned title selection is deterministic and skips used labels',
+    () => {
+      const first = pickEarnedTitleFromPool({ poolKey: 'bronze', seed: 3 })
+      const second = pickEarnedTitleFromPool({ poolKey: 'bronze', seed: 3 })
+      if (first.label !== second.label) {
+        throw new Error(`expected stable title, got ${first.label} and ${second.label}`)
+      }
+      const skipped = pickEarnedTitleFromPool({ poolKey: 'bronze', seed: 0, usedLabels: ['青铜代码学徒'] })
+      if (skipped.label === '青铜代码学徒') throw new Error('expected used title to be skipped')
+    },
+  ],
 ]
 
 for (const [name, check] of checks) {
@@ -82,4 +124,12 @@ function assertRank(coinTotal: number, expectedRank: ReturnType<typeof getRankFo
 
   if (rank.rank !== expectedRank) throw new Error(`expected rank ${expectedRank}, got ${rank.rank}`)
   if (label !== expectedLabel) throw new Error(`expected label ${expectedLabel}, got ${label}`)
+}
+
+function assertTitlePool(
+  rank: Parameters<typeof getEarnedTitlePoolKeyForRank>[0],
+  expectedPool: ReturnType<typeof getEarnedTitlePoolKeyForRank>,
+) {
+  const pool = getEarnedTitlePoolKeyForRank(rank)
+  if (pool !== expectedPool) throw new Error(`expected ${rank} to use ${expectedPool}, got ${pool}`)
 }

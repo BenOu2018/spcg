@@ -2,20 +2,30 @@
 
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
+import { Trophy } from 'lucide-react'
 import type { GameChapter } from '@spcg/shared/game-chapters'
 import type { Level } from '@spcg/shared/types'
+import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 
 type GameMapMenusProps = {
   chapters: GameChapter[]
   currentChapter: GameChapter
   levels: Level[]
-  testLevels: Level[]
   currentLevelId?: string
+  messages?: StudentUiMessages
 }
 
-type OpenMenu = 'chapter' | 'level' | 'test' | null
+type OpenMenu = 'chapter' | 'level' | null
 
-export function GameMapMenus({ chapters, currentChapter, levels, testLevels, currentLevelId }: GameMapMenusProps) {
+const fallbackMessages = getStudentUiMessages('zh-CN')
+
+export function GameMapMenus({
+  chapters,
+  currentChapter,
+  levels,
+  currentLevelId,
+  messages = fallbackMessages,
+}: GameMapMenusProps) {
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -53,8 +63,12 @@ export function GameMapMenus({ chapters, currentChapter, levels, testLevels, cur
           onClick={() => setOpenMenu(openMenu === 'chapter' ? null : 'chapter')}
           type="button"
         >
-          <span>级别</span>
-          <strong>第{currentChapter.spcgLevel}级 · {currentChapter.displayName}</strong>
+          <span>{messages.map.chapter}</span>
+          <strong>
+            {messages.map.levelPrefix}
+            {currentChapter.spcgLevel}
+            {messages.map.levelSuffix} · {currentChapter.displayName}
+          </strong>
         </button>
         {openMenu === 'chapter' ? (
           <div className="village-chapter-menu-panel" id="village-chapter-menu-panel">
@@ -66,7 +80,11 @@ export function GameMapMenus({ chapters, currentChapter, levels, testLevels, cur
                 key={item.chapterId}
                 onClick={closeMenus}
               >
-                <span>第{item.spcgLevel}级</span>
+                <span>
+                  {messages.map.levelPrefix}
+                  {item.spcgLevel}
+                  {messages.map.levelSuffix}
+                </span>
                 <strong>{item.displayName}</strong>
                 <em>{item.coreConcept}</em>
               </Link>
@@ -83,7 +101,7 @@ export function GameMapMenus({ chapters, currentChapter, levels, testLevels, cur
           onClick={() => setOpenMenu(openMenu === 'level' ? null : 'level')}
           type="button"
         >
-          <span>当前层目录</span>
+          <span>{messages.map.currentDirectory}</span>
           <strong>{levels.length}</strong>
         </button>
         {openMenu === 'level' ? (
@@ -95,8 +113,13 @@ export function GameMapMenus({ chapters, currentChapter, levels, testLevels, cur
                 href={`/level/${level.id}`}
                 key={level.id}
                 onClick={closeMenus}
+                prefetch={false}
               >
-                <span>第{level.order}层</span>
+                <span>
+                  {messages.map.levelPrefix}
+                  {level.order}
+                  {messages.map.stageSuffix}
+                </span>
                 <strong>{level.title}</strong>
                 <em>{level.knowledgePoint}</em>
               </Link>
@@ -105,34 +128,16 @@ export function GameMapMenus({ chapters, currentChapter, levels, testLevels, cur
         ) : null}
       </div>
 
-      <div className="village-test-menu">
-        <button
-          aria-controls="village-test-menu-panel"
-          aria-expanded={openMenu === 'test'}
-          className="village-test-trigger"
-          onClick={() => setOpenMenu(openMenu === 'test' ? null : 'test')}
-          type="button"
-        >
-          <span>TEST</span>
-          <strong>{testLevels.length}</strong>
-        </button>
-        {openMenu === 'test' ? (
-          <div className="village-test-menu-panel" id="village-test-menu-panel">
-            {testLevels.map((level, index) => (
-              <Link
-                aria-current={level.id === currentLevelId ? 'page' : undefined}
-                className={level.id === currentLevelId ? 'active' : undefined}
-                href={`/level/${level.id}`}
-                key={level.id}
-                onClick={closeMenus}
-              >
-                <span>{index + 1}</span>
-                <strong>{level.title}</strong>
-              </Link>
-            ))}
-          </div>
-        ) : null}
-      </div>
+      <Link
+        aria-label={`${currentChapter.spcgLevel}级排行榜`}
+        className="village-leaderboard-link"
+        href={`/leaderboard?level=${currentChapter.spcgLevel}`}
+        prefetch={false}
+        title={`${currentChapter.spcgLevel}级排行榜`}
+      >
+        <Trophy size={18} strokeWidth={2.6} aria-hidden="true" />
+        <span>榜</span>
+      </Link>
     </div>
   )
 }

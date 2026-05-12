@@ -18,21 +18,42 @@ import {
 } from '@/app/exam/actions'
 import { CodeWorkspace } from '@/components/CodeWorkspace'
 import { TaskCard } from '@/components/TaskCard'
+import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 import type { SampleRunResultMap } from '@/components/sample-run'
 
 type ExamState = {
   attempt: AssessmentAttempt
   levels: Level[]
   items: AssessmentAttemptItem[]
+  access: ExamAccess
 }
 
 type ExamHistoryItem = Awaited<ReturnType<typeof listRankedExamHistoryAction>>[number]
 
-type ExamLevelProps = {
-  spcgLevel?: number
+type ExamAccess = {
+  allowed: boolean
+  reason: string | null
+  visibleQuestionCount: number
+  fullQuestionCount: number
 }
 
-export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
+type ExamLevelProps = {
+  userId: string
+  spcgLevel?: number
+  canViewHints?: boolean
+  hintsUpgradeMessage?: string
+  messages?: StudentUiMessages
+}
+
+const fallbackMessages = getStudentUiMessages('zh-CN')
+
+export function ExamLevel({
+  userId,
+  spcgLevel = 1,
+  canViewHints = true,
+  hintsUpgradeMessage,
+  messages = fallbackMessages,
+}: ExamLevelProps) {
   const [durationSeconds, setDurationSeconds] = useState(3600)
   const [examState, setExamState] = useState<ExamState | null>(null)
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -46,8 +67,9 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
   const [scoring, setScoring] = useState(false)
   const [error, setError] = useState('')
   const questionMenuRef = useRef<HTMLDivElement | null>(null)
-  const currentLevel = examState?.levels[currentIndex] ?? null
-  const nextLevel = examState?.levels[currentIndex + 1] ?? null
+  const visibleQuestionCount = examState?.access.visibleQuestionCount ?? RANKED_ASSESSMENT_TOTAL_QUESTIONS
+  const currentLevel = currentIndex < visibleQuestionCount ? examState?.levels[currentIndex] ?? null : null
+  const nextLevel = currentIndex + 1 < visibleQuestionCount ? examState?.levels[currentIndex + 1] ?? null : null
   const currentItem = currentLevel ? examState?.items.find((item) => item.levelId === currentLevel.id) ?? null : null
   const sampleResults = currentLevel ? sampleResultsByLevel[currentLevel.id] ?? {} : {}
   const layoutVersion = useExamLayoutRefresh(taskExpanded, currentIndex)
@@ -73,6 +95,7 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
             attempt: detail.attempt,
             levels: detail.levels,
             items: detail.items,
+            access: detail.access,
           })
           setDurationSeconds(detail.attempt.durationSeconds)
           setRemainingSeconds(calculateRemainingSeconds(detail.attempt))
@@ -93,6 +116,12 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
       cancelled = true
     }
   }, [spcgLevel])
+
+  useEffect(() => {
+    if (!examState) return
+    const lastVisibleIndex = Math.max(0, examState.access.visibleQuestionCount - 1)
+    if (currentIndex > lastVisibleIndex) setCurrentIndex(lastVisibleIndex)
+  }, [currentIndex, examState?.access.visibleQuestionCount])
 
   useEffect(() => {
     if (!examState || examState.attempt.status !== 'in_progress') return
@@ -151,6 +180,7 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
         attempt: result.attempt,
         levels: result.levels,
         items: result.items,
+        access: result.access,
       })
       setDurationSeconds(result.attempt.durationSeconds)
       setRemainingSeconds(calculateRemainingSeconds(result.attempt))
@@ -190,6 +220,7 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
         attempt: detail.attempt,
         levels: detail.levels,
         items: detail.items,
+        access: detail.access,
       })
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '段位赛结果刷新失败。')
@@ -205,7 +236,7 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
 
   function requestFinishExam() {
     if (!examState || examState.attempt.status !== 'in_progress') return
-    const confirmed = window.confirm('确认交卷吗？交卷后本次段位赛会进入最终判题，不能继续修改代码。')
+    const confirmed = window.confirm(messages.exam.confirmFinish)
     if (!confirmed) return
     void finishExam(false)
   }
@@ -217,7 +248,7 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
           <div>
             <span className="exam-complete-emblem" aria-hidden="true" />
             <h1>{buildRankedAssessmentTitle(spcgLevel)}</h1>
-            <p>正在恢复本次考试进度...</p>
+            <p>{messages.exam.restoring}</p>
           </div>
         </section>
       </main>
@@ -228,7 +259,7 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
     const startDescription = lastFinishedAttempt
       ? `上一场段位赛已完成，得分 ${lastFinishedAttempt.score}/${RANKED_ASSESSMENT_TOTAL_SCORE}。可以新开始一场考试；今天再次考试仍使用同一份当日题单。`
       : `开始后系统会生成今日 ${RANKED_ASSESSMENT_TOTAL_QUESTIONS} 题试卷。第一版不扣蒜粒，后续会在这里接入蒜粒消耗。`
-    const startLabel = lastFinishedAttempt ? '新开始一场考试' : '开始考试'
+    const startLabel = lastFinishedAttempt ? messages.exam.startNew : messages.exam.start
 
     return (
       <main className="exam-page">
@@ -250,15 +281,15 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
               ))}
             </div>
             <div className="exam-mode-note">
-              <strong>实时判题</strong>
-              <span>考试中快速反馈；交卷后会重新跑满测试点并计算总分。</span>
+              <strong>{messages.exam.realTimeJudge}</strong>
+              <span>{messages.exam.realTimeNote}</span>
             </div>
             {error ? <p className="exam-error">{error}</p> : null}
             <div className="exam-complete-actions">
               <button type="button" onClick={startExam} disabled={starting}>
-                {starting ? '正在生成试卷...' : startLabel}
+                {starting ? messages.exam.generating : startLabel}
               </button>
-              <Link href="/map">返回地图</Link>
+              <Link href="/map">{messages.common.backToMap}</Link>
             </div>
           </div>
         </section>
@@ -272,8 +303,8 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
         <section className="exam-empty">
           <div>
             <h1>{buildRankedAssessmentTitle(spcgLevel)}</h1>
-            <p>当前没有可用于段位赛的题目。</p>
-            <Link href="/map">返回地图</Link>
+            <p>{messages.exam.noQuestions}</p>
+            <Link href="/map">{messages.common.backToMap}</Link>
           </div>
         </section>
       </main>
@@ -298,7 +329,7 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
         <section className="exam-title-card" aria-label="SPCG Ranked Match">
           <span className="exam-title-emblem" aria-hidden="true" />
           <span className="exam-title-copy">
-            <strong>SPCG Ranked Match</strong>
+            <strong>{messages.exam.rankedMatch}</strong>
             <em>{buildRankedAssessmentTitle(spcgLevel)}</em>
           </span>
         </section>
@@ -317,7 +348,7 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
               <i />
             </span>
             <span className="exam-trigger-copy">
-              <strong>题目列表</strong>
+              <strong>{messages.exam.questionList}</strong>
               <em>{progressText}</em>
             </span>
             <b>{String(currentIndex + 1).padStart(2, '0')}</b>
@@ -325,30 +356,35 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
           {questionListOpen ? (
             <div className="exam-question-popover" role="menu">
               <div className="exam-question-popover-head">
-                <strong>SPCG 段位赛题目</strong>
+                <strong>{messages.exam.paperQuestions}</strong>
                 <span>{currentLevel.title}</span>
               </div>
               <div className="exam-question-list-grid">
                 {examState.levels.map((level, index) => {
                   const item = examState.items.find((entry) => entry.levelId === level.id)
                   const submitted = isExamQuestionSubmitted(item)
+                  const visible = index < examState.access.visibleQuestionCount
                   return (
                     <button
-                      className={index === currentIndex ? 'active' : ''}
+                      className={`${index === currentIndex ? 'active' : ''}${visible ? '' : ' locked'}`}
                       type="button"
                       key={level.id}
                       role="menuitem"
+                      disabled={!visible}
                       onClick={() => {
+                        if (!visible) return
                         setCurrentIndex(index)
                         setQuestionListOpen(false)
                       }}
                     >
                       <span>{String(index + 1).padStart(2, '0')}</span>
-                      <strong>{level.title}</strong>
+                      <strong>{visible ? level.title : '升级查看'}</strong>
                       <em>
-                        {formatDisplayMode(item?.displayMode)} · {item?.maxScore ?? 0}分
+                        {visible ? `${formatDisplayMode(item?.displayMode)} · ${item?.maxScore ?? 0}分` : '不暴露题面与 IDE'}
                       </em>
-                      <small className={submitted ? 'submitted' : ''}>{submitted ? '已提交' : '未答题'}</small>
+                      <small className={submitted ? 'submitted' : ''}>
+                        {visible ? (submitted ? messages.exam.submitted : messages.exam.unanswered) : '升级开放'}
+                      </small>
                     </button>
                   )
                 })}
@@ -386,7 +422,7 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
           onClick={requestFinishExam}
           disabled={examState.attempt.status !== 'in_progress' || scoring}
         >
-          <span>{scoring || examState.attempt.status === 'scoring' ? 'Scoring...' : 'Finish Match'}</span>
+          <span>{scoring || examState.attempt.status === 'scoring' ? messages.exam.scoring : messages.exam.finish}</span>
         </button>
       </header>
 
@@ -398,22 +434,27 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
           sampleResults={sampleResults}
           expanded={taskExpanded}
           onToggleExpanded={() => setTaskExpanded((value) => !value)}
+          canViewHints={canViewHints}
+          hintsUpgradeMessage={hintsUpgradeMessage}
+          messages={messages}
         />
         <div className="exam-workbench-wrap">
           <CodeWorkspace
             key={`${examState.attempt.id}:${currentLevel.id}`}
             level={currentLevel}
+            userId={userId}
             layoutVersion={layoutVersion}
             onRunStart={() => setSampleResults(currentLevel.id, buildJudgingSamples(currentLevel))}
             onRunComplete={(results) => setSampleResults(currentLevel.id, results)}
             assessmentAttemptId={examState.attempt.id}
             assessmentItemMaxScore={currentItem?.maxScore ?? null}
             assessmentNextQuestionTitle={nextLevel?.title ?? null}
+            messages={messages}
             onAssessmentSubmissionSettled={() => refreshExamState(examState.attempt.id)}
             onAssessmentNextQuestion={
               nextLevel
                 ? () => {
-                    setCurrentIndex((index) => Math.min(index + 1, examState.levels.length - 1))
+                    setCurrentIndex((index) => Math.min(index + 1, Math.max(0, examState.access.visibleQuestionCount - 1)))
                     setQuestionListOpen(false)
                   }
                 : undefined
@@ -426,24 +467,25 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
         <section className="exam-complete-modal exam-scoring-modal" role="status" aria-label="段位赛正在判题">
           <div>
             <span className="exam-complete-emblem" aria-hidden="true" />
-            <h1>正在判题</h1>
+            <h1>{messages.exam.scoring}</h1>
             <p>{scoringLevel ? `当前判题：第 ${scoringLevel.position} 题 ${scoringLevel.level.title}` : '所有题目已判完，正在汇总成绩。'}</p>
             <div className="exam-score-list">
               {examState.items.map((item) => {
                 const level = examState.levels.find((entry) => entry.id === item.levelId)
+                const visible = item.position <= examState.access.visibleQuestionCount
                 return (
                   <div className={`exam-score-row ${item.status}`} key={item.levelId}>
                     <strong>
-                      第 {item.position} 题 · {level?.title ?? item.levelId}
+                      第 {item.position} 题 · {visible ? level?.title ?? item.levelId : '升级查看'}
                     </strong>
-                    <span>{formatAssessmentItemProgress(item)}</span>
+                    <span>{visible ? formatAssessmentItemProgress(item) : '升级后查看完整试卷'}</span>
                   </div>
                 )
               })}
             </div>
             <div className="exam-complete-actions">
               <button type="button" onClick={() => refreshExamState(examState.attempt.id)}>
-                刷新判题进度
+                {messages.exam.refreshScoring}
               </button>
             </div>
           </div>
@@ -454,7 +496,7 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
         <section className="exam-complete-modal" role="dialog" aria-modal="true" aria-label="段位赛完成">
           <div>
             <span className="exam-complete-emblem" aria-hidden="true" />
-            <h1>SPCG 段位赛成绩</h1>
+            <h1>{messages.exam.scoreTitle}</h1>
             <p>
               总分 {examState.attempt.score}/{RANKED_ASSESSMENT_TOTAL_SCORE}，满分题 {examState.attempt.acceptedCount}/
               {examState.attempt.totalCount}。
@@ -462,11 +504,14 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
             <div className="exam-score-list">
               {examState.items.map((item) => {
                 const level = examState.levels.find((entry) => entry.id === item.levelId)
+                const visible = item.position <= examState.access.visibleQuestionCount
                 return (
                   <div key={item.levelId}>
-                    <strong>{level?.title ?? item.levelId}</strong>
+                    <strong>{visible ? level?.title ?? item.levelId : `第 ${item.position} 题 · 升级查看`}</strong>
                     <span>
-                      {item.score}/{item.maxScore} 分 · {item.passedCases}/{item.totalCases} 点 · {formatVerdict(item.verdict)}
+                      {visible
+                        ? `${item.score}/${item.maxScore} 分 · ${item.passedCases}/${item.totalCases} 点 · ${formatVerdict(item.verdict)}`
+                        : '升级后查看完整试卷'}
                     </span>
                   </div>
                 )
@@ -474,9 +519,9 @@ export function ExamLevel({ spcgLevel = 1 }: ExamLevelProps) {
             </div>
             <div className="exam-complete-actions">
               <button type="button" onClick={() => refreshExamState(examState.attempt.id)}>
-                刷新成绩
+                {messages.exam.refreshScore}
               </button>
-              <Link href="/map">返回地图</Link>
+              <Link href="/map">{messages.common.backToMap}</Link>
             </div>
           </div>
         </section>

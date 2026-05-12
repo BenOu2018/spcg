@@ -78,6 +78,8 @@ export async function updateLevelDetails(formData: FormData) {
     lglevel: readOptionalString(formData, 'lglevel'),
   }
   const statementAssets = readJsonArray(formData, 'statementAssetsJson')
+  const algorithmGraphs = readJsonArray(formData, 'algorithmGraphsJson')
+  const localizedContent = readJsonObject(formData, 'localizedContentJson')
   const testCases = readJsonArray(formData, 'testCasesJson')
   const hints = readJsonArray(formData, 'hintsJson')
   const solution = readJsonObject(formData, 'solutionJson')
@@ -127,8 +129,10 @@ export async function updateLevelDetails(formData: FormData) {
         story = $24,
         pass_out_problem_id = $25,
         status = $26,
+        algorithm_graphs = $27,
+        localized_content = $28,
         published_at = CASE WHEN $26 = 'published' THEN COALESCE(published_at, NOW()) ELSE published_at END,
-        published_by = CASE WHEN $26 = 'published' THEN COALESCE(published_by, $27::uuid) ELSE published_by END,
+        published_by = CASE WHEN $26 = 'published' THEN COALESCE(published_by, $29::uuid) ELSE published_by END,
         updated_at = NOW()
       WHERE id = $1
       `,
@@ -159,6 +163,8 @@ export async function updateLevelDetails(formData: FormData) {
         readOptionalString(formData, 'story'),
         readOptionalString(formData, 'passOutProblemId'),
         status,
+        JSON.stringify(algorithmGraphs),
+        JSON.stringify(localizedContent),
         context.userId,
       ],
     )

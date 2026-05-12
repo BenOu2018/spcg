@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
-import type { AssessmentAttempt, RewardLedgerEntry, UserInventoryItem } from '@spcg/shared/types'
+import type { AssessmentAttempt, RewardLedgerEntry, UserInventoryItem, UserTitleRecord } from '@spcg/shared/types'
+import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 
 type ProfileAssessmentHistoryItem = AssessmentAttempt & {
   sessionTitle: string
@@ -13,20 +14,24 @@ type ProfileAssessmentHistoryItem = AssessmentAttempt & {
 
 type ProfileRewardMenusProps = {
   inventory: UserInventoryItem[]
+  titles: UserTitleRecord[]
   rewards: RewardLedgerEntry[]
   assessmentHistory: ProfileAssessmentHistoryItem[]
+  messages?: StudentUiMessages
 }
 
-export function ProfileRewardMenus({ inventory, rewards, assessmentHistory }: ProfileRewardMenusProps) {
-  const [openMenu, setOpenMenu] = useState<'inventory' | 'assessments' | 'rewards' | null>('inventory')
+const fallbackMessages = getStudentUiMessages('zh-CN')
+
+export function ProfileRewardMenus({ inventory, titles, rewards, assessmentHistory, messages = fallbackMessages }: ProfileRewardMenusProps) {
+  const [openMenu, setOpenMenu] = useState<'inventory' | 'titles' | 'assessments' | 'rewards' | null>('inventory')
   const completedAssessmentCount = assessmentHistory.filter((item) => item.status === 'completed' || item.status === 'expired').length
 
   return (
-    <section className="profile-menu-list" aria-label="奖励详情">
+    <section className="profile-menu-list" aria-label={messages.profile.rewards}>
       <ProfileMenu
         id="inventory"
         icon="/assets/art/ui/rewards/inventory.svg"
-        title="背包装备"
+        title={messages.profile.inventory}
         meta={`${inventory.length} 件`}
         open={openMenu === 'inventory'}
         onToggle={() => setOpenMenu((value) => (value === 'inventory' ? null : 'inventory'))}
@@ -34,6 +39,7 @@ export function ProfileRewardMenus({ inventory, rewards, assessmentHistory }: Pr
         <div className="profile-menu-items">
           {inventory.map((entry) => (
             <article className="profile-inventory-row" key={entry.item.id}>
+              {entry.item.icon ? <img src={entry.item.icon} alt="" /> : null}
               <div>
                 <strong>{entry.item.name}</strong>
                 <span>{entry.item.description}</span>
@@ -48,9 +54,33 @@ export function ProfileRewardMenus({ inventory, rewards, assessmentHistory }: Pr
       </ProfileMenu>
 
       <ProfileMenu
+        id="titles"
+        icon="/assets/art/ui/rewards/title.svg"
+        title="称谓收藏"
+        meta={`${titles.length} 个`}
+        open={openMenu === 'titles'}
+        onToggle={() => setOpenMenu((value) => (value === 'titles' ? null : 'titles'))}
+      >
+        <div className="profile-menu-items">
+          {titles.map((title) => (
+            <article className="profile-reward-row" key={`${title.sourceRef}-${title.titleKey}`}>
+              <div>
+                <strong>{title.titleLabel}</strong>
+                <span>
+                  {formatTitlePool(title.poolKey)} · {new Date(title.awardedAt).toLocaleString('zh-CN')}
+                </span>
+              </div>
+              <em>{title.levelId ?? title.rankAtAward}</em>
+            </article>
+          ))}
+          {titles.length === 0 ? <p className="profile-empty">到达新段位后会随机获得一个称谓。</p> : null}
+        </div>
+      </ProfileMenu>
+
+      <ProfileMenu
         id="assessments"
         icon="/assets/art/ui/rewards/rank.svg"
-        title="段位赛历史"
+        title={messages.profile.assessments}
         meta={`${completedAssessmentCount}/${assessmentHistory.length} 场完成`}
         open={openMenu === 'assessments'}
         onToggle={() => setOpenMenu((value) => (value === 'assessments' ? null : 'assessments'))}
@@ -77,7 +107,7 @@ export function ProfileRewardMenus({ inventory, rewards, assessmentHistory }: Pr
       <ProfileMenu
         id="rewards"
         icon="/assets/art/ui/rewards/ledger.svg"
-        title="奖励记录"
+        title={messages.profile.rewards}
         meta={`${rewards.length} 条`}
         open={openMenu === 'rewards'}
         onToggle={() => setOpenMenu((value) => (value === 'rewards' ? null : 'rewards'))}
@@ -178,4 +208,20 @@ function formatRewardDelta(reward: { coinDelta: number; garlicDelta: number; ite
   if (reward.garlicDelta) parts.push(`蒜粒 ${reward.garlicDelta > 0 ? '+' : ''}${reward.garlicDelta}`)
   if (reward.itemQuantity) parts.push(`装备 +${reward.itemQuantity}`)
   return parts.join(' / ') || '已记录'
+}
+
+function formatTitlePool(poolKey: string): string {
+  const labels: Record<string, string> = {
+    scrap_iron: '黑铁池',
+    bronze: '青铜池',
+    silver: '白银池',
+    gold: '黄金池',
+    platinum: '铂金池',
+    diamond: '钻石池',
+    stellar: '星耀池',
+    king: '王者池',
+    master: '大师池',
+    grandmaster: '宗师池',
+  }
+  return labels[poolKey] ?? poolKey
 }

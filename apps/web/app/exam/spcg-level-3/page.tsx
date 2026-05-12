@@ -1,8 +1,21 @@
 import { ExamLevel } from '@/components/ExamLevel'
 import { requireUser } from '@/lib/auth-guard'
+import { getStudentUiMessages } from '@/lib/student-ui'
+import { getRequestUiLocale } from '@/lib/student-ui-server'
+import { getFeatureAccess } from '@/lib/services/entitlement-service'
 
 export default async function SpcgLevelThreeExamPage() {
-  await requireUser('/exam/spcg-level-3')
+  const session = await requireUser('/exam/spcg-level-3')
+  const messages = getStudentUiMessages(await getRequestUiLocale(session.user.id))
+  const hintsAccess = await getFeatureAccess({ userId: session.user.id, feature: 'hints' })
 
-  return <ExamLevel spcgLevel={3} />
+  return (
+    <ExamLevel
+      userId={session.user.id}
+      spcgLevel={3}
+      canViewHints={hintsAccess.allowed}
+      hintsUpgradeMessage={hintsAccess.reason ?? undefined}
+      messages={messages}
+    />
+  )
 }

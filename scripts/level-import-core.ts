@@ -78,6 +78,8 @@ export async function writeImportReport(
       sisterProblem: level.record.sisterProblem,
       solutionVideoUrl: level.record.solutionVideoUrl,
       statementAssets: level.record.statementAssets,
+      algorithmGraphs: level.record.algorithmGraphs.map((graph) => ({ id: graph.id, title: graph.title, kind: graph.kind })),
+      localizedContentLocales: Object.keys(level.record.localizedContent ?? {}),
       importMeta: level.record.importMeta,
     })),
     errors: invalid.map((result) => ({
@@ -107,16 +109,16 @@ export async function importLevelRecords(parsed: ParsedLevel[], importBatch: str
       await client.query(
         `
         INSERT INTO levels (
-          id, chapter_id, "order", title, knowledge_point, difficulty, description, statement_assets,
+          id, chapter_id, "order", title, knowledge_point, difficulty, description, statement_assets, algorithm_graphs, localized_content,
           input_format, output_format, test_cases, hints, solution, official_code, solution_video_url,
           time_limit_ms, memory_limit_mb, starter_code, source, sister_problem, import_meta,
           teacher_notes, guardian_id, story, pass_out_problem_id
         )
         VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8,
-          $9, $10, $11, $12, $13, $14, $15,
-          $16, $17, $18, $19, $20, $21,
-          $22, $23, $24, $25
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+          $11, $12, $13, $14, $15, $16, $17,
+          $18, $19, $20, $21, $22, $23,
+          $24, $25, $26, $27
         )
         ON CONFLICT (id)
         DO UPDATE SET
@@ -127,6 +129,8 @@ export async function importLevelRecords(parsed: ParsedLevel[], importBatch: str
           difficulty = EXCLUDED.difficulty,
           description = EXCLUDED.description,
           statement_assets = EXCLUDED.statement_assets,
+          algorithm_graphs = EXCLUDED.algorithm_graphs,
+          localized_content = EXCLUDED.localized_content,
           input_format = EXCLUDED.input_format,
           output_format = EXCLUDED.output_format,
           test_cases = EXCLUDED.test_cases,
@@ -154,6 +158,8 @@ export async function importLevelRecords(parsed: ParsedLevel[], importBatch: str
           toJsonb(row.difficulty),
           row.description,
           toJsonb(row.statement_assets),
+          toJsonb(row.algorithm_graphs),
+          toJsonb(row.localized_content),
           row.input_format,
           row.output_format,
           toJsonb(row.test_cases),
@@ -300,11 +306,12 @@ async function runNativeOfficialCodeCheck(
     }
 
     record.testCases.forEach((testCase, index) => {
+      if (testCase.inputRef || testCase.expectedOutputRef) return
       const run = spawnSync(binaryPath, [], {
         input: testCase.input,
         encoding: 'utf8',
         timeout: Math.max(record.timeLimitMs + 1000, 5000),
-        maxBuffer: 1024 * 1024,
+        maxBuffer: getRunOutputMaxBuffer(testCase.expectedOutput),
       })
 
       if (run.error) {
@@ -341,11 +348,12 @@ async function runPythonOfficialCodeCheck(record: LevelRecord, python: string): 
     await writeFile(sourcePath, record.officialCode)
 
     record.testCases.forEach((testCase, index) => {
+      if (testCase.inputRef || testCase.expectedOutputRef) return
       const run = spawnSync(python, [sourcePath], {
         input: testCase.input,
         encoding: 'utf8',
         timeout: Math.max(record.timeLimitMs + 1000, 5000),
-        maxBuffer: 1024 * 1024,
+        maxBuffer: getRunOutputMaxBuffer(testCase.expectedOutput),
       })
 
       if (run.error) {
@@ -373,6 +381,10 @@ async function runPythonOfficialCodeCheck(record: LevelRecord, python: string): 
   return errors
 }
 
+function getRunOutputMaxBuffer(expectedOutput: string): number {
+  return Math.max(1024 * 1024, Buffer.byteLength(expectedOutput, 'utf8') + 1024 * 1024)
+}
+
 function findExecutable(candidates: string[]): string | null {
   for (const candidate of candidates) {
     const result = spawnSync(candidate, ['--version'], { stdio: 'ignore' })
@@ -395,6 +407,8 @@ function toDbRow(record: LevelRecord, importBatch: string | null) {
     difficulty: record.difficulty,
     description: record.description,
     statement_assets: record.statementAssets,
+    algorithm_graphs: record.algorithmGraphs,
+    localized_content: record.localizedContent ?? {},
     input_format: record.inputFormat,
     output_format: record.outputFormat,
     test_cases: record.testCases,

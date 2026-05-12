@@ -33,6 +33,8 @@ type AnthropicMessagesResponse = {
 
 export type MiniMaxCodeHelpConfig = MiniMaxCodeHelpRuntimeConfig
 
+const MIN_EFFECTIVE_TIMEOUT_MS = 120_000
+
 export async function getMiniMaxCodeHelpConfig(): Promise<MiniMaxCodeHelpConfig> {
   return getMiniMaxCodeHelpRuntimeConfig()
 }
@@ -53,7 +55,8 @@ export async function generateCodeErrorAnalysisWithMiniMax(input: {
   }
 
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), config.timeoutMs)
+  const timeoutMs = Math.max(config.timeoutMs, MIN_EFFECTIVE_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
     const content =
@@ -131,6 +134,20 @@ async function requestOpenAICompatibleAnalysis(
   },
   signal: AbortSignal,
 ): Promise<string> {
+  const data = await postOpenAICompatibleAnalysis(config, apiKey, input, signal, true)
+  return data?.choices?.[0]?.message?.content ?? ''
+}
+
+async function postOpenAICompatibleAnalysis(
+  config: MiniMaxCodeHelpConfig,
+  apiKey: string,
+  input: {
+    systemPrompt: string
+    userPrompt: string
+  },
+  signal: AbortSignal,
+  jsonMode: boolean,
+): Promise<ChatCompletionResponse | null> {
   const response = await fetch(buildOpenAIChatCompletionsUrl(config.baseUrl), {
     method: 'POST',
     headers: {
@@ -140,6 +157,7 @@ async function requestOpenAICompatibleAnalysis(
     body: JSON.stringify({
       model: config.model,
       temperature: 0.2,
+      ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
       messages: [
         { role: 'system', content: input.systemPrompt },
         { role: 'user', content: input.userPrompt },
@@ -151,6 +169,10 @@ async function requestOpenAICompatibleAnalysis(
   const data = (await response.json().catch(() => null)) as ChatCompletionResponse | null
 
   if (!response.ok) {
+    if (jsonMode && isUnsupportedJsonModeError(data, response.status)) {
+      return postOpenAICompatibleAnalysis(config, apiKey, input, signal, false)
+    }
+
     throw new ServiceError(
       'internal_error',
       data?.error?.message ? `MiniMax 错误分析失败：${data.error.message}` : `MiniMax 错误分析失败：HTTP ${response.status}`,
@@ -158,7 +180,7 @@ async function requestOpenAICompatibleAnalysis(
     )
   }
 
-  return data?.choices?.[0]?.message?.content ?? ''
+  return data
 }
 
 function buildAnthropicMessagesUrl(baseUrl: string): string {
@@ -180,6 +202,11 @@ function readMiniMaxErrorMessage(data: AnthropicMessagesResponse | null, status:
   return `MiniMax 错误分析失败：HTTP ${status}`
 }
 
+function isUnsupportedJsonModeError(data: ChatCompletionResponse | null, status: number): boolean {
+  const message = data?.error?.message?.toLowerCase() ?? ''
+  return status === 400 && (message.includes('response_format') || message.includes('json_object') || message.includes('json mode'))
+}
+
 function parseAnalysis(content: string): CodeErrorAnalysis {
   const parsed = tryParseJsonObject(content)
 
@@ -187,14 +214,17 @@ function parseAnalysis(content: string): CodeErrorAnalysis {
     return normalizeAnalysis(parsed)
   }
 
+  const rawResponse = content.trim()
   return normalizeAnalysis({
-    summary: 'AI 返回了非结构化分析。',
-    whereWrong: 'AI 没有按结构化格式返回，先查看原始错误信息定位问题。',
-    likelyCause: content.trim() || 'MiniMax 未返回可读内容。',
-    reasonList: ['AI 返回内容不是标准 JSON，系统只能保留原始文字作为参考。'],
+    nonStructured: true,
+    rawResponse: rawResponse || 'MiniMax 未返回可读内容。',
+    summary: 'MiniMax 返回了非 JSON 内容。',
+    whereWrong: rawResponse || 'MiniMax 未返回可读内容。',
+    likelyCause: rawResponse || 'MiniMax 未返回可读内容。',
+    reasonList: [],
     lineHints: [],
-    nextSteps: ['请根据上方编译/运行错误先定位对应代码行。'],
-    fixedConcept: '先理解错误原因，再做最小修改并重新提交。',
+    nextSteps: [],
+    fixedConcept: 'MiniMax 原始返回',
   })
 }
 
@@ -216,6 +246,8 @@ function tryParseJsonObject(content: string): Record<string, unknown> | null {
 
 function normalizeAnalysis(value: Record<string, unknown>): CodeErrorAnalysis {
   return {
+    rawResponse: readOptionalText(value.rawResponse),
+    nonStructured: value.nonStructured === true,
     whereWrong: readText(value.whereWrong, readText(value.summary, '这次提交没有通过，先定位最关键的错误位置。')),
     summary: readText(value.summary, '这次提交没有通过。'),
     likelyCause: readText(value.likelyCause, '需要结合错误信息和题目要求定位原因。'),
@@ -228,6 +260,10 @@ function normalizeAnalysis(value: Record<string, unknown>): CodeErrorAnalysis {
 
 function readText(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
+}
+
+function readOptionalText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
 function readStringArray(value: unknown): string[] {

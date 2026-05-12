@@ -6,6 +6,7 @@ import {
   getAdminOverview,
   type AdminOverviewVerdictResult,
 } from '@/lib/services/admin-overview-service'
+import { AdminPageHeader } from './components/AdminChrome'
 
 export default async function AdminOverviewPage() {
   const [levels, users, problemSets, imports, auditLogs, overview] = await Promise.all([
@@ -26,15 +27,16 @@ export default async function AdminOverviewPage() {
 
   return (
     <section className="admin-stack">
-      <header className="admin-page-head">
-        <div>
-          <span className="admin-eyebrow">Operations</span>
-          <h1>Admin Overview</h1>
-        </div>
-        <Link className="admin-secondary-link" href="/map">
-          Back to game
-        </Link>
-      </header>
+      <AdminPageHeader
+        actions={
+          <Link className="admin-secondary-link" href="/map">
+            Back to game
+          </Link>
+        }
+        description="服务器资源、判题队列、运营数据和异常日志集中监控。"
+        eyebrow="Operations"
+        title="Admin Overview"
+      />
 
       <section className="admin-metrics admin-metrics-wide">
         <AdminMetric label="CPU" value={overview.serverMetrics.cpu.label} hint={overview.serverMetrics.cpu.detail} />

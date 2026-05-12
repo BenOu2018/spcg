@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react'
 import type { Level, Progress } from '@spcg/shared/types'
 import { getGameChapter, type GameMapNodePosition } from '@spcg/shared/game-chapters'
 import { buildRankedAssessmentRoute, buildRankedAssessmentTitle } from '@spcg/shared/ranked-assessment'
+import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 
 type LevelMapProps = {
   levels: Level[]
@@ -14,7 +15,9 @@ type LevelMapProps = {
   examSpcgLevel?: number
   freeJump?: boolean
   currentLevelIdOverride?: string | null
+  strictCurrentLevel?: boolean
   unlockedLevelIds?: string[]
+  messages?: StudentUiMessages
 }
 
 const EXAM_NODE_POSITION = {
@@ -38,6 +41,8 @@ type StageProgressState = {
   label: string
 }
 
+const fallbackMessages = getStudentUiMessages('zh-CN')
+
 export function LevelMap({
   levels,
   progress,
@@ -48,7 +53,9 @@ export function LevelMap({
   examSpcgLevel = 1,
   freeJump = false,
   currentLevelIdOverride = null,
+  strictCurrentLevel = false,
   unlockedLevelIds = [],
+  messages = fallbackMessages,
 }: LevelMapProps) {
   const orderedLevels = [...levels].sort((a, b) => a.order - b.order)
   const chapter = getGameChapter(orderedLevels[0]?.chapterId)
@@ -66,8 +73,8 @@ export function LevelMap({
   const firstOpen = orderedLevels.find((level) => !completedMapIds.has(level.id))?.order ?? 1
   const current =
     (currentLevelIdOverride ? orderedLevels.find((level) => level.id === currentLevelIdOverride) : undefined) ??
-    orderedLevels.find((level) => level.order === firstOpen) ??
-    orderedLevels[0]
+    (strictCurrentLevel ? undefined : orderedLevels.find((level) => level.order === firstOpen)) ??
+    (strictCurrentLevel ? undefined : orderedLevels[0])
 
   return (
     <div
@@ -92,22 +99,17 @@ export function LevelMap({
         const position = nodePositions.find((node) => node.id === level.id)
         if (!position) return null
 
-        const state = getLevelState(level, current?.order ?? 1, completedMapIds, freeJump, unlockedIds)
+        const state = getLevelState(level, current?.id ?? null, completedMapIds, freeJump, unlockedIds)
         const stageProgress = stageProgressByLevelId.get(level.id) ?? buildDefaultStageProgress(level.id, passedIds)
         const asset = getNodeAsset(state, level.order === orderedLevels.length)
+        const showTooltip = true
+        const nodeLabel = `${level.title} · ${level.knowledgePoint} · ${formatLevelState(state, messages)}`
         const style = {
           '--node-x': `${position.x * 100}%`,
           '--node-y': `${position.y * 100}%`,
         } as CSSProperties
-
-        return (
-          <Link
-            aria-label={`${level.title} · ${level.knowledgePoint} · ${state}`}
-            className={`level-node ${state}`}
-            href={`/level/${level.id}`}
-            key={level.id}
-            style={style}
-          >
+        const nodeContent = (
+          <>
             <img src={`/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/${asset}`} alt="" />
             <span>{String(level.order).padStart(2, '0')}</span>
             <div className="level-node-stars" aria-label={`题目完成度 ${stageProgress.label}`}>
@@ -124,6 +126,35 @@ export function LevelMap({
                 {stageProgress ? ` · ${stageProgress.label}` : ''}
               </span>
             </div>
+          </>
+        )
+
+        if (state === 'locked') {
+          return (
+            <span
+              aria-disabled="true"
+              aria-label={nodeLabel}
+              className="level-node locked show-tooltip"
+              key={level.id}
+              role="button"
+              style={style}
+              tabIndex={0}
+            >
+              {nodeContent}
+            </span>
+          )
+        }
+
+        return (
+          <Link
+            aria-label={nodeLabel}
+            className={`level-node ${state}${showTooltip ? ' show-tooltip' : ''}`}
+            href={`/level/${level.id}`}
+            key={level.id}
+            prefetch={false}
+            style={style}
+          >
+            {nodeContent}
           </Link>
         )
       })}
@@ -146,6 +177,14 @@ export function LevelMap({
       ) : null}
       {current ? (
         <img
+          className="map-current-arrow"
+          src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/current-entry-arrow.svg"
+          alt=""
+          style={mascotStyle(current.id, nodePositions)}
+        />
+      ) : null}
+      {current ? (
+        <img
           className="map-mascot"
           src="/assets/art/characters/dog-tiger-protagonist/cute.svg"
           alt=""
@@ -154,6 +193,13 @@ export function LevelMap({
       ) : null}
     </div>
   )
+}
+
+function formatLevelState(state: string, messages: StudentUiMessages): string {
+  if (state === 'completed') return messages.map.completed
+  if (state === 'current') return messages.map.current
+  if (state === 'unlocked') return messages.map.unlocked
+  return messages.map.locked
 }
 
 function buildRoutePositions(
@@ -203,23 +249,22 @@ function buildRouteSegments(nodePositions: MapPoint[], configuredSegments?: stri
 
 function getLevelState(
   level: Level,
-  currentOrder: number,
+  currentLevelId: string | null,
   passedIds: Set<string>,
   freeJump: boolean,
   unlockedIds: Set<string>,
 ) {
   if (passedIds.has(level.id)) return 'completed'
-  if (level.order === currentOrder) return 'current'
+  if (level.id === currentLevelId) return 'current'
   if (freeJump) return 'unlocked'
   if (unlockedIds.has(level.id)) return 'unlocked'
-  if (level.order < currentOrder + 2) return 'unlocked'
   return 'locked'
 }
 
 function getNodeAsset(state: string, destination: boolean) {
   if (destination && state !== 'current' && state !== 'completed') return 'level-node-destination.svg'
   if (state === 'completed') return 'level-node-completed.svg'
-  if (state === 'current' || state === 'unlocked') return 'level-node-current.svg'
+  if (state === 'current') return 'level-node-current.svg'
   return 'level-node-locked.svg'
 }
 

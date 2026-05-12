@@ -6,6 +6,7 @@ export type JudgeCaseResult = {
     description?: string
   }
   time?: string | null
+  memory?: string | number | null
   stdout?: string | null
   stderr?: string | null
   compile_output?: string | null
@@ -48,6 +49,7 @@ export function aggregateJudgeResults(
     let caseResult: Verdict['result'] = 'AC'
     let casePassed = false
     let caseRuntimeMs = 0
+    let caseMemoryKb: number | null = null
 
     if (!current) {
       caseResult = 'RE'
@@ -55,6 +57,8 @@ export function aggregateJudgeResults(
     } else {
       const runtimeMs = Math.round(Number.parseFloat(current.time ?? '0') * 1000)
       caseRuntimeMs = Number.isFinite(runtimeMs) ? runtimeMs : 0
+      const memoryKb = Number(current.memory ?? 0)
+      caseMemoryKb = Number.isFinite(memoryKb) && memoryKb > 0 ? Math.round(memoryKb) : null
       maxRuntimeMs = Math.max(maxRuntimeMs, caseRuntimeMs)
 
       const statusId = current.status?.id
@@ -97,6 +101,7 @@ export function aggregateJudgeResults(
       passed: casePassed,
       result: caseResult,
       runtimeMs: caseRuntimeMs,
+      memoryKb: caseMemoryKb,
     })
     if (!casePassed && !options.runAllCases) break
   }
@@ -157,6 +162,15 @@ export function mockJudgeSubmission(input: MockJudgeInput): Verdict {
 
 export function mockExecuteCpp(code: string, stdin: string, timeLimitMs = 1000): MockExecutionResult {
   const compact = code.replace(/\s+/g, ' ')
+
+  if (code.trim().length === 0) {
+    return {
+      result: 'CE',
+      stdout: '',
+      maxRuntimeMs: 0,
+      errorDetail: 'mock compile error: source code is empty',
+    }
+  }
 
   if (compact.includes('SYNTAX_ERROR') || compact.includes('cout << ;')) {
     return {

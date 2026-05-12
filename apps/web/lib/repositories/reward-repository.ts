@@ -1,15 +1,18 @@
 import type {
+  EarnedTitleAward,
   InventoryItem,
   RewardGrantResult,
   RewardLedgerEntry,
   RewardRank,
   RewardSource,
+  UserTitleRecord,
   UserInventoryItem,
   WalletSummary,
 } from '@spcg/shared/types'
+import { getEarnedTitlePoolKeyForRank, pickEarnedTitleFromPool } from '@spcg/shared/earned-titles'
 import type { PoolClient } from 'pg'
 import { query, queryOne, withTransaction } from '@/lib/db'
-import { generateTitle, getRankForCoins, getRankLabel } from '@/lib/reward-rules'
+import { deterministicEarnedTitleSeed, generateTitle, getRankForCoins, getRankLabel } from '@/lib/reward-rules'
 
 type WalletRow = {
   user_id: string
@@ -44,6 +47,31 @@ type InventoryRow = {
   quantity: number
   first_acquired_at: Date | string
   last_acquired_at: Date | string
+}
+
+type KnowledgeInventoryRow = {
+  tag_id: string
+  zh_name: string
+  en_name: string
+  domain: string
+  band_or_level: string
+  usage_count: number
+  first_used_at: Date | string
+  last_used_at: Date | string
+}
+
+type UserTitleRecordRow = {
+  user_id: string
+  title_key: string
+  title_label: string
+  rank_at_award: RewardRank
+  pool_key: string
+  source: 'level_first_ac' | 'rank_reached'
+  source_ref: string
+  level_id: string | null
+  submission_id: string | null
+  metadata: Record<string, unknown>
+  awarded_at: Date | string
 }
 
 export type GrantRewardInput = {
@@ -106,6 +134,43 @@ export async function listLedgerBySubmissionId(userId: string, submissionId: str
 }
 
 export async function listUserInventory(userId: string): Promise<UserInventoryItem[]> {
+  const knowledgeRows = await query<KnowledgeInventoryRow>(
+    `
+    SELECT
+      tag_id,
+      zh_name,
+      en_name,
+      domain,
+      band_or_level,
+      usage_count,
+      first_used_at,
+      last_used_at
+    FROM user_knowledge_usage
+    WHERE user_id = $1
+      AND classification = '编程算法'
+      AND usage_count > 0
+    ORDER BY last_used_at DESC, usage_count DESC, zh_name ASC
+    `,
+    [userId],
+  )
+
+  if (knowledgeRows.length > 0) {
+    return knowledgeRows.map((row) => ({
+      item: {
+        id: row.tag_id,
+        name: row.zh_name,
+        description: buildKnowledgeInventoryDescription(row),
+        algorithmTag: row.domain,
+        rarity: getKnowledgeInventoryRarity(row.domain),
+        icon: getKnowledgeInventoryIcon(row.domain),
+        stackable: true,
+      },
+      quantity: row.usage_count,
+      firstAcquiredAt: toIsoString(row.first_used_at),
+      lastAcquiredAt: toIsoString(row.last_used_at),
+    }))
+  }
+
   const rows = await query<InventoryRow>(
     `
     SELECT
@@ -143,9 +208,85 @@ export async function listUserInventory(userId: string): Promise<UserInventoryIt
   }))
 }
 
+function buildKnowledgeInventoryDescription(row: KnowledgeInventoryRow): string {
+  const parts = [row.band_or_level, row.en_name].map((value) => value.trim()).filter(Boolean)
+  return parts.length > 0 ? parts.join(' · ') : '记录这个算法知识点在通关中的使用次数。'
+}
+
+function getKnowledgeInventoryIcon(domain: string): string {
+  const iconByDomain: Record<string, string> = {
+    algorithm: '/assets/art/ui/knowledge-tree/svg/sort.svg',
+    'data-structure': '/assets/art/ui/knowledge-tree/svg/array.svg',
+    math: '/assets/art/ui/knowledge-tree/svg/number-chain.svg',
+    'control-flow': '/assets/art/ui/knowledge-tree/svg/flag.svg',
+    syntax: '/assets/art/ui/knowledge-tree/svg/book.svg',
+    engineering: '/assets/art/ui/knowledge-tree/svg/crest-cpp.svg',
+  }
+  return iconByDomain[domain] ?? '/assets/art/ui/knowledge-tree/svg/crest-cpp.svg'
+}
+
+function getKnowledgeInventoryRarity(domain: string): InventoryItem['rarity'] {
+  if (domain === 'algorithm') return 'rare'
+  if (domain === 'data-structure' || domain === 'math') return 'epic'
+  return 'common'
+}
+
+export async function listUserTitleRecords(userId: string, limit = 100): Promise<UserTitleRecord[]> {
+  const rows = await query<UserTitleRecordRow>(
+    `
+    SELECT
+      user_id,
+      title_key,
+      title_label,
+      rank_at_award,
+      pool_key,
+      source,
+      source_ref,
+      level_id,
+      submission_id,
+      metadata,
+      awarded_at
+    FROM user_title_records
+    WHERE user_id = $1
+    ORDER BY awarded_at DESC
+    LIMIT $2
+    `,
+    [userId, limit],
+  )
+
+  return rows.map(mapUserTitleRecordRow)
+}
+
+export async function getUserTitleRecordBySubmissionId(
+  userId: string,
+  submissionId: string,
+): Promise<UserTitleRecord | null> {
+  const row = await queryOne<UserTitleRecordRow>(
+    `
+    SELECT
+      user_id,
+      title_key,
+      title_label,
+      rank_at_award,
+      pool_key,
+      source,
+      source_ref,
+      level_id,
+      submission_id,
+      metadata,
+      awarded_at
+    FROM user_title_records
+    WHERE user_id = $1 AND submission_id = $2
+    `,
+    [userId, submissionId],
+  )
+
+  return row ? mapUserTitleRecordRow(row) : null
+}
+
 export async function grantRewards(inputs: GrantRewardInput[]): Promise<RewardGrantResult> {
   if (inputs.length === 0) {
-    return emptyGrantResult('scrap_iron', 'scrap_iron', generateTitle({ garlicBalance: 0, rank: 'scrap_iron' }))
+    return emptyGrantResult('scrap_iron', 'scrap_iron', generateTitle({ garlicBalance: 0, rank: 'scrap_iron' }), null)
   }
 
   return withTransaction(async (client) => {
@@ -154,6 +295,7 @@ export async function grantRewards(inputs: GrantRewardInput[]): Promise<RewardGr
     const rankBefore = beforeWallet.rank
     const ledgerIds: string[] = []
     const items: RewardGrantResult['items'] = []
+    let firstAcTitleInput: GrantRewardInput | null = null
     let coinDelta = 0
     let garlicDelta = 0
 
@@ -181,6 +323,7 @@ export async function grantRewards(inputs: GrantRewardInput[]): Promise<RewardGr
 
       if (!result.rows[0]) continue
       ledgerIds.push(result.rows[0].id)
+      if (input.source === 'level_first_ac') firstAcTitleInput = input
       coinDelta += input.coinDelta ?? 0
       garlicDelta += input.garlicDelta ?? 0
 
@@ -209,7 +352,16 @@ export async function grantRewards(inputs: GrantRewardInput[]): Promise<RewardGr
     const nextCoinTotal = beforeWallet.coin_total + coinDelta
     const nextGarlicBalance = beforeWallet.garlic_balance + garlicDelta
     const rankAfter = getRankForCoins(nextCoinTotal).rank
-    const title = generateTitle({ garlicBalance: nextGarlicBalance, rank: rankAfter })
+    const generatedTitle = generateTitle({ garlicBalance: nextGarlicBalance, rank: rankAfter })
+    const titleAward = ledgerIds.length
+      ? await awardEarnedTitleForRankOnce(client, {
+          userId,
+          rankAfter,
+          levelId: firstAcTitleInput?.sourceRef ?? null,
+          submissionId: firstAcTitleInput ? readMetadataString(firstAcTitleInput.metadata, 'submissionId') : null,
+        })
+      : null
+    const title = titleAward?.titleLabel ?? (await getLatestEarnedTitleLabelForClient(client, userId)) ?? generatedTitle
 
     if (ledgerIds.length > 0) {
       await client.query(
@@ -220,6 +372,23 @@ export async function grantRewards(inputs: GrantRewardInput[]): Promise<RewardGr
         `,
         [userId, nextCoinTotal, nextGarlicBalance, rankAfter, title],
       )
+
+      await client.query(
+        `
+        UPDATE reward_ledger
+        SET metadata = metadata || $2::jsonb
+        WHERE id = ANY($1::uuid[])
+        `,
+        [
+          ledgerIds,
+          {
+            rankBefore,
+            rankAfter,
+            title,
+            titleAward,
+          },
+        ],
+      )
     }
 
     return {
@@ -229,6 +398,7 @@ export async function grantRewards(inputs: GrantRewardInput[]): Promise<RewardGr
       rankBefore,
       rankAfter,
       title,
+      titleAward,
       ledgerIds,
     }
   })
@@ -302,6 +472,22 @@ function mapWalletRow(row: WalletRow): WalletSummary {
   }
 }
 
+function mapUserTitleRecordRow(row: UserTitleRecordRow): UserTitleRecord {
+  return {
+    userId: row.user_id,
+    titleKey: row.title_key,
+    titleLabel: row.title_label,
+    rankAtAward: row.rank_at_award,
+    poolKey: row.pool_key,
+    source: row.source,
+    sourceRef: row.source_ref,
+    levelId: row.level_id,
+    submissionId: row.submission_id,
+    metadata: row.metadata,
+    awardedAt: toIsoString(row.awarded_at),
+  }
+}
+
 function mapLedgerRow(row: LedgerRow): RewardLedgerEntry {
   return {
     id: row.id,
@@ -317,7 +503,12 @@ function mapLedgerRow(row: LedgerRow): RewardLedgerEntry {
   }
 }
 
-function emptyGrantResult(rankBefore: RewardRank, rankAfter: RewardRank, title: string): RewardGrantResult {
+function emptyGrantResult(
+  rankBefore: RewardRank,
+  rankAfter: RewardRank,
+  title: string,
+  titleAward: EarnedTitleAward | null,
+): RewardGrantResult {
   return {
     coinDelta: 0,
     garlicDelta: 0,
@@ -325,8 +516,120 @@ function emptyGrantResult(rankBefore: RewardRank, rankAfter: RewardRank, title: 
     rankBefore,
     rankAfter,
     title,
+    titleAward,
     ledgerIds: [],
   }
+}
+
+async function awardEarnedTitleForRankOnce(
+  client: PoolClient,
+  input: {
+    userId: string
+    levelId: string | null
+    submissionId: string | null
+    rankAfter: RewardRank
+  },
+): Promise<EarnedTitleAward | null> {
+  const existing = await client.query<{ title_key: string }>(
+    `
+    SELECT title_key
+    FROM user_title_records
+    WHERE user_id = $1 AND rank_at_award = $2
+    LIMIT 1
+    `,
+    [input.userId, input.rankAfter],
+  )
+  if (existing.rows[0]) return null
+
+  const poolKey = getEarnedTitlePoolKeyForRank(input.rankAfter)
+  const usedRows = await client.query<{ title_label: string }>(
+    `
+    SELECT title_label
+    FROM user_title_records
+    WHERE user_id = $1 AND pool_key = $2
+    `,
+    [input.userId, poolKey],
+  )
+  const seed = deterministicEarnedTitleSeed({
+    userId: input.userId,
+    levelId: input.levelId ?? input.rankAfter,
+    submissionId: input.submissionId ?? input.rankAfter,
+  })
+  const title = pickEarnedTitleFromPool({
+    poolKey,
+    seed,
+    usedLabels: usedRows.rows.map((row) => row.title_label),
+  })
+  const inserted = await client.query<UserTitleRecordRow>(
+    `
+    INSERT INTO user_title_records
+      (user_id, title_key, title_label, rank_at_award, pool_key, source, source_ref, level_id, submission_id, metadata)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    ON CONFLICT (user_id, rank_at_award) DO NOTHING
+    RETURNING
+      user_id,
+      title_key,
+      title_label,
+      rank_at_award,
+      pool_key,
+      source,
+      source_ref,
+      level_id,
+      submission_id,
+      metadata,
+      awarded_at
+    `,
+    [
+      input.userId,
+      title.key,
+      title.label,
+      input.rankAfter,
+      poolKey,
+      input.levelId ? 'level_first_ac' : 'rank_reached',
+      input.levelId ?? input.rankAfter,
+      input.levelId,
+      input.submissionId,
+      {
+        titleIndex: title.index,
+        seed,
+        reason: 'rank_reached',
+      },
+    ],
+  )
+
+  const row = inserted.rows[0]
+  return row ? titleAwardFromRecord(mapUserTitleRecordRow(row)) : null
+}
+
+async function getLatestEarnedTitleLabelForClient(client: PoolClient, userId: string): Promise<string | null> {
+  const result = await client.query<{ title_label: string }>(
+    `
+    SELECT title_label
+    FROM user_title_records
+    WHERE user_id = $1
+    ORDER BY awarded_at DESC
+    LIMIT 1
+    `,
+    [userId],
+  )
+  return result.rows[0]?.title_label ?? null
+}
+
+function titleAwardFromRecord(record: UserTitleRecord): EarnedTitleAward {
+  return {
+    titleKey: record.titleKey,
+    titleLabel: record.titleLabel,
+    rankAtAward: record.rankAtAward,
+    poolKey: record.poolKey,
+    levelId: record.levelId,
+    submissionId: record.submissionId,
+    awardedAt: record.awardedAt,
+  }
+}
+
+function readMetadataString(metadata: Record<string, unknown> | undefined, key: string): string | null {
+  const value = metadata?.[key]
+  return typeof value === 'string' && value ? value : null
 }
 
 function toIsoString(value: Date | string): string {

@@ -55,7 +55,7 @@ export async function createSystemErrorLog(input: CreateSystemErrorLogInput): Pr
     SELECT
       log.*,
       u.email AS user_email,
-      COALESCE(p.display_name, u.display_name) AS user_display_name
+      COALESCE(p.display_name, u.display_name, u.username) AS user_display_name
     FROM inserted log
     LEFT JOIN users u ON u.id = log.user_id
     LEFT JOIN profiles p ON p.user_id = u.id
@@ -82,7 +82,7 @@ export async function listSystemErrorLogs(limit = 50): Promise<SystemErrorLogRec
     SELECT
       log.*,
       u.email AS user_email,
-      COALESCE(p.display_name, u.display_name) AS user_display_name
+      COALESCE(p.display_name, u.display_name, u.username) AS user_display_name
     FROM system_error_logs log
     LEFT JOIN users u ON u.id = log.user_id
     LEFT JOIN profiles p ON p.user_id = u.id

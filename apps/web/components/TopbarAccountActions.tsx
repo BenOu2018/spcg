@@ -5,7 +5,7 @@ import type { Session } from 'next-auth'
 import { signOut as clientSignOut } from 'next-auth/react'
 import { type CSSProperties, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { CreditCard, LogOut, Map, Settings } from 'lucide-react'
+import { LogOut, Map, Settings } from 'lucide-react'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 
 type TopbarAccountActionsProps = {
@@ -112,10 +112,6 @@ export function TopbarAccountActions({
       <Link href="/settings" role="menuitem" onClick={() => setOpen(false)}>
         <Settings size={14} />
         {messages.common.settings}
-      </Link>
-      <Link href="/pricing" role="menuitem" onClick={() => setOpen(false)}>
-        <CreditCard size={14} />
-        升级方案
       </Link>
       <button type="button" role="menuitem" onClick={handleSignOut}>
         <LogOut size={14} />

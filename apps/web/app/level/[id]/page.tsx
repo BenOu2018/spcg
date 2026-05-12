@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getGameChapter } from '@spcg/shared/game-chapters'
@@ -15,6 +16,11 @@ type LevelPageProps = {
   params: Promise<{ id: string }> | { id: string }
   searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>
 }
+
+const PROGRAMMING_SCENE_BACKGROUND_STYLE = {
+  background:
+    'linear-gradient(rgba(7, 11, 10, 0.18), rgba(7, 11, 10, 0.18)), url("/assets/art/backgrounds/ch1-mist-town/programming-bg-clean-v1.webp?v=20260512") center / cover no-repeat',
+} satisfies CSSProperties
 
 export default async function LevelPage({ params, searchParams }: LevelPageProps) {
   const { id } = await params
@@ -83,7 +89,7 @@ export default async function LevelPage({ params, searchParams }: LevelPageProps
   const displayLevel = hintsAccess.allowed ? level : { ...level, hints: [] }
 
   return (
-    <main className="programming-scene">
+    <main className="programming-scene" style={PROGRAMMING_SCENE_BACKGROUND_STYLE}>
       <header className="programming-topbar">
         <Link className="kit-logo" href={`/map?chapter=${chapter.chapterId}`} aria-label="返回地图">
           <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/logo-spcg.svg" alt="SPCG" />
@@ -148,17 +154,14 @@ export default async function LevelPage({ params, searchParams }: LevelPageProps
 
 function LevelUpgradeRequired({ reason }: { reason: string }) {
   return (
-    <main className="programming-scene">
+    <main className="programming-scene" style={PROGRAMMING_SCENE_BACKGROUND_STYLE}>
       <section className="upgrade-required-page">
         <div className="upgrade-required-panel">
           <span className="upgrade-required-kicker">需要升级</span>
           <h1>当前关卡暂未开放</h1>
           <p>{reason}</p>
           <div className="upgrade-required-actions">
-            <Link className="upgrade-primary" href="/pricing">
-              查看升级方案
-            </Link>
-            <Link className="upgrade-secondary" href="/map">
+            <Link className="upgrade-primary" href="/map">
               返回地图
             </Link>
           </div>

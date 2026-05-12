@@ -20,6 +20,50 @@ Target server:
 
 Do not store the SSH password or production secrets in this file.
 
+## Deployment Operation Log
+
+### 2026-05-12 Admin-local title sync
+
+Issue found after the level metadata sync: `admin-local@spcg.local` still had different title state on Ubuntu than local development.
+
+| Field | Local development | Ubuntu before sync | Ubuntu after sync |
+| --- | --- | --- | --- |
+| `user_wallets.rank` | `platinum` | `platinum` | `platinum` |
+| `user_wallets.title` | `铂金递归术士` | `铂金二分星尘守卫` | `铂金递归术士` |
+| `user_title_records` | `platinum-01 / 铂金递归术士 / rank_reached / platinum` | Missing | Inserted |
+
+Operation scope:
+
+- Targeted only `admin-local@spcg.local`.
+- Updated only `user_wallets.title`.
+- Inserted or aligned only the single `user_title_records` row for `rank_reached / platinum`.
+- Did not modify `users`, `profiles`, `progress`, `submissions`, `reward_ledger`, or other production user data.
+
+Execution notes:
+
+- Local source row id: `22cbb38e-a35a-4cf2-8355-866b085cc5b4`.
+- Remote transaction script/log: `/opt/spcg/current/tmp/admin-local-title-sync-20260512/sync-admin-local-title.sql` and `.log`.
+- First remote attempt aborted before any writes because the assert query used a `1 / 0` guard; it was retried with a `DO ... RAISE EXCEPTION` guard.
+- Successful transaction updated 1 wallet row and inserted 1 title record.
+
+### 2026-05-12 Temporarily hide pricing page
+
+Temporarily hid the upgrade/pricing surface from production while keeping the entitlement model and admin data unchanged.
+
+Code changes:
+
+- Replaced `/pricing` page content with a server redirect to `/map`.
+- Disabled the upgrade request server action so stale forms cannot create `upgrade_requests`.
+- Removed the `升级方案` entry from the account popover.
+- Removed the `查看升级方案` link from the upgrade-required level page; the page now only offers `返回地图`.
+
+Deployment notes:
+
+- Synced `apps/web/app/pricing/page.tsx`, `apps/web/app/pricing/actions.ts`, `apps/web/components/TopbarAccountActions.tsx`, and `apps/web/app/level/[id]/page.tsx` to `/opt/spcg/current`.
+- Remote backup before overwrite: `/opt/spcg/backups/hide-pricing-20260512-052604/before-hide-pricing.tgz`.
+- Restarted `web`; container rebuilt successfully and reached `Next.js Ready`.
+- Verification: `https://spcg.kidoj.com/pricing` returns `307` with `location: /map`.
+
 ## Current Ubuntu Services
 
 | Service | Runtime | Current bind/listen | Public access | Purpose | Notes |

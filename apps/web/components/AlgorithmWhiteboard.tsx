@@ -7,10 +7,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
   type MutableRefObject,
   type PointerEvent,
+  type RefObject,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { Circle, GitBranch, Grid3X3, PenLine, RotateCcw, Table2, Trash2, X } from 'lucide-react'
 import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types'
 import type {
@@ -37,10 +40,13 @@ const ExcalidrawCanvas = dynamic(
 
 type AlgorithmWhiteboardButtonProps = {
   onOpen: () => void
+  label?: string
 }
 
 type AlgorithmWhiteboardModalProps = {
   level: Level
+  userId: string
+  anchorRef: RefObject<HTMLElement | null>
   onClose: () => void
 }
 
@@ -57,21 +63,24 @@ type ClickDriftSnapshot = {
   positions: Map<string, { x: number; y: number; width: number; height: number; isDeleted: boolean }>
 }
 
-export function AlgorithmWhiteboardButton({ onOpen }: AlgorithmWhiteboardButtonProps) {
+export function AlgorithmWhiteboardButton({ onOpen, label = '逻辑画板' }: AlgorithmWhiteboardButtonProps) {
   return (
-    <button type="button" aria-label="打开逻辑画板" title="逻辑画板" data-tooltip="逻辑画板" onClick={onOpen}>
+    <button type="button" aria-label={label} title={label} data-tooltip={label} onClick={onOpen}>
       <PenLine size={18} strokeWidth={2.4} />
     </button>
   )
 }
 
-export function AlgorithmWhiteboardModal({ level, onClose }: AlgorithmWhiteboardModalProps) {
+export function AlgorithmWhiteboardModal({ level, userId, anchorRef, onClose }: AlgorithmWhiteboardModalProps) {
   const sampleInput = level.publicCases[0]?.input ?? null
-  const storageKey = useMemo(() => `spcg:whiteboard:v2:${level.id}`, [level.id])
+  const storageKey = useMemo(() => `spcg:user:${encodeURIComponent(userId)}:whiteboard:v2:${level.id}`, [level.id, userId])
   const [initialData, setInitialData] = useState<ExcalidrawInitialDataState | null>(null)
   const [sceneRevision, setSceneRevision] = useState(0)
   const [api, setApi] = useState<ExcalidrawImperativeAPI | null>(null)
+  const [portalReady, setPortalReady] = useState(false)
+  const [overlayStyle, setOverlayStyle] = useState<CSSProperties>(WHITEBOARD_ANCHOR_HIDDEN_STYLE)
   const canvasShellRef = useRef<HTMLDivElement | null>(null)
+  const overlayFrameRef = useRef<number | null>(null)
   const saveTimerRef = useRef<number | null>(null)
   const latestSceneRef = useRef<SavedScene | null>(null)
   const quickEditRef = useRef<{ targetId: string; value: string; updatedAt: number } | null>(null)
@@ -101,10 +110,86 @@ export function AlgorithmWhiteboardModal({ level, onClose }: AlgorithmWhiteboard
   }, [level, storageKey])
 
   useEffect(() => {
+    setPortalReady(true)
+  }, [])
+
+  useEffect(() => {
     return () => {
+      if (overlayFrameRef.current !== null) {
+        window.cancelAnimationFrame(overlayFrameRef.current)
+        overlayFrameRef.current = null
+      }
       flushSavedScene()
     }
   }, [flushSavedScene])
+
+  useEffect(() => {
+    if (!portalReady) return
+
+    const scheduleOverlayUpdate = () => {
+      if (overlayFrameRef.current !== null) return
+      overlayFrameRef.current = window.requestAnimationFrame(() => {
+        overlayFrameRef.current = null
+        const rect = anchorRef.current?.getBoundingClientRect()
+        if (!rect || rect.width <= 0 || rect.height <= 0) {
+          setOverlayStyle(WHITEBOARD_ANCHOR_HIDDEN_STYLE)
+          return
+        }
+
+        const nextStyle: CSSProperties = {
+          position: 'fixed',
+          left: Math.round(rect.left),
+          top: Math.round(rect.top),
+          right: 'auto',
+          bottom: 'auto',
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          zIndex: 6500,
+          visibility: 'visible',
+        }
+
+        setOverlayStyle((current) => (sameWhiteboardOverlayStyle(current, nextStyle) ? current : nextStyle))
+      })
+    }
+
+    scheduleOverlayUpdate()
+    const resizeObserver = 'ResizeObserver' in window ? new ResizeObserver(scheduleOverlayUpdate) : null
+    if (anchorRef.current) resizeObserver?.observe(anchorRef.current)
+    window.addEventListener('resize', scheduleOverlayUpdate)
+    window.addEventListener('scroll', scheduleOverlayUpdate, true)
+
+    return () => {
+      if (overlayFrameRef.current !== null) {
+        window.cancelAnimationFrame(overlayFrameRef.current)
+        overlayFrameRef.current = null
+      }
+      resizeObserver?.disconnect()
+      window.removeEventListener('resize', scheduleOverlayUpdate)
+      window.removeEventListener('scroll', scheduleOverlayUpdate, true)
+    }
+  }, [anchorRef, portalReady])
+
+  useEffect(() => {
+    if (!api) return
+
+    const refresh = () => refreshWhiteboardViewport(api)
+    const firstFrame = window.requestAnimationFrame(() => {
+      refresh()
+      window.requestAnimationFrame(refresh)
+    })
+    const settledTimer = window.setTimeout(refresh, 180)
+    const resizeObserver = 'ResizeObserver' in window ? new ResizeObserver(refresh) : null
+
+    if (canvasShellRef.current) resizeObserver?.observe(canvasShellRef.current)
+    window.addEventListener('resize', refresh)
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame)
+      window.clearTimeout(settledTimer)
+      resizeObserver?.disconnect()
+      window.removeEventListener('resize', refresh)
+    }
+  }, [api, sceneRevision])
 
   function scheduleSave(elements: readonly ExcalidrawElement[], appState: AppState, files: BinaryFiles) {
     latestSceneRef.current = {
@@ -207,6 +292,23 @@ export function AlgorithmWhiteboardModal({ level, onClose }: AlgorithmWhiteboard
   function handleWhiteboardKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (!api || shouldIgnoreWhiteboardQuickEdit(event)) return
 
+    if (isWhiteboardDeleteKey(event)) {
+      const deleted = deleteSelectedWhiteboardElements(api)
+      if (!deleted) return
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      quickEditRef.current = null
+      latestSceneRef.current = {
+        elements: deleted.elements,
+        appState: makePersistableWhiteboardAppState(api.getAppState()),
+        files: api.getFiles(),
+      }
+      flushSavedScene()
+      return
+    }
+
     const inputKey = normalizeQuickEditKey(event)
     if (!inputKey) return
 
@@ -263,12 +365,13 @@ export function AlgorithmWhiteboardModal({ level, onClose }: AlgorithmWhiteboard
     }, 0)
   }
 
-  return (
+  const modal = (
     <div
       className="whiteboard-modal-backdrop"
       role="dialog"
       aria-modal="true"
       aria-label="逻辑画板"
+      style={overlayStyle}
       onKeyDownCapture={handleWhiteboardKeyDown}
       onPointerDownCapture={handleWhiteboardPointerDown}
       onPointerUpCapture={handleWhiteboardPointerUp}
@@ -302,6 +405,8 @@ export function AlgorithmWhiteboardModal({ level, onClose }: AlgorithmWhiteboard
               objectsSnapModeEnabled
               aiEnabled={false}
               validateEmbeddable={false}
+              detectScroll={false}
+              autoFocus
               UIOptions={{
                 canvasActions: {
                   changeViewBackgroundColor: false,
@@ -326,6 +431,8 @@ export function AlgorithmWhiteboardModal({ level, onClose }: AlgorithmWhiteboard
       </div>
     </div>
   )
+
+  return portalReady ? createPortal(modal, document.body) : null
 }
 
 type WhiteboardTemplateToolbarProps = {
@@ -495,6 +602,32 @@ function keepDrawingToolActive(api: ExcalidrawImperativeAPI | null, activeTool: 
   }, 0)
 }
 
+function refreshWhiteboardViewport(api: ExcalidrawImperativeAPI) {
+  api.refresh()
+}
+
+const WHITEBOARD_ANCHOR_HIDDEN_STYLE: CSSProperties = {
+  position: 'fixed',
+  left: 0,
+  top: 0,
+  right: 'auto',
+  bottom: 'auto',
+  width: 0,
+  height: 0,
+  zIndex: 6500,
+  visibility: 'hidden',
+}
+
+function sameWhiteboardOverlayStyle(current: CSSProperties, next: CSSProperties): boolean {
+  return (
+    current.left === next.left &&
+    current.top === next.top &&
+    current.width === next.width &&
+    current.height === next.height &&
+    current.visibility === next.visibility
+  )
+}
+
 function isPersistentDrawingTool(type: AppState['activeTool']['type']): boolean {
   return (
     type === 'rectangle' ||
@@ -563,9 +696,66 @@ function shouldIgnoreWhiteboardQuickEdit(event: KeyboardEvent<HTMLDivElement>): 
 }
 
 function normalizeQuickEditKey(event: KeyboardEvent<HTMLDivElement>): string | null {
-  if (event.key === 'Backspace') return 'Backspace'
-  if (event.key.length === 1 && /^[\d.-]$/.test(event.key)) return event.key
+  if (event.key.length === 1 && /^[\p{L}\p{N}_.-]$/u.test(event.key)) return event.key
   return null
+}
+
+function isWhiteboardDeleteKey(event: KeyboardEvent<HTMLDivElement>): boolean {
+  return event.key === 'Backspace' || event.key === 'Delete'
+}
+
+function deleteSelectedWhiteboardElements(api: ExcalidrawImperativeAPI): { elements: ExcalidrawElement[] } | null {
+  const appState = api.getAppState() as AppState & { editingElement?: unknown }
+  if (appState.editingElement || appState.editingTextElement) return null
+
+  const selectedIds = Object.entries(appState.selectedElementIds ?? {})
+    .filter(([, selected]) => selected)
+    .map(([id]) => id)
+  if (selectedIds.length === 0) return null
+
+  const elements = api.getSceneElements()
+  const deletionIds = collectWhiteboardDeletionIds(elements, selectedIds)
+  if (deletionIds.size === 0) return null
+
+  const nextElements = elements.filter((element) => !deletionIds.has(element.id)) as ExcalidrawElement[]
+  api.updateScene({
+    elements: nextElements,
+    appState: {
+      selectedElementIds: {},
+      selectedGroupIds: {},
+    },
+  })
+
+  return { elements: nextElements }
+}
+
+function collectWhiteboardDeletionIds(elements: readonly ExcalidrawElement[], selectedIds: string[]): Set<string> {
+  const visibleElements = elements.filter((element) => !element.isDeleted)
+  const visibleElementIds = new Set(visibleElements.map((element) => element.id))
+  const deletionIds = new Set(selectedIds.filter((id) => visibleElementIds.has(id)))
+
+  for (const element of visibleElements) {
+    const elementWithBindings = element as ExcalidrawElement & {
+      boundElements?: readonly { id: string }[] | null
+      containerId?: string | null
+    }
+    if (deletionIds.has(element.id)) {
+      for (const binding of elementWithBindings.boundElements ?? []) {
+        if (visibleElementIds.has(binding.id)) deletionIds.add(binding.id)
+      }
+
+      if (isEditableShapeElement(element)) {
+        const centeredLabel = findCenteredLabelForShape(element, visibleElements)
+        if (centeredLabel) deletionIds.add(centeredLabel.id)
+      }
+    }
+
+    if (elementWithBindings.containerId && deletionIds.has(elementWithBindings.containerId)) {
+      deletionIds.add(element.id)
+    }
+  }
+
+  return deletionIds
 }
 
 function updateSelectedElementLabel(
@@ -617,19 +807,24 @@ function findEditableLabelTarget(
     .map((id) => visibleElements.find((element) => element.id === id))
     .filter((element): element is ExcalidrawElement => Boolean(element))
 
-  const selectedText = selectedElements.find(isTextElement)
-  if (selectedText) {
-    return { targetId: selectedText.id, textElement: selectedText, shapeElement: null }
-  }
-
   const selectedShape = selectedElements.find(isEditableShapeElement)
-  if (!selectedShape) return null
-
-  return {
-    targetId: selectedShape.id,
-    textElement: findCenteredLabelForShape(selectedShape, visibleElements),
-    shapeElement: selectedShape,
+  if (selectedShape) {
+    return {
+      targetId: selectedShape.id,
+      textElement: findCenteredLabelForShape(selectedShape, visibleElements),
+      shapeElement: selectedShape,
+    }
   }
+
+  const selectedText = selectedElements.find(isTextElement)
+  if (!selectedText) return null
+
+  const containingShape = findContainingEditableShapeForText(selectedText, visibleElements)
+  if (containingShape) {
+    return { targetId: containingShape.id, textElement: selectedText, shapeElement: containingShape }
+  }
+
+  return { targetId: selectedText.id, textElement: selectedText, shapeElement: null }
 }
 
 function isTextElement(element: ExcalidrawElement): boolean {
@@ -638,6 +833,32 @@ function isTextElement(element: ExcalidrawElement): boolean {
 
 function isEditableShapeElement(element: ExcalidrawElement): boolean {
   return element.type === 'rectangle' || element.type === 'ellipse'
+}
+
+function findContainingEditableShapeForText(textElement: ExcalidrawElement, elements: readonly ExcalidrawElement[]): ExcalidrawElement | null {
+  const textCenter = readElementCenter(textElement)
+  const groupIds = new Set((textElement as ExcalidrawElement & { groupIds?: readonly string[] }).groupIds ?? [])
+  const candidates = elements
+    .filter(isEditableShapeElement)
+    .map((shape) => {
+      const shapeGroupIds = (shape as ExcalidrawElement & { groupIds?: readonly string[] }).groupIds ?? []
+      const sharesGroup = shapeGroupIds.some((groupId) => groupIds.has(groupId))
+      const inside =
+        textCenter.x >= Math.min(shape.x, shape.x + shape.width) - 8 &&
+        textCenter.x <= Math.max(shape.x, shape.x + shape.width) + 8 &&
+        textCenter.y >= Math.min(shape.y, shape.y + shape.height) - 8 &&
+        textCenter.y <= Math.max(shape.y, shape.y + shape.height) + 8
+
+      return {
+        shape,
+        score: sharesGroup ? 0 : inside ? 1 : 2,
+        distance: Math.hypot(textCenter.x - readElementCenter(shape).x, textCenter.y - readElementCenter(shape).y),
+      }
+    })
+    .filter((candidate) => candidate.score < 2)
+    .sort((a, b) => a.score - b.score || a.distance - b.distance)
+
+  return candidates[0]?.shape ?? null
 }
 
 function findCenteredLabelForShape(shape: ExcalidrawElement, elements: readonly ExcalidrawElement[]): ExcalidrawElement | null {
@@ -686,12 +907,10 @@ function computeQuickEditValue(
   const now = Date.now()
   const previous = quickEditRef.current
   const continuing = previous?.targetId === targetId && now - previous.updatedAt < 1200
-  const baseValue = continuing ? previous.value : inputKey === 'Backspace' ? currentValue : ''
+  const baseValue = continuing ? previous.value : ''
 
   let nextValue = baseValue
-  if (inputKey === 'Backspace') {
-    nextValue = baseValue.slice(0, -1)
-  } else if (inputKey === '-') {
+  if (inputKey === '-') {
     nextValue = baseValue.startsWith('-') ? baseValue.slice(1) : `-${baseValue}`
   } else if (inputKey === '.') {
     nextValue = baseValue.includes('.') ? baseValue : `${baseValue || '0'}.`
@@ -737,6 +956,7 @@ function makeQuickTextElement(shape: ExcalidrawElement | null, value: string): E
   const { width, height, baseline } = measureTextElement(value, fontSize)
   const x = shape ? shape.x + shape.width / 2 - width / 2 : 0
   const y = shape ? shape.y + shape.height / 2 - height / 2 : 0
+  const groupIds = shape ? ((shape as ExcalidrawElement & { groupIds?: string[] }).groupIds ?? []) : []
 
   return {
     id: `spcg-text-${makeWhiteboardVersionNonce().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
@@ -753,7 +973,7 @@ function makeQuickTextElement(shape: ExcalidrawElement | null, value: string): E
     strokeStyle: 'solid',
     roughness: 0,
     opacity: 100,
-    groupIds: [],
+    groupIds,
     frameId: null,
     roundness: null,
     seed: makeWhiteboardVersionNonce(),

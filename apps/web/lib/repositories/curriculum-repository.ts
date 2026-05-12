@@ -26,6 +26,8 @@ export type CurriculumDraftLevelRecord = {
   difficulty: Record<string, unknown>
   description: string
   statementAssets: unknown[]
+  algorithmGraphs: unknown[]
+  localizedContent: Record<string, unknown>
   inputFormat: string
   outputFormat: string
   testCases: unknown[]
@@ -61,15 +63,15 @@ export async function createCurriculumDraftLevel(
     await client.query(
       `
       INSERT INTO levels (
-        id, chapter_id, "order", title, knowledge_point, difficulty, description, statement_assets,
+        id, chapter_id, "order", title, knowledge_point, difficulty, description, statement_assets, algorithm_graphs, localized_content,
         input_format, output_format, test_cases, hints, solution, official_code, solution_video_url,
         time_limit_ms, memory_limit_mb, starter_code, source, sister_problem, import_meta,
         teacher_notes, guardian_id, story, pass_out_problem_id, status
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8,
-        $9, $10, $11, $12, $13, $14, NULL,
-        1000, 64, $15, $16, NULL, $17,
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+        $11, $12, $13, $14, $15, $16, NULL,
+        1000, 64, $17, $18, NULL, $19,
         NULL, NULL, NULL, NULL, 'draft'
       )
       `,
@@ -82,6 +84,8 @@ export async function createCurriculumDraftLevel(
         JSON.stringify(level.difficulty),
         level.description,
         JSON.stringify(level.statementAssets),
+        JSON.stringify(level.algorithmGraphs),
+        JSON.stringify(level.localizedContent),
         level.inputFormat,
         level.outputFormat,
         JSON.stringify(level.testCases),

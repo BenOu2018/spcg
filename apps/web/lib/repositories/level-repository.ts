@@ -1,7 +1,9 @@
 import type {
   Difficulty,
   Hint,
+  AlgorithmGraph,
   Level,
+  LevelLocalizedContent,
   ProblemSource,
   Progress,
   Solution,
@@ -21,6 +23,8 @@ export type LevelPublicRow = {
   sister_problem: SisterProblem | null
   description: string
   statement_assets: StatementAsset[] | null
+  algorithm_graphs: AlgorithmGraph[] | null
+  localized_content: LevelLocalizedContent | null
   input_format: string
   output_format: string
   public_cases: TestCase[] | null
@@ -76,6 +80,8 @@ type LevelInternalRow = {
   sister_problem: SisterProblem | null
   description: string
   statement_assets: StatementAsset[] | null
+  algorithm_graphs: AlgorithmGraph[] | null
+  localized_content: LevelLocalizedContent | null
   input_format: string
   output_format: string
   test_cases: TestCase[] | null
@@ -121,7 +127,7 @@ export async function listInternalLevelTestSummaries(): Promise<LevelTestSummary
   const rows = await query<LevelInternalRow>(
     `
     SELECT id, chapter_id, "order", title, knowledge_point, difficulty, sister_problem,
-           description, statement_assets, input_format, output_format, test_cases, hints,
+           description, statement_assets, algorithm_graphs, localized_content, input_format, output_format, test_cases, hints,
            solution, official_code, solution_video_url, time_limit_ms, memory_limit_mb,
            starter_code, source, status, guardian_id, story, pass_out_problem_id, updated_at, published_at
     FROM levels
@@ -136,7 +142,7 @@ export async function getInternalLevelForTesting(id: string): Promise<Level | nu
   const rows = await query<LevelInternalRow>(
     `
     SELECT id, chapter_id, "order", title, knowledge_point, difficulty, sister_problem,
-           description, statement_assets, input_format, output_format, test_cases, hints,
+           description, statement_assets, algorithm_graphs, localized_content, input_format, output_format, test_cases, hints,
            solution, official_code, solution_video_url, time_limit_ms, memory_limit_mb,
            starter_code, source, status, guardian_id, story, pass_out_problem_id, updated_at, published_at
     FROM levels
@@ -195,6 +201,8 @@ function mapLevelPublicRow(row: LevelPublicRow): Level {
     sisterProblem: row.sister_problem ?? null,
     description: row.description,
     statementAssets: row.statement_assets ?? [],
+    algorithmGraphs: row.algorithm_graphs ?? [],
+    localizedContent: row.localized_content ?? {},
     inputFormat: row.input_format,
     outputFormat: row.output_format,
     publicCases: row.public_cases ?? [],
@@ -224,6 +232,8 @@ function mapInternalLevelRow(row: LevelInternalRow): Level {
     sisterProblem: row.sister_problem ?? null,
     description: row.description,
     statementAssets: row.statement_assets ?? [],
+    algorithmGraphs: row.algorithm_graphs ?? [],
+    localizedContent: row.localized_content ?? {},
     inputFormat: row.input_format,
     outputFormat: row.output_format,
     publicCases: testCases.filter((test) => test.visibility === 'public'),

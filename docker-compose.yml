@@ -38,6 +38,8 @@ services:
       JUDGE0_CASE_CONCURRENCY: "4"
       JUDGE0_DISABLE_CGROUPS: "true"
       JUDGE0_MIN_MEMORY_LIMIT_KB: "512000"
+      JUDGE0_MAX_FILE_SIZE_KB: "4096"
+      PROBLEM_CASES_DIR: /workspace/problem-cases
       MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
       MINIMAX_API_MODE: ${MINIMAX_API_MODE:-anthropic}
       MINIMAX_BASE_URL: ${MINIMAX_BASE_URL:-https://api.minimaxi.com/anthropic}
@@ -69,6 +71,8 @@ services:
       JUDGE0_CASE_CONCURRENCY: "4"
       JUDGE0_DISABLE_CGROUPS: "true"
       JUDGE0_MIN_MEMORY_LIMIT_KB: "512000"
+      JUDGE0_MAX_FILE_SIZE_KB: "4096"
+      PROBLEM_CASES_DIR: /workspace/problem-cases
       JUDGE_WORKER_POLL_MS: "100"
       JUDGE_WORKER_CONCURRENCY: "1"
     volumes:

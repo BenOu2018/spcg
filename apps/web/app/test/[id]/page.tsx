@@ -10,7 +10,7 @@ type TestLevelPageProps = {
 
 export default async function TestLevelPage({ params }: TestLevelPageProps) {
   const { id } = await params
-  await requireAdmin('support')
+  const admin = await requireAdmin('support')
   const level = await getLevelForTeacherTesting(id)
 
   if (!level) notFound()
@@ -36,7 +36,7 @@ export default async function TestLevelPage({ params }: TestLevelPageProps) {
       </header>
 
       <section className="programming-main">
-        <ProgrammingLevel level={level} />
+        <ProgrammingLevel level={level} userId={admin.userId} />
       </section>
     </main>
   )

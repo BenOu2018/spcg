@@ -1,22 +1,33 @@
+import type { CSSProperties } from 'react'
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getGameChapter } from '@spcg/shared/game-chapters'
 import { getProblemSetItemDisplayModeLabel } from '@spcg/shared/curriculum'
 import { ProgrammingLevel } from '@/components/ProgrammingLevel'
+import { TopbarAccountActions } from '@/components/TopbarAccountActions'
 import { requireUser } from '@/lib/auth-guard'
 import { getLevelAccessForUser } from '@/lib/services/level-access-service'
+import { getFeatureAccess } from '@/lib/services/entitlement-service'
 import { getLessonStageMenu, getLevelById, getMainlineLevels, getProgressRecords } from '@/lib/level-data'
+import { getStudentUiMessages } from '@/lib/student-ui'
+import { getRequestUiLocale } from '@/lib/student-ui-server'
 
 type LevelPageProps = {
   params: Promise<{ id: string }> | { id: string }
   searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>
 }
 
+const PROGRAMMING_SCENE_BACKGROUND_STYLE = {
+  background:
+    'linear-gradient(rgba(7, 11, 10, 0.18), rgba(7, 11, 10, 0.18)), url("/assets/art/backgrounds/ch1-mist-town/programming-bg-clean-v1.webp?v=20260512") center / cover no-repeat',
+} satisfies CSSProperties
+
 export default async function LevelPage({ params, searchParams }: LevelPageProps) {
   const { id } = await params
   const query = searchParams ? await searchParams : {}
   const explicitStageSelection = query.stageSelect === '1'
   const session = await requireUser(`/level/${id}${explicitStageSelection ? '?stageSelect=1' : ''}`)
+  const messages = getStudentUiMessages(await getRequestUiLocale(session.user.id))
   const [level, levels, progressRecords, stageMenu] = await Promise.all([
     getLevelById(id),
     getMainlineLevels(),
@@ -30,6 +41,9 @@ export default async function LevelPage({ params, searchParams }: LevelPageProps
     levelId: level.id,
   })
   if (!access.allowed) {
+    if (access.upgradeRequired) {
+      return <LevelUpgradeRequired reason={access.reason ?? '当前用户类型无法访问该关卡。'} />
+    }
     redirect(access.redirectLevelId ? `/level/${access.redirectLevelId}` : '/map')
   }
   const chapter = getGameChapter(level.chapterId)
@@ -71,9 +85,11 @@ export default async function LevelPage({ params, searchParams }: LevelPageProps
           ? `${stagePassedCount}/5 主线完成`
           : `${stagePassedCount}/5 主线进行中`
     : null
+  const hintsAccess = await getFeatureAccess({ userId: session.user.id, feature: 'hints' })
+  const displayLevel = hintsAccess.allowed ? level : { ...level, hints: [] }
 
   return (
-    <main className="programming-scene">
+    <main className="programming-scene" style={PROGRAMMING_SCENE_BACKGROUND_STYLE}>
       <header className="programming-topbar">
         <Link className="kit-logo" href={`/map?chapter=${chapter.chapterId}`} aria-label="返回地图">
           <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/logo-spcg.svg" alt="SPCG" />
@@ -117,17 +133,39 @@ export default async function LevelPage({ params, searchParams }: LevelPageProps
           </span>
         </section>
         <div className="programming-actions">
-          <Link className="top-icon-button" href={`/map?chapter=${chapter.chapterId}`} aria-label="任务书">
-            <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-book.svg" alt="" />
-          </Link>
-          <Link className="top-icon-button" href="/me" aria-label="设置">
-            <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-settings.svg" alt="" />
-          </Link>
+          <TopbarAccountActions session={session} mapHref={`/map?chapter=${chapter.chapterId}`} showMapButton messages={messages} />
         </div>
       </header>
 
       <section className="programming-main">
-        <ProgrammingLevel level={level} stageMenu={stageMenu} progressRecords={progressRecords} />
+        <ProgrammingLevel
+          level={displayLevel}
+          userId={session.user.id}
+          stageMenu={stageMenu}
+          progressRecords={progressRecords}
+          canViewHints={hintsAccess.allowed}
+          hintsUpgradeMessage={hintsAccess.reason ?? undefined}
+          messages={messages}
+        />
+      </section>
+    </main>
+  )
+}
+
+function LevelUpgradeRequired({ reason }: { reason: string }) {
+  return (
+    <main className="programming-scene" style={PROGRAMMING_SCENE_BACKGROUND_STYLE}>
+      <section className="upgrade-required-page">
+        <div className="upgrade-required-panel">
+          <span className="upgrade-required-kicker">需要升级</span>
+          <h1>当前关卡暂未开放</h1>
+          <p>{reason}</p>
+          <div className="upgrade-required-actions">
+            <Link className="upgrade-primary" href="/map">
+              返回地图
+            </Link>
+          </div>
+        </div>
       </section>
     </main>
   )

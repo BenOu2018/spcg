@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { ArrowLeft, ArrowRight, CheckCircle2, Clock3 } from 'lucide-react'
+import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 
 export type AttemptedProgressItem = {
   levelId: string
@@ -14,11 +15,14 @@ export type AttemptedProgressItem = {
 
 type AttemptedProgressListProps = {
   items: AttemptedProgressItem[]
+  messages?: StudentUiMessages
 }
 
 const PAGE_SIZE = 20
 
-export function AttemptedProgressList({ items }: AttemptedProgressListProps) {
+const fallbackMessages = getStudentUiMessages('zh-CN')
+
+export function AttemptedProgressList({ items, messages = fallbackMessages }: AttemptedProgressListProps) {
   const [page, setPage] = useState(1)
   const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
@@ -32,11 +36,11 @@ export function AttemptedProgressList({ items }: AttemptedProgressListProps) {
   }
 
   return (
-    <section className="progress-list" aria-label="做过的题目">
+    <section className="progress-list" aria-label={messages.profile.attempted}>
       <div className="progress-list-head">
         <div>
-          <h2>做过的题目</h2>
-          <span>{items.length} 题 · 每页 {PAGE_SIZE} 条</span>
+          <h2>{messages.profile.attempted}</h2>
+          <span>{items.length} 题 · {messages.profile.perPage} {PAGE_SIZE} 条</span>
         </div>
         {totalPages > 1 ? <em>{currentPage}/{totalPages}</em> : null}
       </div>
@@ -50,30 +54,32 @@ export function AttemptedProgressList({ items }: AttemptedProgressListProps) {
             <div className="progress-row-main">
               <h2>{item.title}</h2>
               <p>
-                关卡 {item.levelId} · {item.knowledgePoint}
+                {messages.common.level} {item.levelId} · {item.knowledgePoint}
               </p>
             </div>
-            <span className={item.passed ? 'progress-state passed' : 'progress-state'}>{item.passed ? '已通过' : '练习中'}</span>
-            <Link className="icon-link" href={`/level/${item.levelId}`}>
-              进入
+            <span className={item.passed ? 'progress-state passed' : 'progress-state'}>
+              {item.passed ? messages.profile.passed : messages.profile.practicing}
+            </span>
+            <Link className="icon-link" href={`/level/${item.levelId}`} prefetch={false}>
+              {messages.common.enter}
               <ArrowRight size={16} />
             </Link>
           </article>
         ))}
-        {items.length === 0 ? <p className="profile-empty">还没有做过的题目。</p> : null}
+        {items.length === 0 ? <p className="profile-empty">{messages.profile.noAttempted}</p> : null}
       </div>
 
       {totalPages > 1 ? (
-        <nav className="progress-pager" aria-label="做过的题目分页">
+        <nav className="progress-pager" aria-label={messages.profile.attempted}>
           <button type="button" onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1}>
             <ArrowLeft size={16} />
-            上一页
+            {messages.profile.previousPage}
           </button>
           <span>
-            第 {currentPage} 页 / 共 {totalPages} 页
+            {messages.common.page} {currentPage} / {totalPages}
           </span>
           <button type="button" onClick={() => goToPage(currentPage + 1)} disabled={currentPage === totalPages}>
-            下一页
+            {messages.profile.nextPage}
             <ArrowRight size={16} />
           </button>
         </nav>

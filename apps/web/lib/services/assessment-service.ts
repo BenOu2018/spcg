@@ -13,6 +13,7 @@ import {
   getLatestAssessmentAttemptForUserSession,
   getAssessmentSession,
   getOrCreateRankedAssessmentPaper,
+  isAssessmentAttemptLevelForUser,
   listAssessmentAttemptLevels,
   listRankedAssessmentAttemptsForUser,
   listRankedAssessmentCandidates,
@@ -23,18 +24,25 @@ import {
 import { isDatabaseConfigured } from '@/lib/repositories/database-repository'
 import { grantAssessmentReward } from '@/lib/services/reward-service'
 import { ServiceError } from '@/lib/services/errors'
+import {
+  getFeatureAccess,
+  getRankedAssessmentAccess,
+  type RankedAssessmentAccessDecision,
+} from '@/lib/services/entitlement-service'
 
 export type RankedAssessmentStartResult = {
   attempt: AssessmentAttempt
   session: AssessmentSession
   levels: Level[]
   items: AssessmentAttemptItem[]
+  access: RankedAssessmentAccessDecision
 }
 
 export type RankedAssessmentDetail = {
   attempt: AssessmentAttempt
   levels: Level[]
   items: AssessmentAttemptItem[]
+  access: RankedAssessmentAccessDecision
 }
 
 export type { RankedAssessmentHistoryItem }
@@ -69,6 +77,11 @@ export async function startRankedAssessmentAttempt(input: {
   if (![3600, 7200, 10800].includes(input.durationSeconds)) {
     throw new ServiceError('bad_request', '考试时间只能选择 1 小时、2 小时或 3 小时。', 400)
   }
+  const access = await getRankedAssessmentAccess({
+    userId: input.userId,
+    spcgLevel: input.spcgLevel,
+  })
+  if (!access.allowed) throw new ServiceError('forbidden', access.reason ?? '当前用户类型无法参加该级别段位赛。', 403)
 
   const dateKey = formatShanghaiDate(new Date())
   const candidates = await listRankedAssessmentCandidates({ spcgLevel: input.spcgLevel })
@@ -94,8 +107,9 @@ export async function startRankedAssessmentAttempt(input: {
           ? (await getAssessmentAttemptForUser({ userId: input.userId, attemptId: existingAttempt.id })) ?? existingAttempt
           : existingAttempt,
       session: paper.session,
-      levels: await listAssessmentAttemptLevels({ userId: input.userId, attemptId: existingAttempt.id }),
+      levels: await maskLevelHintsForUser(input.userId, await listAssessmentAttemptLevels({ userId: input.userId, attemptId: existingAttempt.id })),
       items: await getAssessmentAttemptItems({ userId: input.userId, attemptId: existingAttempt.id }),
+      access,
     }
   }
 
@@ -110,8 +124,9 @@ export async function startRankedAssessmentAttempt(input: {
   return {
     attempt,
     session: paper.session,
-    levels: paper.levels,
+    levels: await maskLevelHintsForUser(input.userId, paper.levels),
     items: await getAssessmentAttemptItems({ userId: input.userId, attemptId: attempt.id }),
+    access,
   }
 }
 
@@ -123,6 +138,12 @@ export async function getCurrentRankedAssessmentAttempt(input: {
   if (!isDatabaseConfigured()) throw new ServiceError('db_unconfigured', '数据库未配置。', 503)
 
   const dateKey = formatShanghaiDate(new Date())
+  const access = await getRankedAssessmentAccess({
+    userId: input.userId,
+    spcgLevel: input.spcgLevel,
+  })
+  if (!access.allowed) throw new ServiceError('forbidden', access.reason ?? '当前用户类型无法参加该级别段位赛。', 403)
+
   const sessionId = buildRankedSessionId(input.spcgLevel, dateKey)
   const attempt = await getLatestAssessmentAttemptForUserSession({
     userId: input.userId,
@@ -141,8 +162,9 @@ export async function getCurrentRankedAssessmentAttempt(input: {
 
   return {
     attempt: refreshedAttempt,
-    levels: await listAssessmentAttemptLevels({ userId: input.userId, attemptId: attempt.id }),
+    levels: await maskLevelHintsForUser(input.userId, await listAssessmentAttemptLevels({ userId: input.userId, attemptId: attempt.id })),
     items: await getAssessmentAttemptItems({ userId: input.userId, attemptId: attempt.id }),
+    access,
   }
 }
 
@@ -170,6 +192,13 @@ export async function getRankedAssessmentDetail(input: {
 
   const attempt = await getAssessmentAttemptForUser({ userId: input.userId, attemptId: input.attemptId })
   if (!attempt) throw new ServiceError('not_found', '考试记录不存在。', 404)
+  const session = await getAssessmentSession(attempt.sessionId)
+  const spcgLevel = getRankedSpcgLevelFromSession(attempt.sessionId, session?.title ?? '')
+  const access = await getRankedAssessmentAccess({
+    userId: input.userId,
+    spcgLevel,
+  })
+  if (!access.allowed) throw new ServiceError('forbidden', access.reason ?? '当前用户类型无法查看该段位赛。', 403)
   if (attempt.status === 'scoring') {
     await refreshAssessmentAttemptScore({ attemptId: attempt.id })
   }
@@ -181,9 +210,40 @@ export async function getRankedAssessmentDetail(input: {
 
   return {
     attempt: refreshedAttempt,
-    levels: await listAssessmentAttemptLevels({ userId: input.userId, attemptId: input.attemptId }),
+    levels: await maskLevelHintsForUser(input.userId, await listAssessmentAttemptLevels({ userId: input.userId, attemptId: input.attemptId })),
     items: await getAssessmentAttemptItems({ userId: input.userId, attemptId: input.attemptId }),
+    access,
   }
+}
+
+export async function canUserRunAssessmentLevel(input: {
+  userId?: string | null
+  attemptId: string
+  levelId: string
+}): Promise<boolean> {
+  if (!input.userId) return false
+  if (!isDatabaseConfigured()) return false
+
+  const inAttempt = await isAssessmentAttemptLevelForUser({
+    userId: input.userId,
+    attemptId: input.attemptId,
+    levelId: input.levelId,
+  })
+  if (!inAttempt) return false
+
+  const attempt = await getAssessmentAttemptForUser({ userId: input.userId, attemptId: input.attemptId })
+  if (!attempt) return false
+  if (!attempt.sessionId.startsWith('ranked-spcg')) return true
+  const session = await getAssessmentSession(attempt.sessionId)
+  const spcgLevel = getRankedSpcgLevelFromSession(attempt.sessionId, session?.title ?? '')
+  const access = await getRankedAssessmentAccess({
+    userId: input.userId,
+    spcgLevel,
+  })
+  if (!access.allowed) return false
+  const items = await getAssessmentAttemptItems({ userId: input.userId, attemptId: input.attemptId })
+  const item = items.find((entry) => entry.levelId === input.levelId)
+  return Boolean(item && item.position <= access.visibleQuestionCount)
 }
 
 export async function finishUserAssessmentAttempt(input: {
@@ -332,4 +392,17 @@ function formatShanghaiDate(date: Date): string {
 
 function buildRankedSessionId(spcgLevel: number, dateKey: string): string {
   return `ranked-spcg${spcgLevel}-${dateKey}`
+}
+
+function getRankedSpcgLevelFromSession(sessionId: string, title: string): number {
+  const fromId = /^ranked-spcg(\d+)-/.exec(sessionId)?.[1]
+  if (fromId) return Number(fromId)
+  const fromTitle = /SPCG\s*(\d+)级/.exec(title)?.[1]
+  return fromTitle ? Number(fromTitle) : 1
+}
+
+async function maskLevelHintsForUser(userId: string, levels: Level[]): Promise<Level[]> {
+  const hintsAccess = await getFeatureAccess({ userId, feature: 'hints' })
+  if (hintsAccess.allowed) return levels
+  return levels.map((level) => ({ ...level, hints: [] }))
 }

@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Bug, Send, X } from 'lucide-react'
 import { submitSystemBugAction } from '@/app/system-bugs/actions'
+import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 
 type BugReportWidgetProps = {
   enabled: boolean
+  messages?: StudentUiMessages['bug']
 }
 
 type IdeBugContext = {
@@ -22,7 +24,9 @@ declare global {
   }
 }
 
-export function BugReportWidget({ enabled }: BugReportWidgetProps) {
+const fallbackMessages = getStudentUiMessages('zh-CN').bug
+
+export function BugReportWidget({ enabled, messages = fallbackMessages }: BugReportWidgetProps) {
   const [open, setOpen] = useState(false)
   const [description, setDescription] = useState('')
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle')
@@ -49,7 +53,7 @@ export function BugReportWidget({ enabled }: BugReportWidgetProps) {
     const trimmed = description.trim()
     if (!trimmed) {
       setStatus('error')
-      setMessage('请先描述你看到的问题。')
+      setMessage(messages.failed)
       return
     }
 
@@ -86,27 +90,27 @@ export function BugReportWidget({ enabled }: BugReportWidgetProps) {
 
       setDescription('')
       setStatus('success')
-      setMessage('已提交，感谢反馈。')
+      setMessage(messages.submitted)
     } catch (error) {
       setStatus('error')
-      setMessage(error instanceof Error ? error.message : '提交失败，请稍后再试。')
+      setMessage(error instanceof Error ? error.message : messages.failed)
     }
   }
 
   return (
     <div className="bug-report-widget" ref={widgetRef}>
       {open ? (
-        <section className="bug-report-panel" aria-label="提交疑似 Bug">
+        <section className="bug-report-panel" aria-label={messages.title}>
           <div className="bug-report-head">
-            <strong>提交 Bug 线索</strong>
-            <button type="button" aria-label="关闭 Bug 提交" onClick={() => setOpen(false)}>
+            <strong>{messages.title}</strong>
+            <button type="button" aria-label={messages.close} onClick={() => setOpen(false)}>
               <X size={15} strokeWidth={2.4} />
             </button>
           </div>
           <textarea
             value={description}
             maxLength={2000}
-            placeholder="请描述你发现的问题，例如：点了 Run 后没有输出，或某个按钮消失。"
+            placeholder={messages.placeholder}
             onChange={(event) => {
               setDescription(event.target.value)
               if (status !== 'submitting') {
@@ -119,7 +123,7 @@ export function BugReportWidget({ enabled }: BugReportWidgetProps) {
             <span>{description.trim().length}/2000</span>
             <button type="button" disabled={status === 'submitting'} onClick={submitBugReport}>
               <Send size={14} strokeWidth={2.4} />
-              {status === 'submitting' ? '提交中' : '提交'}
+              {status === 'submitting' ? messages.submitting : messages.submit}
             </button>
           </div>
           {message ? <p className={`bug-report-message ${status}`}>{message}</p> : null}
@@ -129,8 +133,8 @@ export function BugReportWidget({ enabled }: BugReportWidgetProps) {
       <button
         className="bug-report-toggle"
         type="button"
-        aria-label="提交疑似 Bug"
-        title="提交疑似 Bug"
+        aria-label={messages.title}
+        title={messages.title}
         onClick={() => setOpen((value) => !value)}
       >
         <Bug size={15} strokeWidth={2.6} />

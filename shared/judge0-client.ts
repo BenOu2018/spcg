@@ -35,6 +35,7 @@ type ExecuteJudge0Input = {
   stdin: string
   timeLimitMs: number
   memoryLimitMb: number
+  maxFileSizeKb?: number
 }
 
 type Judge0Token = {
@@ -461,6 +462,12 @@ function countCompletedCases(verdict: Verdict, totalCases: number): number {
 }
 
 function buildSubmissionPayload(input: RunJudge0Input, testCase: TestCase) {
+  if (testCase.inputRef || testCase.expectedOutputRef) {
+    throw new Error(`file-backed test case ${testCase.id} must be resolved before Judge0 submission`)
+  }
+
+  const expectedOutputBytes = Buffer.byteLength(testCase.expectedOutput, 'utf8')
+
   return {
     ...buildBasePayload(
       {
@@ -469,6 +476,7 @@ function buildSubmissionPayload(input: RunJudge0Input, testCase: TestCase) {
         stdin: testCase.input,
         timeLimitMs: input.timeLimitMs,
         memoryLimitMb: input.memoryLimitMb,
+        maxFileSizeKb: getJudge0MaxFileSizeKb(expectedOutputBytes),
       },
     ),
     expected_output: encodeBase64(testCase.expectedOutput),
@@ -492,6 +500,7 @@ function buildBasePayload(input: ExecuteJudge0Input & { language: ResolvedLangua
     stdin: encodeBase64(input.stdin),
     cpu_time_limit: Math.max(input.timeLimitMs / 1000, 1),
     memory_limit: memoryLimitKb,
+    ...(input.maxFileSizeKb ? { max_file_size: input.maxFileSizeKb } : {}),
     ...(disableCgroups
       ? {
           enable_per_process_and_thread_time_limit: true,
@@ -499,6 +508,14 @@ function buildBasePayload(input: ExecuteJudge0Input & { language: ResolvedLangua
         }
       : {}),
   }
+}
+
+function getJudge0MaxFileSizeKb(expectedOutputBytes: number): number | undefined {
+  const configured = Number(process.env.JUDGE0_MAX_FILE_SIZE_KB)
+  const minimumKb = Number.isFinite(configured) && configured > 0 ? configured : 1024
+  if (expectedOutputBytes <= minimumKb * 1024) return configured > 0 ? minimumKb : undefined
+
+  return Math.ceil(expectedOutputBytes / 1024) + 1024
 }
 
 function mockExecuteForLanguage(input: ExecuteJudge0Input & { language: ResolvedLanguage }): MockExecutionResult {

@@ -7,6 +7,7 @@ export type AdminRole = 'owner' | 'admin' | 'editor' | 'reviewer' | 'support'
 export type AdminContext = {
   userId: string
   role: AdminRole
+  username: string | null
   email: string | null
   preview: boolean
   accessToken: null
@@ -22,7 +23,8 @@ const roleRank: Record<AdminRole, number> = {
 
 type AdminRoleRow = {
   role: AdminRole
-  email: string
+  username: string | null
+  email: string | null
 }
 
 export async function requireAdmin(minRole: AdminRole = 'support'): Promise<AdminContext> {
@@ -46,6 +48,7 @@ export async function getAdminContext(minRole: AdminRole = 'support'): Promise<A
     return {
       userId: 'admin-preview',
       role: 'owner',
+      username: 'admin-preview',
       email: process.env.SPCG_ADMIN_PREVIEW_EMAIL ?? 'admin-preview@spcg.local',
       preview: true,
       accessToken: null,
@@ -64,7 +67,7 @@ export async function getAdminContext(minRole: AdminRole = 'support'): Promise<A
 
   const role = await queryOne<AdminRoleRow>(
     `
-    SELECT ar.role, u.email
+    SELECT ar.role, u.username, u.email
     FROM admin_roles ar
     JOIN users u ON u.id = ar.user_id
     LEFT JOIN user_admin_states uas ON uas.user_id = u.id
@@ -81,6 +84,7 @@ export async function getAdminContext(minRole: AdminRole = 'support'): Promise<A
   return {
     userId,
     role: role.role,
+    username: role.username,
     email: role.email,
     preview: false,
     accessToken: null,

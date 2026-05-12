@@ -41,6 +41,7 @@ pnpm-debug.log*
 
 # Local/generated content not uploaded to code repository.
 tmp/
+backups/
 problem-bank/reports/*.json
 problem-bank/
 lesson/

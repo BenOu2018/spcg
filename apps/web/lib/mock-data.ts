@@ -185,6 +185,8 @@ function buildLevel(seed: LevelSeed): Level {
           },
         ]
       : [],
+    algorithmGraphs: [],
+    localizedContent: {},
     inputFormat: seed.id === 'ch1-01' ? '无输入。' : '按题目描述读入数据。',
     outputFormat: '输出题目要求的结果。',
     publicCases,

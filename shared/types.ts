@@ -3,7 +3,74 @@ import type { ProblemSetItemDisplayMode } from './curriculum.js'
 export type Language = 'auto' | 'c' | 'cpp11' | 'cpp14' | 'cpp17' | 'cpp20' | 'cpp23' | 'python3'
 export type ResolvedLanguage = Exclude<Language, 'auto'>
 
-export type UserRole = 'admin' | 'teacher' | 'student'
+export type UserRole = 'admin' | 'teacher' | 'student' | 'parent'
+export type UiLocale = 'zh-CN' | 'en-US'
+export type PhoneVerificationStatus = 'unbound' | 'pending' | 'verified'
+export type StudentUserType = 'experience' | 'invite_test' | 'paid_49' | 'paid_99'
+export type FeatureKey = 'levels_all' | 'ranked_all' | 'hints' | 'ai_analysis' | 'parent_reports'
+
+export type EntitlementSummary = {
+  userId: string
+  userType: StudentUserType
+  label: string
+  note: string | null
+  expiresAt: string | null
+  updatedAt: string | null
+}
+
+export type AccessDecision = {
+  allowed: boolean
+  reason: string | null
+  upgradeRequired: boolean
+  requiredUserType: StudentUserType | null
+  userType: StudentUserType | null
+}
+
+export type UserIdentitySummary = {
+  id: string
+  username: string
+  displayName: string | null
+  avatarUrl: string | null
+  phoneNumberMasked: string | null
+  phoneVerified: boolean
+}
+
+export type ParentAccountSummary = {
+  id: string
+  username: string
+  email: string | null
+  displayName: string | null
+  phoneNumberMasked: string | null
+  phoneVerified: boolean
+}
+
+export type ParentStudentBinding = {
+  parentUserId: string
+  studentUserId: string
+  status: 'active' | 'removed'
+  note: string | null
+  createdAt: string
+  updatedAt: string
+  parent: ParentAccountSummary
+}
+
+export type StudentParentInviteSummary = {
+  studentUserId: string
+  studentPhoneNumberMasked: string | null
+  studentPhoneVerified: boolean
+  inviteStatus: 'active' | 'missing' | 'revoked'
+  codePreview: string | null
+  rotatedAt: string | null
+  canRevealCode: false
+  boundParentCount: number
+}
+
+export type StudentParentInviteResetResult = {
+  studentUserId: string
+  inviteCode: string
+  codePreview: string
+  rotatedAt: string
+}
 
 export type TestCaseVisibility = 'public' | 'hidden'
 export type SpcgLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10
@@ -11,10 +78,20 @@ export type DifficultyStars = 1 | 2 | 3 | 4 | 5
 export type DifficultyLevelLabel = `SPCG ${SpcgLevel}级`
 export type DifficultyLayerLabel = '入门' | '基础' | '提高' | '挑战' | '综合'
 
+export type TestCaseDataRef = {
+  type: 'file'
+  path: string
+  bytes: number
+  sha256: string
+}
+
 export type TestCase = {
   id: string
   input: string
   expectedOutput: string
+  inputRef?: TestCaseDataRef
+  expectedOutputRef?: TestCaseDataRef
+  inputPreview?: string
   visibility: TestCaseVisibility
   note?: string
 }
@@ -32,6 +109,19 @@ export type Solution = {
     time: string
     memory: string
   }
+}
+
+export type LevelLocalizedEntry = {
+  title?: string | null
+  description?: string | null
+  inputFormat?: string | null
+  outputFormat?: string | null
+  teacherNotes?: string | null
+  solution?: Solution | null
+}
+
+export type LevelLocalizedContent = {
+  en?: LevelLocalizedEntry | null
 }
 
 export type Difficulty = {
@@ -68,6 +158,103 @@ export type ProblemAlgorithm = {
   note: string | null
 }
 
+export type KnowledgeTagClassification = '编程算法' | '数学'
+
+export type ProblemKnowledgeTag = {
+  tagId: string
+  classification: KnowledgeTagClassification
+  role: ProblemAlgorithmRole
+  source: string
+}
+
+export type ProblemKnowledgePointSnapshot = ProblemKnowledgeTag & {
+  zhName: string
+  enName: string
+  domain: string
+  bandOrLevel: string
+}
+
+export type KnowledgeTreeProgressStatus = 'unstarted' | 'unlocked' | 'practicing' | 'mastered'
+
+export type KnowledgeTreeNode = {
+  slotId: string
+  tagId: string
+  classification: KnowledgeTagClassification
+  zhName: string
+  enName: string
+  domain: string
+  bandOrLevel: string
+  sortOrder: number
+  x: number
+  y: number
+  radius: number
+  color: string
+  algorithmFamily: ProblemAlgorithmFamily | 'unknown'
+  sourceSection: string
+  recommendation: string
+}
+
+export type KnowledgeProgress = {
+  tagId: string
+  status: KnowledgeTreeProgressStatus
+  mastery: number
+  attemptCount: number
+  correctCount: number
+  lastPracticedAt: string | null
+}
+
+export type KnowledgeTreeLink = {
+  fromTagId: string
+  toTagId: string
+}
+
+export type KnowledgeTreePayload = {
+  classification: KnowledgeTagClassification
+  generatedAt: string
+  asset: {
+    image: string
+    width: number
+    height: number
+    nodeCount: number
+  }
+  nodes: KnowledgeTreeNode[]
+  links: KnowledgeTreeLink[]
+  progress: KnowledgeProgress[]
+  levels: Array<{ value: string; count: number }>
+  domains: Array<{ value: string; count: number; color: string }>
+}
+
+export type AlgorithmGraphKind = 'graph' | 'tree' | 'dag' | 'state-transition' | 'table'
+export type AlgorithmGraphLayout = 'auto' | 'manual' | 'circle' | 'tree' | 'grid'
+export type AlgorithmGraphVisibility = 'always'
+
+export type AlgorithmGraphNode = {
+  id: string
+  label: string
+  x?: number | null
+  y?: number | null
+  role?: string | null
+}
+
+export type AlgorithmGraphEdge = {
+  from: string
+  to: string
+  label?: string | null
+  weight?: string | number | null
+  directed?: boolean | null
+}
+
+export type AlgorithmGraph = {
+  id: string
+  title: string
+  kind: AlgorithmGraphKind
+  description: string | null
+  layout: AlgorithmGraphLayout
+  visibility: AlgorithmGraphVisibility
+  nodes: AlgorithmGraphNode[]
+  edges: AlgorithmGraphEdge[]
+}
+
 export type ProblemSource = {
   type: 'original' | 'authorized' | 'adapted'
   name: string
@@ -95,6 +282,8 @@ export type ProblemImportMeta = {
   schemaVersion?: string | null
   algorithmFamily?: ProblemAlgorithmFamily | null
   algorithms?: ProblemAlgorithm[]
+  knowledgeTags?: ProblemKnowledgeTag[]
+  knowledgePointSnapshots?: ProblemKnowledgePointSnapshot[]
   parentOrder?: number | null
   stageItemIndex?: number | null
   defaultDisplayMode?: ProblemSetItemDisplayMode | null
@@ -132,6 +321,8 @@ export type Level = {
   sisterProblem: SisterProblem | null
   description: string
   statementAssets: StatementAsset[]
+  algorithmGraphs: AlgorithmGraph[]
+  localizedContent: LevelLocalizedContent
   inputFormat: string
   outputFormat: string
   publicCases: TestCase[]
@@ -189,6 +380,7 @@ export type VerdictCaseResult = {
   passed: boolean
   result: Verdict['result']
   runtimeMs: number
+  memoryKb?: number | null
 }
 
 export type JudgeProgress = {
@@ -215,6 +407,8 @@ export type Verdict = {
 }
 
 export type CodeErrorAnalysis = {
+  rawResponse?: string
+  nonStructured?: boolean
   whereWrong?: string
   summary: string
   likelyCause: string
@@ -280,6 +474,23 @@ export type WalletSummary = {
   updatedAt: string
 }
 
+export type EarnedTitleAward = {
+  titleKey: string
+  titleLabel: string
+  rankAtAward: RewardRank
+  poolKey: string
+  levelId: string | null
+  submissionId: string | null
+  awardedAt: string
+}
+
+export type UserTitleRecord = EarnedTitleAward & {
+  userId: string
+  source: 'level_first_ac' | 'rank_reached'
+  sourceRef: string
+  metadata: Record<string, unknown>
+}
+
 export type InventoryItem = {
   id: string
   name: string
@@ -308,6 +519,7 @@ export type RewardGrantResult = {
   rankBefore: RewardRank
   rankAfter: RewardRank
   title: string
+  titleAward?: EarnedTitleAward | null
   ledgerIds: string[]
 }
 
@@ -322,6 +534,87 @@ export type RewardLedgerEntry = {
   itemQuantity: number
   metadata: Record<string, unknown>
   createdAt: string
+}
+
+export type LevelLeaderboardEntry = {
+  rank: number
+  userId: string
+  username: string
+  displayName: string
+  avatarUrl: string | null
+  title: string
+  coinTotal: number
+  passedCount: number
+  firstScoredAt: string
+  lastScoredAt: string
+}
+
+export type CurrentUserLeaderboardRank = LevelLeaderboardEntry | null
+
+export type LevelLeaderboardSummary = {
+  spcgLevel: SpcgLevel
+  levelName: string
+  hudTitle: string
+  mapAsset: string
+  levelTotal: number
+  totalParticipants: number
+  todayPassedCount: number
+  totalCoins: number
+  topEntries: LevelLeaderboardEntry[]
+  podium: LevelLeaderboardEntry[]
+  currentUser: CurrentUserLeaderboardRank
+}
+
+export type GrowthReportStatus = 'generated' | 'revoked'
+export type GrowthReportDeliveryChannel = 'email' | 'sms'
+export type GrowthReportDeliveryStatus = 'pending' | 'sent' | 'failed' | 'skipped'
+
+export type GrowthReportStructuredSummary = {
+  periodStart: string
+  periodEnd: string
+  submissionCount: number
+  acceptedCount: number
+  passedProblemCount: number
+  pendingRepairCount: number
+  weakVerdicts: string[]
+  knowledgePoints: string[]
+  nextActions: string[]
+}
+
+export type GrowthReportSummary = {
+  id: string
+  studentUserId: string
+  title: string
+  periodStart: string
+  periodEnd: string
+  status: GrowthReportStatus
+  tokenExpiresAt: string
+  createdAt: string
+}
+
+export type GrowthReportDetail = GrowthReportSummary & {
+  markdown: string
+  summary: GrowthReportStructuredSummary | Record<string, unknown>
+}
+
+export type GrowthReportDelivery = {
+  id: string
+  reportId: string
+  parentUserId: string
+  channel: GrowthReportDeliveryChannel
+  target: string
+  status: GrowthReportDeliveryStatus
+  failureReason: string | null
+  createdAt: string
+}
+
+export type GrowthReportSettings = {
+  enabled: boolean
+  triggerMode: 'manual' | 'scheduled'
+  frequency: 'weekly' | 'monthly'
+  periodDays: number
+  tokenTtlDays: number
+  channels: GrowthReportDeliveryChannel[]
 }
 
 export type AssessmentType = 'exam' | 'contest'

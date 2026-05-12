@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { useEffect, useMemo, useState } from 'react'
 import type { CodeErrorAnalysis, SubmissionErrorAnalysis, Verdict } from '@spcg/shared/types'
 import type { AdminSubmissionHistoryItem } from '@/lib/services/submission-service'
 import { explainAdminSubmissionErrorAction } from '../submissions/actions'
@@ -15,12 +16,17 @@ type AnalysisState =
 type AdminSubmissionTableProps = {
   submissions: AdminSubmissionHistoryItem[]
   emptyText?: string
+  selectedSubmissionId?: string | null
 }
 
 const ANALYZABLE_RESULTS = new Set<Verdict['result']>(['WA', 'TLE', 'MLE', 'RE', 'CE', 'PE', 'Judge Error'])
+const NON_STRUCTURED_FALLBACK_SUMMARY = 'AI 返回了非结构化分析。'
 
-export function AdminSubmissionTable({ submissions, emptyText = 'No submissions yet.' }: AdminSubmissionTableProps) {
-  const [selectedId, setSelectedId] = useState<string | null>(submissions[0]?.id ?? null)
+export function AdminSubmissionTable({ submissions, emptyText = 'No submissions yet.', selectedSubmissionId = null }: AdminSubmissionTableProps) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [selectedId, setSelectedId] = useState<string | null>(selectedSubmissionId)
   const [analysisBySubmissionId, setAnalysisBySubmissionId] = useState<Record<string, AnalysisState>>({})
   const selected = useMemo(
     () => submissions.find((submission) => submission.id === selectedId) ?? null,
@@ -30,10 +36,26 @@ export function AdminSubmissionTable({ submissions, emptyText = 'No submissions 
   const selectedCanAnalyze = selected ? canAnalyzeSubmission(selected) : false
   const selectedAlreadyAnalyzed = selected ? hasAnalysis(selected, selectedAnalysisState) : false
 
-  async function explainSubmission(submission: AdminSubmissionHistoryItem) {
-    setSelectedId(submission.id)
+  useEffect(() => {
+    setSelectedId(selectedSubmissionId)
+  }, [selectedSubmissionId])
 
-    if (submission.errorAnalysis && analysisBySubmissionId[submission.id]?.status !== 'error') {
+  function selectSubmission(id: string | null) {
+    setSelectedId(id)
+    const params = new URLSearchParams(searchParams.toString())
+    if (id) {
+      params.set('submissionId', id)
+    } else {
+      params.delete('submissionId')
+    }
+    const query = params.toString()
+    router.push(query ? `${pathname}?${query}` : pathname, { scroll: false })
+  }
+
+  async function explainSubmission(submission: AdminSubmissionHistoryItem) {
+    selectSubmission(submission.id)
+
+    if (isStructuredSavedAnalysis(submission) && analysisBySubmissionId[submission.id]?.status !== 'error') {
       setAnalysisBySubmissionId((current) => ({
         ...current,
         [submission.id]: {
@@ -97,11 +119,11 @@ export function AdminSubmissionTable({ submissions, emptyText = 'No submissions 
               className={selected ? 'admin-table-row admin-submission-grid active' : 'admin-table-row admin-submission-grid'}
               key={submission.id}
               tabIndex={0}
-              onClick={() => setSelectedId(submission.id)}
+              onClick={() => selectSubmission(submission.id)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault()
-                  setSelectedId(submission.id)
+                  selectSubmission(submission.id)
                 }
               }}
             >
@@ -134,7 +156,7 @@ export function AdminSubmissionTable({ submissions, emptyText = 'No submissions 
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation()
-                    setSelectedId(submission.id)
+                    selectSubmission(submission.id)
                   }}
                 >
                   查看代码
@@ -165,49 +187,65 @@ export function AdminSubmissionTable({ submissions, emptyText = 'No submissions 
       </section>
 
       {selected ? (
-        <article className="admin-panel admin-submission-detail">
-          <div className="admin-panel-head">
-            <h2>Submission Code</h2>
-            <div className="admin-submission-detail-actions">
-              <span className="admin-count">
-                {formatResult(selected)} · {shortSubmissionId(selected.id)}
-              </span>
-              {selectedCanAnalyze && selectedAlreadyAnalyzed ? (
-                <button className="admin-small-button" type="button" disabled>
-                  已分析
-                </button>
-              ) : null}
-              {selectedCanAnalyze && !selectedAlreadyAnalyzed ? (
-                <button
-                  className="admin-small-button"
-                  type="button"
-                  disabled={selectedAnalysisState?.status === 'loading'}
-                  onClick={() => explainSubmission(selected)}
-                >
-                  {selectedAnalysisState?.status === 'loading' ? '分析中' : 'AI 分析'}
-                </button>
-              ) : null}
-            </div>
-          </div>
-          <dl className="admin-dl">
-            <dt>Student</dt>
-            <dd>{selected.userDisplayName ?? selected.userEmail ?? selected.userId}</dd>
-            <dt>Level</dt>
-            <dd>
-              {selected.levelTitle} ({selected.levelId})
-            </dd>
-            <dt>Language</dt>
-            <dd>{formatLanguage(selected)}</dd>
-            <dt>Cases</dt>
-            <dd>{formatCases(selected.verdict)}</dd>
-          </dl>
-          <pre className="admin-submission-code">{selected.code}</pre>
-          <AdminSubmissionAnalysisPanel
-            state={selectedAnalysisState}
-            fallback={selected.errorAnalysis}
-            onRetry={() => explainSubmission(selected)}
+        <div className="admin-drawer-layer admin-submission-drawer-layer" role="presentation">
+          <button
+            aria-label="Close submission detail"
+            className="admin-drawer-scrim"
+            onClick={() => selectSubmission(null)}
+            type="button"
           />
-        </article>
+          <aside aria-label="Submission code" className="admin-drawer admin-drawer-xl">
+            <header className="admin-drawer-head">
+              <div>
+                <span className="admin-eyebrow">Submission</span>
+                <h2>Submission Code</h2>
+                <p>
+                  {formatResult(selected)} · {shortSubmissionId(selected.id)}
+                </p>
+              </div>
+              <div className="admin-submission-detail-actions">
+                {selectedCanAnalyze && selectedAlreadyAnalyzed ? (
+                  <button className="admin-small-button" type="button" disabled>
+                    已分析
+                  </button>
+                ) : null}
+                {selectedCanAnalyze && !selectedAlreadyAnalyzed ? (
+                  <button
+                    className="admin-small-button"
+                    type="button"
+                    disabled={selectedAnalysisState?.status === 'loading'}
+                    onClick={() => explainSubmission(selected)}
+                  >
+                    {selectedAnalysisState?.status === 'loading' ? '分析中' : 'AI 分析'}
+                  </button>
+                ) : null}
+                <button className="admin-small-button" onClick={() => selectSubmission(null)} type="button">
+                  Close
+                </button>
+              </div>
+            </header>
+            <div className="admin-drawer-body">
+              <dl className="admin-dl">
+                <dt>Student</dt>
+                <dd>{selected.userDisplayName ?? selected.userEmail ?? selected.userId}</dd>
+                <dt>Level</dt>
+                <dd>
+                  {selected.levelTitle} ({selected.levelId})
+                </dd>
+                <dt>Language</dt>
+                <dd>{formatLanguage(selected)}</dd>
+                <dt>Cases</dt>
+                <dd>{formatCases(selected.verdict)}</dd>
+              </dl>
+              <pre className="admin-submission-code">{selected.code}</pre>
+              <AdminSubmissionAnalysisPanel
+                state={selectedAnalysisState}
+                fallback={readStructuredSavedAnalysis(selected)}
+                onRetry={() => explainSubmission(selected)}
+              />
+            </div>
+          </aside>
+        </div>
       ) : null}
     </>
   )
@@ -260,50 +298,54 @@ function AdminSubmissionAnalysisPanel({
         <span>{cached ? '已保存' : '新生成'}</span>
       </div>
       <p>{analysis.summary}</p>
-      <dl>
-        <div>
-          <dt>错在哪里</dt>
-          <dd>{analysis.whereWrong ?? analysis.summary}</dd>
-        </div>
-        <div>
-          <dt>原因分析</dt>
-          <dd>
-            <ul>
-              {readReasonList(analysis).map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </dd>
-        </div>
-        {analysis.lineHints.length > 0 ? (
+      {analysis.rawResponse ? (
+        <pre className="ai-analysis-raw">{analysis.rawResponse}</pre>
+      ) : (
+        <dl>
           <div>
-            <dt>定位提示</dt>
+            <dt>错在哪里</dt>
+            <dd>{analysis.whereWrong ?? analysis.summary}</dd>
+          </div>
+          <div>
+            <dt>原因分析</dt>
             <dd>
               <ul>
-                {analysis.lineHints.map((item) => (
+                {readReasonList(analysis).map((item) => (
                   <li key={item}>{item}</li>
                 ))}
               </ul>
             </dd>
           </div>
-        ) : null}
-        {analysis.nextSteps.length > 0 ? (
+          {analysis.lineHints.length > 0 ? (
+            <div>
+              <dt>定位提示</dt>
+              <dd>
+                <ul>
+                  {analysis.lineHints.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </dd>
+            </div>
+          ) : null}
+          {analysis.nextSteps.length > 0 ? (
+            <div>
+              <dt>下一步</dt>
+              <dd>
+                <ul>
+                  {analysis.nextSteps.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </dd>
+            </div>
+          ) : null}
           <div>
-            <dt>下一步</dt>
-            <dd>
-              <ul>
-                {analysis.nextSteps.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </dd>
+            <dt>知识点</dt>
+            <dd>{analysis.fixedConcept}</dd>
           </div>
-        ) : null}
-        <div>
-          <dt>知识点</dt>
-          <dd>{analysis.fixedConcept}</dd>
-        </div>
-      </dl>
+        </dl>
+      )}
     </section>
   )
 }
@@ -317,7 +359,15 @@ function canAnalyzeSubmission(submission: AdminSubmissionHistoryItem): boolean {
 }
 
 function hasAnalysis(submission: AdminSubmissionHistoryItem, state?: AnalysisState): boolean {
-  return Boolean(submission.errorAnalysis || state?.status === 'done')
+  return Boolean(isStructuredSavedAnalysis(submission) || state?.status === 'done')
+}
+
+function isStructuredSavedAnalysis(submission: AdminSubmissionHistoryItem): boolean {
+  return Boolean(submission.errorAnalysis && submission.errorAnalysis.analysis.summary !== NON_STRUCTURED_FALLBACK_SUMMARY)
+}
+
+function readStructuredSavedAnalysis(submission: AdminSubmissionHistoryItem): SubmissionErrorAnalysis | null {
+  return isStructuredSavedAnalysis(submission) ? submission.errorAnalysis : null
 }
 
 function formatResult(submission: AdminSubmissionHistoryItem): string {

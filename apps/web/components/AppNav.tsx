@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Code2, MapPinned, UserCircle2 } from 'lucide-react'
+import { Code2, MapPinned, Trophy, UserCircle2 } from 'lucide-react'
 
 export function AppNav() {
   return (
@@ -13,9 +13,13 @@ export function AppNav() {
           <MapPinned size={18} />
           地图
         </Link>
-        <Link href="/level/ch1-01">
+        <Link href="/level/ch1-01" prefetch={false}>
           <Code2 size={18} />
           关卡
+        </Link>
+        <Link href="/leaderboard">
+          <Trophy size={18} />
+          榜单
         </Link>
         <Link href="/me">
           <UserCircle2 size={18} />
@@ -25,4 +29,3 @@ export function AppNav() {
     </header>
   )
 }
-

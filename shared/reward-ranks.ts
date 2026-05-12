@@ -9,7 +9,7 @@ export type RankInfo = {
 export const DEFAULT_REWARD_RANK = 'scrap_iron' satisfies RewardRank
 
 export const REWARD_RANKS = [
-  { rank: 'scrap_iron', label: '烂铁', minCoins: 0 },
+  { rank: 'scrap_iron', label: '黑铁', minCoins: 0 },
   { rank: 'bronze', label: '青铜', minCoins: 72 },
   { rank: 'silver', label: '白银', minCoins: 200 },
   { rank: 'gold', label: '黄金', minCoins: 320 },

@@ -2,6 +2,8 @@ import { cache } from 'react'
 import type {
   Difficulty,
   Hint,
+  AlgorithmGraph,
+  LevelLocalizedContent,
   ProblemImportMeta,
   ProblemSource,
   ResolvedLanguage,
@@ -29,6 +31,8 @@ export type AdminLevel = {
   status: AdminStatus
   description: string
   statementAssets: StatementAsset[]
+  algorithmGraphs: AlgorithmGraph[]
+  localizedContent: LevelLocalizedContent
   inputFormat: string
   outputFormat: string
   testCases: TestCase[]
@@ -119,12 +123,51 @@ export type AuditLog = {
   createdAt: string
 }
 
+export type KnowledgePointClassification = '编程算法' | '数学'
+
+export type AdminKnowledgePoint = {
+  id: string
+  tagId: string
+  classification: KnowledgePointClassification
+  zhName: string
+  enName: string
+  domain: string
+  bandOrLevel: string
+  commonProblemTypes: string
+  recommendation: string
+  sourceFile: string
+  sourceSection: string
+  sortOrder: number
+  updatedAt: string | null
+}
+
+export type AdminKnowledgePointFilters = {
+  classification?: KnowledgePointClassification
+  domain?: string
+  bandOrLevel?: string
+  q?: string
+  limit?: number
+}
+
+export type AdminKnowledgePointFacets = {
+  classifications: Array<{ value: KnowledgePointClassification; count: number }>
+  domains: Array<{ value: string; count: number }>
+  bandsOrLevels: Array<{ value: string; count: number }>
+}
+
 export type AdminUser = {
   id: string
+  username: string
   email: string | null
+  avatarUrl: string | null
+  phoneNumber: string | null
+  phoneVerifiedAt: string | null
   displayName: string | null
+  realName: string | null
+  idCardNumber: string | null
   parentEmail: string | null
   teacherOwnerId: string | null
+  teacherOwnerUsername: string | null
   teacherOwnerEmail: string | null
   teacherOwnerName: string | null
   accountStatus: UserAccountStatus
@@ -173,6 +216,8 @@ type LevelRow = {
   status: AdminStatus
   description: string
   statement_assets: StatementAsset[] | null
+  algorithm_graphs: AlgorithmGraph[] | null
+  localized_content: LevelLocalizedContent | null
   input_format: string
   output_format: string
   test_cases: TestCase[] | null
@@ -207,10 +252,17 @@ type ProblemSetRow = {
 
 type AdminUserRow = {
   id: string
+  username: string
   email: string | null
+  avatar_url: string | null
+  phone_number: string | null
+  phone_verified_at: string | null
   display_name: string | null
+  real_name: string | null
+  id_card_number: string | null
   parent_email: string | null
   teacher_owner_id: string | null
+  teacher_owner_username: string | null
   teacher_owner_email: string | null
   teacher_owner_name: string | null
   account_status: UserAccountStatus | null
@@ -250,6 +302,22 @@ type ImportBatchRow = {
   imported_at: string | null
 } & Record<string, unknown>
 
+type KnowledgePointRow = {
+  id: string
+  tag_id: string
+  classification: KnowledgePointClassification
+  zh_name: string
+  en_name: string
+  domain: string
+  band_or_level: string
+  common_problem_types: string
+  recommendation: string
+  source_file: string
+  source_section: string
+  sort_order: number
+  updated_at: string | null
+} & Record<string, unknown>
+
 export const listAdminLevels = cache(async (): Promise<AdminLevel[]> => {
   if (!isDbConfigured()) return fallbackLevels()
 
@@ -257,7 +325,7 @@ export const listAdminLevels = cache(async (): Promise<AdminLevel[]> => {
     const rows = await query<LevelRow>(
       `
       SELECT id, chapter_id, "order", title, knowledge_point, difficulty, status, description,
-             statement_assets, input_format, output_format, test_cases, hints, solution, official_code,
+             statement_assets, algorithm_graphs, localized_content, input_format, output_format, test_cases, hints, solution, official_code,
              starter_code, source, import_meta, teacher_notes, sister_problem, solution_video_url,
              time_limit_ms, memory_limit_mb, guardian_id, story, pass_out_problem_id, updated_at, published_at
       FROM levels
@@ -279,7 +347,7 @@ export async function getAdminLevel(id: string): Promise<AdminLevel | null> {
   const row = await queryOne<LevelRow>(
     `
     SELECT id, chapter_id, "order", title, knowledge_point, difficulty, status, description,
-           statement_assets, input_format, output_format, test_cases, hints, solution, official_code,
+           statement_assets, algorithm_graphs, localized_content, input_format, output_format, test_cases, hints, solution, official_code,
            starter_code, source, import_meta, teacher_notes, sister_problem, solution_video_url,
            time_limit_ms, memory_limit_mb, guardian_id, story, pass_out_problem_id, updated_at, published_at
     FROM levels
@@ -362,12 +430,19 @@ export const listAdminUsers = cache(async (): Promise<AdminUser[]> => {
       `
       SELECT
         u.id,
+        u.username,
         u.email,
-        COALESCE(p.display_name, u.display_name) AS display_name,
+        p.avatar_url,
+        p.phone_number,
+        p.phone_verified_at,
+        COALESCE(p.display_name, u.display_name, u.username) AS display_name,
+        p.real_name,
+        p.id_card_number,
         p.parent_email,
         teacher_user.id AS teacher_owner_id,
+        teacher_user.username AS teacher_owner_username,
         teacher_user.email AS teacher_owner_email,
-        COALESCE(teacher_profile.display_name, teacher_user.display_name) AS teacher_owner_name,
+        COALESCE(teacher_profile.display_name, teacher_user.display_name, teacher_user.username) AS teacher_owner_name,
         COALESCE(uas.account_status, 'active') AS account_status,
         COALESCE(uas.is_test_account, FALSE) AS is_test_account,
         ar.role AS admin_role,
@@ -390,8 +465,14 @@ export const listAdminUsers = cache(async (): Promise<AdminUser[]> => {
       GROUP BY
         u.id,
         p.display_name,
+        p.avatar_url,
+        p.phone_number,
+        p.phone_verified_at,
         p.parent_email,
+        p.real_name,
+        p.id_card_number,
         teacher_user.id,
+        teacher_user.username,
         teacher_user.email,
         teacher_profile.display_name,
         uas.account_status,
@@ -617,6 +698,121 @@ export const listAuditLogs = cache(async (): Promise<AuditLog[]> => {
   }
 })
 
+export async function listAdminKnowledgePoints(
+  filters: AdminKnowledgePointFilters = {},
+): Promise<AdminKnowledgePoint[]> {
+  if (!isDbConfigured()) return []
+
+  const values: unknown[] = []
+  const where: string[] = []
+
+  if (filters.classification) {
+    values.push(filters.classification)
+    where.push(`classification = $${values.length}`)
+  }
+
+  if (filters.domain) {
+    values.push(filters.domain)
+    where.push(`domain = $${values.length}`)
+  }
+
+  if (filters.bandOrLevel) {
+    values.push(filters.bandOrLevel)
+    where.push(`band_or_level = $${values.length}`)
+  }
+
+  const q = filters.q?.trim()
+  if (q) {
+    values.push(`%${q}%`)
+    where.push(`(
+      tag_id ILIKE $${values.length}
+      OR zh_name ILIKE $${values.length}
+      OR en_name ILIKE $${values.length}
+      OR common_problem_types ILIKE $${values.length}
+      OR recommendation ILIKE $${values.length}
+    )`)
+  }
+
+  const limit = normalizeKnowledgePointLimit(filters.limit)
+  values.push(limit)
+
+  try {
+    const rows = await query<KnowledgePointRow>(
+      `
+      SELECT
+        id, tag_id, classification, zh_name, en_name, domain, band_or_level,
+        common_problem_types, recommendation, source_file, source_section, sort_order, updated_at
+      FROM knowledge_points
+      ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
+      ORDER BY
+        CASE classification WHEN '编程算法' THEN 1 WHEN '数学' THEN 2 ELSE 3 END,
+        sort_order ASC,
+        tag_id ASC
+      LIMIT $${values.length}
+      `,
+      values,
+    )
+
+    return rows.map(mapKnowledgePointRow)
+  } catch {
+    return []
+  }
+}
+
+export const getAdminKnowledgePointFacets = cache(async (): Promise<AdminKnowledgePointFacets> => {
+  if (!isDbConfigured()) {
+    return { classifications: [], domains: [], bandsOrLevels: [] }
+  }
+
+  try {
+    const [classifications, domains, bandsOrLevels] = await Promise.all([
+      query<{ value: KnowledgePointClassification; count: string | number }>(
+        `
+        SELECT classification AS value, COUNT(*) AS count
+        FROM knowledge_points
+        GROUP BY classification
+        ORDER BY CASE classification WHEN '编程算法' THEN 1 WHEN '数学' THEN 2 ELSE 3 END
+        `,
+      ),
+      query<{ value: string; count: string | number }>(
+        `
+        SELECT domain AS value, COUNT(*) AS count
+        FROM knowledge_points
+        GROUP BY domain
+        ORDER BY domain ASC
+        `,
+      ),
+      query<{ value: string; count: string | number }>(
+        `
+        SELECT band_or_level AS value, COUNT(*) AS count
+        FROM knowledge_points
+        GROUP BY band_or_level
+        ORDER BY
+          CASE
+            WHEN band_or_level ~ '^[0-9]+级$' THEN 1
+            WHEN band_or_level ~ '^M[0-9]+$' THEN 2
+            ELSE 3
+          END,
+          CASE
+            WHEN band_or_level ~ '^[0-9]+级$' THEN regexp_replace(band_or_level, '[^0-9]', '', 'g')::int
+            WHEN band_or_level ~ '^M[0-9]+$' THEN regexp_replace(band_or_level, '[^0-9]', '', 'g')::int
+            ELSE 999
+          END,
+          band_or_level ASC
+        `,
+      ),
+    ])
+
+    return {
+      classifications: classifications.map((row) => ({ value: row.value, count: Number(row.count) })),
+      domains: domains.map((row) => ({ value: row.value, count: Number(row.count) })),
+      bandsOrLevels: bandsOrLevels.map((row) => ({ value: row.value, count: Number(row.count) })),
+    }
+  } catch {
+    return { classifications: [], domains: [], bandsOrLevels: [] }
+  }
+})
+
 type AuditLogRow = {
   id: string
   action: string
@@ -647,6 +843,8 @@ function mapLevelRow(row: LevelRow): AdminLevel {
     status: row.status,
     description: row.description,
     statementAssets: row.statement_assets ?? [],
+    algorithmGraphs: row.algorithm_graphs ?? [],
+    localizedContent: row.localized_content ?? {},
     inputFormat: row.input_format,
     outputFormat: row.output_format,
     testCases,
@@ -692,10 +890,17 @@ function mapProblemSetRow(row: ProblemSetRow): ProblemSet {
 function mapAdminUserRow(row: AdminUserRow): AdminUser {
   return {
     id: row.id,
+    username: row.username,
     email: row.email,
+    avatarUrl: row.avatar_url,
+    phoneNumber: row.phone_number,
+    phoneVerifiedAt: row.phone_verified_at,
     displayName: row.display_name,
+    realName: row.real_name,
+    idCardNumber: row.id_card_number,
     parentEmail: row.parent_email,
     teacherOwnerId: row.teacher_owner_id,
+    teacherOwnerUsername: row.teacher_owner_username,
     teacherOwnerEmail: row.teacher_owner_email,
     teacherOwnerName: row.teacher_owner_name,
     accountStatus: row.account_status ?? 'active',
@@ -729,6 +934,29 @@ function mapImportBatchRow(row: ImportBatchRow): ImportBatch {
   }
 }
 
+function mapKnowledgePointRow(row: KnowledgePointRow): AdminKnowledgePoint {
+  return {
+    id: row.id,
+    tagId: row.tag_id,
+    classification: row.classification,
+    zhName: row.zh_name,
+    enName: row.en_name,
+    domain: row.domain,
+    bandOrLevel: row.band_or_level,
+    commonProblemTypes: row.common_problem_types,
+    recommendation: row.recommendation,
+    sourceFile: row.source_file,
+    sourceSection: row.source_section,
+    sortOrder: row.sort_order,
+    updatedAt: row.updated_at,
+  }
+}
+
+function normalizeKnowledgePointLimit(value: number | undefined): number {
+  if (!value || !Number.isFinite(value)) return 500
+  return Math.min(1000, Math.max(1, Math.floor(value)))
+}
+
 function fallbackLevels(): AdminLevel[] {
   return mockLevels.map((level) => ({
     id: level.id,
@@ -740,6 +968,8 @@ function fallbackLevels(): AdminLevel[] {
     status: 'published',
     description: level.description,
     statementAssets: level.statementAssets,
+    algorithmGraphs: level.algorithmGraphs,
+    localizedContent: level.localizedContent,
     inputFormat: level.inputFormat,
     outputFormat: level.outputFormat,
     testCases: [...level.publicCases],
@@ -827,10 +1057,17 @@ function fallbackUsers(): AdminUser[] {
   return [
     {
       id: 'demo-user',
+      username: 'student-preview',
       email: 'student-preview@spcg.local',
+      avatarUrl: null,
+      phoneNumber: null,
+      phoneVerifiedAt: null,
       displayName: '预览学生',
+      realName: null,
+      idCardNumber: null,
       parentEmail: 'parent-preview@spcg.local',
       teacherOwnerId: null,
+      teacherOwnerUsername: null,
       teacherOwnerEmail: null,
       teacherOwnerName: null,
       accountStatus: 'active',
@@ -845,10 +1082,17 @@ function fallbackUsers(): AdminUser[] {
     },
     {
       id: 'admin-preview',
+      username: 'admin-preview',
       email: 'admin-preview@spcg.local',
+      avatarUrl: null,
+      phoneNumber: null,
+      phoneVerifiedAt: null,
       displayName: '后台预览管理员',
+      realName: null,
+      idCardNumber: null,
       parentEmail: null,
       teacherOwnerId: null,
+      teacherOwnerUsername: null,
       teacherOwnerEmail: null,
       teacherOwnerName: null,
       accountStatus: 'active',

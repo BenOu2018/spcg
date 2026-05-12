@@ -4,6 +4,7 @@ import { query, queryOne } from '@/lib/db'
 
 export type UserAccountSummary = {
   id: string
+  username: string
   email: string | null
   displayName: string | null
   role: UserRole
@@ -16,6 +17,7 @@ type UserRoleRow = {
 
 type UserSummaryRow = {
   id: string
+  username: string
   email: string | null
   display_name: string | null
   role: UserRole | null
@@ -57,15 +59,16 @@ export async function findUserByIdentifier(identifier: string): Promise<UserAcco
     `
     SELECT
       u.id,
+      u.username,
       u.email,
-      COALESCE(p.display_name, u.display_name) AS display_name,
+      COALESCE(p.display_name, u.display_name, u.username) AS display_name,
       COALESCE(ur.role, 'student') AS role,
       COALESCE(uas.account_status, 'active') AS account_status
     FROM users u
     LEFT JOIN profiles p ON p.user_id = u.id
     LEFT JOIN user_roles ur ON ur.user_id = u.id
     LEFT JOIN user_admin_states uas ON uas.user_id = u.id
-    WHERE u.email = $1 OR u.id::text = $1
+    WHERE u.username = $1 OR u.email = $1 OR u.id::text = $1
     `,
     [normalized],
   )
@@ -76,6 +79,7 @@ export async function findUserByIdentifier(identifier: string): Promise<UserAcco
 function mapUserSummary(row: UserSummaryRow): UserAccountSummary {
   return {
     id: row.id,
+    username: row.username,
     email: row.email,
     displayName: row.display_name,
     role: row.role ?? 'student',

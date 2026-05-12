@@ -47,6 +47,25 @@ export type AdminSubmissionHistoryItem = SubmissionHistoryItem & {
   levelOrder: number
 }
 
+export type UserRecentSubmissionItem = Omit<SubmissionHistoryItem, 'code' | 'errorAnalysis'> & {
+  levelId: string
+  levelTitle: string
+  knowledgePoint: string
+  chapterId: string
+  levelOrder: number
+  assessmentAttemptId: string | null
+  assessmentPhase: 'realtime' | 'final' | null
+  score: number
+  maxScore: number | null
+}
+
+export type UserSubmissionDetailItem = UserRecentSubmissionItem & {
+  code: string
+  judgeProgress: JudgeProgress | null
+  judgeMode: 'fast' | 'full' | null
+  errorAnalysis: SubmissionErrorAnalysis | null
+}
+
 type SubmissionRow = {
   id: string
   status: SubmissionStatus
@@ -87,6 +106,25 @@ type AdminSubmissionHistoryRow = SubmissionHistoryRow & {
   level_title: string | null
   chapter_id: string | null
   level_order: number | null
+}
+
+type UserRecentSubmissionRow = Omit<SubmissionHistoryRow, 'code' | 'error_analysis'> & {
+  level_id: string
+  level_title: string | null
+  knowledge_point: string | null
+  chapter_id: string | null
+  level_order: number | null
+  assessment_attempt_id: string | null
+  assessment_phase: 'realtime' | 'final' | null
+  score: number | null
+  max_score: number | null
+}
+
+type UserSubmissionDetailRow = UserRecentSubmissionRow & {
+  code: string
+  judge_progress: JudgeProgress | null
+  judge_mode: 'fast' | 'full' | null
+  error_analysis: SubmissionErrorAnalysis | null
 }
 
 export type JudgeQueueStats = {
@@ -265,7 +303,7 @@ export async function listSubmissionHistoryForLevelViewer(input: {
       s.resolved_language,
       s.user_id,
       u.email AS user_email,
-      COALESCE(p.display_name, u.display_name) AS user_display_name,
+      COALESCE(p.display_name, u.display_name, u.username) AS user_display_name,
       latest_analysis.error_analysis,
       s.created_at,
       s.updated_at
@@ -345,7 +383,7 @@ export async function listAdminSubmissionHistory(input: {
       s.resolved_language,
       s.user_id,
       u.email AS user_email,
-      COALESCE(p.display_name, u.display_name) AS user_display_name,
+      COALESCE(p.display_name, u.display_name, u.username) AS user_display_name,
       s.level_id,
       l.title AS level_title,
       l.chapter_id,
@@ -401,6 +439,100 @@ export async function listAdminSubmissionHistory(input: {
   }))
 }
 
+export async function listRecentSubmissionsForUser(input: { userId: string; limit?: number }): Promise<UserRecentSubmissionItem[]> {
+  const limit = Math.max(1, Math.min(input.limit ?? 200, 500))
+  const rows = await query<UserRecentSubmissionRow>(
+    `
+    SELECT
+      s.id,
+      s.status,
+      s.verdict,
+      s.language,
+      s.resolved_language,
+      s.level_id,
+      l.title AS level_title,
+      l.knowledge_point,
+      l.chapter_id,
+      l."order" AS level_order,
+      s.assessment_attempt_id,
+      s.assessment_phase,
+      s.score,
+      s.max_score,
+      s.created_at,
+      s.updated_at
+    FROM submissions s
+    LEFT JOIN levels l ON l.id = s.level_id
+    WHERE s.user_id = $1
+    ORDER BY s.created_at DESC
+    LIMIT $2
+    `,
+    [input.userId, limit],
+  )
+
+  return rows.map(mapUserRecentSubmission)
+}
+
+export async function getSubmissionDetailForUser(input: {
+  userId: string
+  submissionId: string
+}): Promise<UserSubmissionDetailItem | null> {
+  const row = await queryOne<UserSubmissionDetailRow>(
+    `
+    SELECT
+      s.id,
+      s.status,
+      s.verdict,
+      s.judge_progress,
+      s.code,
+      s.language,
+      s.resolved_language,
+      s.level_id,
+      l.title AS level_title,
+      l.knowledge_point,
+      l.chapter_id,
+      l."order" AS level_order,
+      s.assessment_attempt_id,
+      s.assessment_phase,
+      s.judge_mode,
+      s.score,
+      s.max_score,
+      latest_analysis.error_analysis,
+      s.created_at,
+      s.updated_at
+    FROM submissions s
+    LEFT JOIN levels l ON l.id = s.level_id
+    LEFT JOIN LATERAL (
+      SELECT jsonb_build_object(
+        'id', sea.id,
+        'submissionId', sea.submission_id,
+        'provider', sea.provider,
+        'model', sea.model,
+        'verdictResult', sea.verdict_result,
+        'analysis', sea.analysis,
+        'rawError', sea.raw_error,
+        'promptHash', sea.prompt_hash,
+        'createdAt', sea.created_at
+      ) AS error_analysis
+      FROM submission_error_analyses sea
+      WHERE sea.submission_id = s.id
+      ORDER BY sea.created_at DESC
+      LIMIT 1
+    ) latest_analysis ON TRUE
+    WHERE s.id = $1 AND s.user_id = $2
+    `,
+    [input.submissionId, input.userId],
+  )
+
+  if (!row) return null
+  return {
+    ...mapUserRecentSubmission(row),
+    code: row.code,
+    judgeProgress: row.judge_progress ? normalizeJudgeProgress(row.judge_progress) : null,
+    judgeMode: row.judge_mode ?? null,
+    errorAnalysis: row.error_analysis ? normalizeSubmissionErrorAnalysis(row.error_analysis) : null,
+  }
+}
+
 function normalizeSubmissionErrorAnalysis(value: SubmissionErrorAnalysis): SubmissionErrorAnalysis {
   return {
     ...value,
@@ -419,6 +551,27 @@ function mapSubmissionSummary(row: SubmissionRow): SubmissionSummary {
     assessmentAttemptId: row.assessment_attempt_id ?? null,
     assessmentPhase: row.assessment_phase ?? null,
     judgeMode: row.judge_mode ?? null,
+    score: row.score ?? 0,
+    maxScore: row.max_score ?? null,
+  }
+}
+
+function mapUserRecentSubmission(row: UserRecentSubmissionRow): UserRecentSubmissionItem {
+  return {
+    id: row.id,
+    status: row.status,
+    verdict: row.verdict,
+    language: row.language,
+    resolvedLanguage: row.resolved_language,
+    createdAt: toIsoString(row.created_at),
+    updatedAt: toIsoString(row.updated_at),
+    levelId: row.level_id,
+    levelTitle: row.level_title ?? row.level_id,
+    knowledgePoint: row.knowledge_point ?? '',
+    chapterId: row.chapter_id ?? '',
+    levelOrder: row.level_order ?? 0,
+    assessmentAttemptId: row.assessment_attempt_id ?? null,
+    assessmentPhase: row.assessment_phase ?? null,
     score: row.score ?? 0,
     maxScore: row.max_score ?? null,
   }

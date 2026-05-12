@@ -4,8 +4,10 @@ import {
   createSubmission,
   findRecentSubmissionForUser,
   getJudgeQueueStats,
+  getSubmissionDetailForUser,
   getSubmissionForUser,
   listAdminSubmissionHistory,
+  listRecentSubmissionsForUser,
   listSubmissionHistoryForLevelViewer,
   listSubmissionHistoryForUser,
   type AdminSubmissionHistoryItem,
@@ -13,16 +15,21 @@ import {
   type LevelSubmissionHistoryItem,
   type SubmissionHistoryItem,
   type SubmissionStatus,
+  type UserRecentSubmissionItem,
+  type UserSubmissionDetailItem,
 } from '@/lib/repositories/submission-repository'
 import { isDatabaseConfigured } from '@/lib/repositories/database-repository'
-import { isAssessmentAttemptLevelForUser, recordAssessmentRealtimeSubmission } from '@/lib/repositories/assessment-repository'
+import { recordAssessmentRealtimeSubmission } from '@/lib/repositories/assessment-repository'
 import { getRewardSummaryForSubmission } from '@/lib/services/reward-service'
 import { getLevelAccessForUser } from '@/lib/services/level-access-service'
+import { canUserRunAssessmentLevel } from '@/lib/services/assessment-service'
 import { ServiceError } from '@/lib/services/errors'
 
 export type { SubmissionHistoryItem } from '@/lib/repositories/submission-repository'
 export type { LevelSubmissionHistoryItem } from '@/lib/repositories/submission-repository'
 export type { AdminSubmissionHistoryItem } from '@/lib/repositories/submission-repository'
+export type { UserRecentSubmissionItem } from '@/lib/repositories/submission-repository'
+export type { UserSubmissionDetailItem } from '@/lib/repositories/submission-repository'
 
 export type CreateSubmissionServiceResult =
   | {
@@ -62,6 +69,11 @@ export type LevelSubmissionHistoryResult = {
   error?: string
 }
 
+export type UserRecentSubmissionsResult = {
+  items: UserRecentSubmissionItem[]
+  error?: string
+}
+
 const DEFAULT_SUBMISSION_RATE_LIMIT_SECONDS = 3
 
 export async function createUserSubmission(input: {
@@ -88,13 +100,13 @@ export async function createUserSubmission(input: {
   }
 
   if (input.assessmentAttemptId) {
-    const allowed = await isAssessmentAttemptLevelForUser({
+    const allowed = await canUserRunAssessmentLevel({
       userId: input.userId,
       attemptId: input.assessmentAttemptId,
       levelId: input.levelId,
     })
     if (!allowed) {
-      return { ok: false, code: 'unauthorized', reason: '当前考试不包含这道题，无法提交。' }
+      return { ok: false, code: 'forbidden', reason: '当前用户类型无法提交这道考试题。' }
     }
   } else {
     const access = await getLevelAccessForUser({
@@ -248,6 +260,26 @@ export async function getLevelSubmissionHistoryForViewer(input: {
   }
 }
 
+export async function getUserRecentSubmissions(input: {
+  userId?: string | null
+  limit?: number
+}): Promise<UserRecentSubmissionsResult> {
+  if (!isDatabaseConfigured()) {
+    return { items: [], error: '数据库未配置。' }
+  }
+
+  if (!input.userId) {
+    return { items: [], error: '当前未登录。' }
+  }
+
+  return {
+    items: await listRecentSubmissionsForUser({
+      userId: input.userId,
+      limit: input.limit ?? 200,
+    }),
+  }
+}
+
 export async function requireUserSubmissionVerdict(input: {
   userId?: string | null
   submissionId: string
@@ -269,6 +301,30 @@ export async function requireUserSubmissionHistory(input: {
   if (!input.levelId) throw new ServiceError('bad_request', 'levelId is required.', 400)
   if (!isDatabaseConfigured()) throw new ServiceError('db_unconfigured', '数据库未配置。', 503)
   return getUserSubmissionHistory(input)
+}
+
+export async function requireUserRecentSubmissions(input: {
+  userId?: string | null
+  limit?: number
+}): Promise<UserRecentSubmissionsResult> {
+  if (!input.userId) throw new ServiceError('unauthorized', '当前未登录。', 401)
+  if (!isDatabaseConfigured()) throw new ServiceError('db_unconfigured', '数据库未配置。', 503)
+  return getUserRecentSubmissions(input)
+}
+
+export async function requireUserSubmissionDetail(input: {
+  userId?: string | null
+  submissionId: string
+}): Promise<UserSubmissionDetailItem> {
+  if (!input.userId) throw new ServiceError('unauthorized', '当前未登录。', 401)
+  if (!input.submissionId) throw new ServiceError('bad_request', 'submissionId is required.', 400)
+  if (!isDatabaseConfigured()) throw new ServiceError('db_unconfigured', '数据库未配置。', 503)
+  const item = await getSubmissionDetailForUser({
+    userId: input.userId,
+    submissionId: input.submissionId,
+  })
+  if (!item) throw new ServiceError('not_found', '提交记录不存在。', 404)
+  return item
 }
 
 export async function getAdminSubmissionHistory(input: {

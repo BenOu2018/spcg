@@ -1,6 +1,6 @@
 ALTER TABLE user_wallets
   ALTER COLUMN rank SET DEFAULT 'scrap_iron',
-  ALTER COLUMN title SET DEFAULT '烂铁晨雾算力学徒';
+  ALTER COLUMN title SET DEFAULT '黑铁晨雾算力学徒';
 
 ALTER TABLE user_wallets
   DROP CONSTRAINT IF EXISTS user_wallets_rank_check;
@@ -54,7 +54,7 @@ WITH recalculated AS (
       WHEN coin_total >= 320 THEN '黄金'
       WHEN coin_total >= 200 THEN '白银'
       WHEN coin_total >= 72 THEN '青铜'
-      ELSE '烂铁'
+      ELSE '黑铁'
     END AS next_rank_label
   FROM user_wallets
 )

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SPCG 编程算法知识树</title>
+    <link rel="stylesheet" href="./knowledge-tree.css?v=4" />
+  </head>
+  <body>
+    <main class="knowledge-page" aria-label="SPCG 编程算法知识树">
+      <header class="topbar">
+        <div class="brand">
+          <img src="./svg/crest-cpp.svg" alt="" />
+          <div>
+            <span>Shadow Programming Challenge Guild</span>
+            <strong>SPCG 编程算法知识树</strong>
+          </div>
+        </div>
+
+        <nav class="level-tabs" aria-label="关卡筛选">
+          <span>关卡筛选</span>
+          <a class="active" href="#">1</a>
+          <a href="#">2</a>
+          <a href="#">3</a>
+          <a href="#">4</a>
+          <a href="#">5</a>
+          <a href="#">6</a>
+          <a href="#">7</a>
+          <a href="#">8</a>
+          <a href="#">9</a>
+          <a href="#">10</a>
+        </nav>
+
+        <div class="hero-stats" aria-label="知识树概览">
+          <span><b>268</b> 知识点</span>
+          <span><b>68%</b> 总掌握</span>
+          <span><b>1,250</b> 使用</span>
+        </div>
+      </header>
+
+      <section class="layout">
+        <aside class="domain-panel" aria-label="知识领域">
+          <h2>知识领域</h2>
+          <ul>
+            <li style="--tone: #207fe6"><img src="./svg/book.svg" alt="" /><strong>基础语法</strong><span>Lv.1-2</span></li>
+            <li style="--tone: #36a747"><img src="./svg/flag.svg" alt="" /><strong>流程控制</strong><span>Lv.1-2</span></li>
+            <li style="--tone: #02aebe"><img src="./svg/array.svg" alt="" /><strong>数组字符串</strong><span>Lv.3-4</span></li>
+            <li style="--tone: #e46b28"><img src="./svg/sort.svg" alt="" /><strong>排序递推</strong><span>Lv.4-5</span></li>
+            <li style="--tone: #a74be8"><img src="./svg/number-chain.svg" alt="" /><strong>数论链表</strong><span>Lv.5</span></li>
+            <li style="--tone: #514ee8"><img src="./svg/tree-search.svg" alt="" /><strong>树与搜索</strong><span>Lv.6</span></li>
+            <li style="--tone: #eba91d"><img src="./svg/dp-gem.svg" alt="" /><strong>动态规划</strong><span>Lv.6-7</span></li>
+            <li style="--tone: #df3f75"><img src="./svg/graph.svg" alt="" /><strong>图论进阶</strong><span>Lv.7-10</span></li>
+          </ul>
+
+          <div class="total-progress">
+            <span>总掌握度</span>
+            <strong>68%</strong>
+            <i><em style="width: 68%"></em></i>
+          </div>
+        </aside>
+
+        <section class="tree-stage" aria-label="知识树节点">
+          <svg class="branch-map" viewBox="0 0 960 640" aria-hidden="true">
+            <path class="branch foundation" d="M480 488 C470 385 472 246 480 118" />
+            <path class="branch flow" d="M470 440 C382 358 313 254 238 190" />
+            <path class="branch array" d="M494 430 C592 344 675 254 760 190" />
+            <path class="branch sort" d="M455 500 C336 462 235 379 178 294" />
+            <path class="branch number" d="M500 505 C628 470 738 380 808 296" />
+            <path class="branch search" d="M445 550 C324 545 237 495 170 420" />
+            <path class="branch dp" d="M510 545 C634 540 727 492 802 420" />
+            <path class="branch graph" d="M480 558 C480 584 480 604 480 618" />
+          </svg>
+
+          <img class="great-tree" src="./svg/great-tree.svg" alt="" />
+          <div class="core-badge">
+            <img src="./svg/crest-cpp.svg" alt="" />
+            <strong>算法之树</strong>
+          </div>
+
+          <button class="knowledge-node foundation mastered" style="--x: 50%; --y: 12%; --mastery: 86" data-mastery="86" data-uses="188">
+            <img src="./svg/book.svg" alt="" />
+            <strong>基础语法</strong>
+            <span><b>86%</b><em>188</em></span>
+          </button>
+          <button class="knowledge-node flow steady" style="--x: 28%; --y: 25%; --mastery: 72" data-mastery="72" data-uses="156">
+            <img src="./svg/flag.svg" alt="" />
+            <strong>流程控制</strong>
+            <span><b>72%</b><em>156</em></span>
+          </button>
+          <button class="knowledge-node array steady" style="--x: 73%; --y: 25%; --mastery: 64" data-mastery="64" data-uses="132">
+            <img src="./svg/array.svg" alt="" />
+            <strong>数组字符串</strong>
+            <span><b>64%</b><em>132</em></span>
+          </button>
+          <button class="knowledge-node sort warm" style="--x: 23%; --y: 42%; --mastery: 58" data-mastery="58" data-uses="109">
+            <img src="./svg/sort.svg" alt="" />
+            <strong>排序递推</strong>
+            <span><b>58%</b><em>109</em></span>
+          </button>
+          <button class="knowledge-node number cool" style="--x: 78%; --y: 42%; --mastery: 51" data-mastery="51" data-uses="94">
+            <img src="./svg/number-chain.svg" alt="" />
+            <strong>数论链表</strong>
+            <span><b>51%</b><em>94</em></span>
+          </button>
+          <button class="knowledge-node search cool" style="--x: 27%; --y: 61%; --mastery: 44" data-mastery="44" data-uses="82">
+            <img src="./svg/tree-search.svg" alt="" />
+            <strong>树与搜索</strong>
+            <span><b>44%</b><em>82</em></span>
+          </button>
+          <button class="knowledge-node dp warm" style="--x: 72%; --y: 61%; --mastery: 38" data-mastery="38" data-uses="70">
+            <img src="./svg/dp-gem.svg" alt="" />
+            <strong>动态规划</strong>
+            <span><b>38%</b><em>70</em></span>
+          </button>
+          <button class="knowledge-node graph ember" style="--x: 50%; --y: 76%; --mastery: 31" data-mastery="31" data-uses="54">
+            <img src="./svg/graph.svg" alt="" />
+            <strong>图论进阶</strong>
+            <span><b>31%</b><em>54</em></span>
+          </button>
+
+          <img class="character king" src="./svg/role-king.svg" alt="" />
+          <img class="character general" src="./svg/role-general.svg" alt="" />
+          <img class="character knight" src="./svg/role-knight.svg" alt="" />
+          <img class="character archer" src="./svg/role-archer.svg" alt="" />
+          <img class="character scientist" src="./svg/role-scientist.svg" alt="" />
+          <img class="character mage" src="./svg/role-mage.svg" alt="" />
+        </section>
+
+        <aside class="detail-panel" aria-label="当前知识点">
+          <div class="selected-head">
+            <img src="./svg/book.svg" alt="" />
+            <div>
+              <span>当前焦点</span>
+              <strong>基础语法</strong>
+              <em>Lv. 1-2</em>
+            </div>
+          </div>
+
+          <div class="ring" style="--value: 86">
+            <strong>86%</strong>
+            <span>掌握度</span>
+          </div>
+
+          <dl class="node-stats">
+            <div><dt>总题数</dt><dd>50</dd></div>
+            <div><dt>完成题目</dt><dd>43</dd></div>
+            <div><dt>使用次数</dt><dd>188</dd></div>
+            <div><dt>最近练习</dt><dd>今天</dd></div>
+          </dl>
+
+          <section class="radar-card" aria-label="能力雷达">
+            <h2>能力雷达</h2>
+            <svg viewBox="0 0 220 170" aria-hidden="true">
+              <polygon points="110,18 198,72 178,152 42,152 22,72" />
+              <polygon class="grid" points="110,42 168,78 154,132 66,132 52,78" />
+              <polygon class="value" points="110,35 166,82 150,132 76,126 48,76" />
+              <g>
+                <text x="110" y="12">语法知识</text>
+                <text x="200" y="70">代码实现</text>
+                <text x="175" y="166">调试能力</text>
+                <text x="44" y="166">问题分析</text>
+                <text x="14" y="70">应用能力</text>
+              </g>
+            </svg>
+          </section>
+
+          <a class="primary-action" href="#">进入学习</a>
+          <a class="ghost-action" href="#">挑战关卡 Lv.1-2</a>
+        </aside>
+      </section>
+
+      <nav class="bottom-nav" aria-label="主导航">
+        <a class="active" href="#"><span>知识树</span></a>
+        <a href="#"><span>任务</span></a>
+        <a href="#"><span>挑战</span></a>
+        <a href="#"><span>竞赛</span></a>
+        <a href="#"><span>排行榜</span></a>
+        <a href="#"><span>成就</span></a>
+        <a href="#"><span>商店</span></a>
+        <a href="#"><span>设置</span></a>
+      </nav>
+    </main>
+
+    <script>
+      const nodes = document.querySelectorAll(".knowledge-node");
+      nodes.forEach((node) => {
+        const value = node.dataset.mastery || "0";
+        node.style.setProperty("--ring", value);
+      });
+    </script>
+  </body>
+</html>

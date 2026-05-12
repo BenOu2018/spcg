@@ -91,6 +91,8 @@ type PublicExamLevelRow = {
   sister_problem: Level['sisterProblem']
   description: string
   statement_assets: Level['statementAssets']
+  algorithm_graphs: Level['algorithmGraphs']
+  localized_content: Level['localizedContent'] | null
   input_format: string
   output_format: string
   public_cases: TestCase[] | null
@@ -959,6 +961,8 @@ function mapPublicExamLevelRow(row: PublicExamLevelRow): Level {
     sisterProblem: row.sister_problem ?? null,
     description: row.description,
     statementAssets: row.statement_assets ?? [],
+    algorithmGraphs: row.algorithm_graphs ?? [],
+    localizedContent: row.localized_content ?? {},
     inputFormat: row.input_format,
     outputFormat: row.output_format,
     publicCases: row.public_cases ?? [],

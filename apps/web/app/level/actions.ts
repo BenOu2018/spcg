@@ -2,6 +2,7 @@
 
 import { auth } from '@/auth'
 import { wakeJudgeWorker } from '@/lib/judge-worker-autostart'
+import { canUserRunAssessmentLevel } from '@/lib/services/assessment-service'
 import { getLevelAccessForUser } from '@/lib/services/level-access-service'
 import { getLevelByIdForUser, getUnlockedLevelSolutionForUser } from '@/lib/services/level-service'
 import { explainSubmissionErrorForUser } from '@/lib/services/submission-error-analysis-service'
@@ -32,6 +33,7 @@ type RunCodeInput = {
   code: string
   stdin: string
   languageMode?: LanguageMode
+  assessmentAttemptId?: string | null
 }
 
 type SampleRunStatus = Verdict['result'] | 'judging'
@@ -81,9 +83,10 @@ export async function runCodeAction(input: RunCodeInput): Promise<RunCodeActionR
     }
   }
 
-  const access = await getLevelAccessForUser({
+  const access = await canRunLevelForUser({
     userId: session?.user?.id,
     levelId: input.levelId,
+    assessmentAttemptId: input.assessmentAttemptId ?? null,
   })
   if (!access.allowed) {
     return {
@@ -131,9 +134,10 @@ export async function runPublicSamplesAction(input: SubmitCodeInput): Promise<Ru
     }
   }
 
-  const access = await getLevelAccessForUser({
+  const access = await canRunLevelForUser({
     userId: session?.user?.id,
     levelId: input.levelId,
+    assessmentAttemptId: input.assessmentAttemptId ?? null,
   })
   if (!access.allowed) {
     return {
@@ -258,4 +262,30 @@ function buildRunError(message: string): MockExecutionResult {
 
 function isJudge0Configured(): boolean {
   return Boolean(process.env.JUDGE0_BASE_URL) && process.env.JUDGE0_MODE !== 'mock'
+}
+
+async function canRunLevelForUser(input: {
+  userId?: string | null
+  levelId: string
+  assessmentAttemptId?: string | null
+}): Promise<{ allowed: boolean; reason?: string | null }> {
+  if (input.assessmentAttemptId) {
+    if (!input.userId) return { allowed: false, reason: '当前未登录，无法运行代码。' }
+
+    const allowed = await canUserRunAssessmentLevel({
+      userId: input.userId,
+      attemptId: input.assessmentAttemptId,
+      levelId: input.levelId,
+    })
+
+    return {
+      allowed,
+      reason: allowed ? null : '当前考试不包含这道题，无法运行代码。',
+    }
+  }
+
+  return getLevelAccessForUser({
+    userId: input.userId,
+    levelId: input.levelId,
+  })
 }

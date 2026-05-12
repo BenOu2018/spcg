@@ -60,7 +60,7 @@ export const GAME_CHAPTERS: GameChapter[] = [
     coreConcept: '基础手打、输入输出、变量、顺序分支循环',
     storyKeywords: '旧灯塔、村学、无句公屏、粮仓断能、金币农阶、蒜粒雨',
     titleExamples: ['晨雾算力学徒'],
-    mapAsset: '/assets/art/backgrounds/ch1-mist-town/main-review-v1.png',
+    mapAsset: '/assets/art/backgrounds/ch1-mist-town/main-map-v1.webp',
     nodePositions: [
       { id: 'ch1-01', x: 0.18, y: 0.80 },
       { id: 'ch1-02', x: 0.21, y: 0.69 },
@@ -103,7 +103,7 @@ export const GAME_CHAPTERS: GameChapter[] = [
     coreConcept: '条件判断不是相信标签，而是自己定义真假',
     storyKeywords: '岔路、真假安全门、第三条路、隐藏出口、条件树',
     titleExamples: ['判路小哨', '岔路斥候', '破迷行者', '觅路先锋'],
-    mapAsset: '/assets/art/backgrounds/ch2-logic-maze/main-map-v1.png',
+    mapAsset: '/assets/art/backgrounds/ch2-logic-maze/main-map-fairytale-v1.webp',
     nodePositions: [
       { id: 'ch2-01', x: 0.11, y: 0.78 },
       { id: 'ch2-02', x: 0.19, y: 0.67 },
@@ -146,7 +146,7 @@ export const GAME_CHAPTERS: GameChapter[] = [
     coreConcept: '先把雪灯、冰牌和风雪记录整理成可处理数据',
     storyKeywords: '算法纸条、雪灯巡查、最冷雪灯、二进制冰灯、补码冰纹、位灯开关、冰牌文字、风雪模拟',
     titleExamples: ['纸条译者', '雪灯记官', '位灯巡使', '枚举哨兵'],
-    mapAsset: '/assets/art/backgrounds/ch3-sorting-icefield/main-map-v2.png',
+    mapAsset: '/assets/art/backgrounds/ch3-sorting-icefield/main-map-spcg-color-v1.webp',
     nodePositions: [
       { id: 'ch3-01', x: 0.15, y: 0.85 },
       { id: 'ch3-02', x: 0.28, y: 0.68 },
@@ -205,7 +205,7 @@ export const GAME_CHAPTERS: GameChapter[] = [
     coreConcept: '在寒霜冰桥上理解稳定、边界、效率和日志读写',
     storyKeywords: '冰格坐标、多层冰仓、函数火把、雪线递推、稳定雪队、基础排序、风暴估时、冰原日志',
     titleExamples: ['排阵校手', '寒序校官', '稳序术士', '估时巡官'],
-    mapAsset: '/assets/art/backgrounds/ch3-sorting-icefield/main-map-v2.png',
+    mapAsset: '/assets/art/backgrounds/ch4-frost-bridge/main-map-v2.webp',
     nodePositions: [
       { id: 'ch4-01', x: 0.09, y: 0.79 },
       { id: 'ch4-02', x: 0.18, y: 0.68 },
@@ -255,7 +255,7 @@ export const GAME_CHAPTERS: GameChapter[] = [
     coreConcept: '层层展开、层层回收，抵抗只生成浅层答案的诱惑',
     storyKeywords: 'GCD、LCM、质数、筛法、高精度、链表、二分、递归、贪心、分治、归并、快排',
     titleExamples: ['递归行者', '分治术士', '回溯旅人', '裂层巡使'],
-    mapAsset: '/assets/art/backgrounds/ch3-sorting-icefield/main-map-v2.png',
+    mapAsset: '/assets/art/backgrounds/ch3-sorting-icefield/main-map-v2.webp',
     levelPlan: [
       { id: 'ch5-01', title: '裂谷最大公约', knowledgePoint: '最大公约数 GCD', storyNode: '用辗转相除法找到两段裂谷的共同节律。' },
       { id: 'ch5-02', title: '同频最小倍', knowledgePoint: '最小公倍数 LCM', storyNode: '计算两条安全绳再次同频的最短距离。' },
@@ -289,7 +289,7 @@ export const GAME_CHAPTERS: GameChapter[] = [
     coreConcept: '在火牌、熔岩队列、完全火树和火树中建立结构化秩序',
     storyKeywords: '栈、队列、循环队列、树、二叉树遍历、哈夫曼、格雷码、DFS、BFS、一维 DP、背包',
     titleExamples: ['栈火使者', '队列校官', '后进行者', '余烬术士'],
-    mapAsset: '/assets/art/backgrounds/ch3-sorting-icefield/main-map-v2.png',
+    mapAsset: '/assets/art/backgrounds/ch3-sorting-icefield/main-map-v2.webp',
     levelPlan: [
       { id: 'ch6-01', title: '火牌入栈', knowledgePoint: '栈', storyNode: '后放入的火牌必须先处理。' },
       { id: 'ch6-02', title: '熔岩队列', knowledgePoint: '队列', storyNode: '先到的矿车先穿过熔岩闸口。' },
@@ -321,7 +321,7 @@ export const GAME_CHAPTERS: GameChapter[] = [
     coreConcept: '每一步都承受之前所有选择的重量',
     storyKeywords: '图遍历、哈希、数学函数、二维 DP、区间 DP、LIS、LCS、滚动数组',
     titleExamples: ['决策校官', '状态术士', '转移行者', '磐策将官'],
-    mapAsset: '/assets/art/backgrounds/ch3-sorting-icefield/main-map-v2.png',
+    mapAsset: '/assets/art/backgrounds/ch3-sorting-icefield/main-map-v2.webp',
     levelPlan: [],
   },
   {
@@ -337,7 +337,7 @@ export const GAME_CHAPTERS: GameChapter[] = [
     coreConcept: '看见网络中的路径、坐标关系，区分复制答案和真正理解',
     storyKeywords: '倍增、组合计数、杨辉三角、MST、最短路、坐标几何、图论综合',
     titleExamples: ['图路使者', '网流校官', '暗边潜客', '影链行者'],
-    mapAsset: '/assets/art/backgrounds/ch3-sorting-icefield/main-map-v2.png',
+    mapAsset: '/assets/art/backgrounds/ch3-sorting-icefield/main-map-v2.webp',
     levelPlan: [],
   },
   {
@@ -353,7 +353,7 @@ export const GAME_CHAPTERS: GameChapter[] = [
     coreConcept: '汇总前八关能力，把无句错误转化为 SPCG 新题',
     storyKeywords: '综合算法、数据结构、图论、DP、数论、SPCG',
     titleExamples: ['源码执令', '终端使者', '共生行者', '星环守卫'],
-    mapAsset: '/assets/art/backgrounds/ch3-sorting-icefield/main-map-v2.png',
+    mapAsset: '/assets/art/backgrounds/ch3-sorting-icefield/main-map-v2.webp',
     levelPlan: [],
   },
 ]
@@ -372,7 +372,7 @@ export const SIDE_STORY_CHAPTERS: GameChapter[] = [
     coreConcept: '在真实数据和真实痛苦之间寻找路径',
     storyKeywords: '水下遗迹、搜索、遍历、连通水道、病历索引、弱信号',
     titleExamples: ['寻迹行者', '深搜潜客', '广搜巡使', '萤海巡官'],
-    mapAsset: '/assets/art/backgrounds/ch3-sorting-icefield/main-map-v2.png',
+    mapAsset: '/assets/art/backgrounds/ch3-sorting-icefield/main-map-v2.webp',
     levelPlan: [],
   },
 ]

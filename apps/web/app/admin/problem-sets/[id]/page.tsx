@@ -9,14 +9,9 @@ import {
   type ProblemSetItemDisplayMode,
 } from '@spcg/shared/curriculum'
 import { StatementMarkdown } from '@/components/StatementMarkdown'
-import {
-  getAdminProblemSetDetail,
-  listAdminProblemSetLevelCandidates,
-} from '@/lib/services/problem-set-service'
-import {
-  getAiLessonPlanConfig,
-  listAdminLessonPlans,
-} from '@/lib/services/lesson-plan-service'
+import { getAdminProblemSetDetail, listAdminProblemSetLevelCandidates } from '@/lib/services/problem-set-service'
+import { getAiLessonPlanConfig, listAdminLessonPlans } from '@/lib/services/lesson-plan-service'
+import { AdminDrawer, AdminPageHeader, AdminTabs } from '../../components/AdminChrome'
 import {
   addProblemSetItemAction,
   generateLessonPlanAction,
@@ -29,10 +24,16 @@ import {
 
 type AdminProblemSetDetailPageProps = {
   params: Promise<{ id: string }> | { id: string }
+  searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>
 }
 
-export default async function AdminProblemSetDetailPage({ params }: AdminProblemSetDetailPageProps) {
+const VALID_TABS = new Set(['overview', 'items', 'lesson-plans', 'settings'])
+
+export default async function AdminProblemSetDetailPage({ params, searchParams }: AdminProblemSetDetailPageProps) {
   const { id } = await params
+  const resolvedSearchParams = await searchParams
+  const tab = normalizeTab(readStringParam(resolvedSearchParams?.tab))
+  const drawer = readStringParam(resolvedSearchParams?.drawer)
   const [set, candidates, lessonPlans] = await Promise.all([
     getAdminProblemSetDetail(id),
     listAdminProblemSetLevelCandidates(),
@@ -48,17 +49,218 @@ export default async function AdminProblemSetDetailPage({ params }: AdminProblem
 
   return (
     <section className="admin-stack">
-      <header className="admin-page-head">
-        <div>
-          <span className="admin-eyebrow">Problem Set Detail</span>
-          <h1>{set.title}</h1>
-        </div>
-        <em className={`admin-status admin-status-${set.status}`}>{set.status}</em>
-      </header>
+      <AdminPageHeader
+        actions={
+          <>
+            <Link className="admin-secondary-link" href="/admin/problem-sets">
+              Back
+            </Link>
+            <Link className="admin-button" href={buildHref(`/admin/problem-sets/${set.id}`, resolvedSearchParams, { drawer: 'edit' })}>
+              Edit metadata
+            </Link>
+          </>
+        }
+        description={`${courseLabel(set)} · ${set.itemCount} items`}
+        eyebrow="Problem Set Detail"
+        meta={<em className={`admin-status admin-status-${set.status}`}>{set.status}</em>}
+        title={set.title}
+      />
 
-      <section className="admin-detail-grid">
-        <article className="admin-panel">
-          <h2>Metadata</h2>
+      <AdminTabs
+        items={[
+          { href: buildHref(`/admin/problem-sets/${set.id}`, resolvedSearchParams, { tab: 'overview', drawer: null }), label: 'Overview', active: tab === 'overview' },
+          {
+            href: buildHref(`/admin/problem-sets/${set.id}`, resolvedSearchParams, { tab: 'items', drawer: null }),
+            label: 'Items',
+            active: tab === 'items',
+            count: set.itemCount,
+          },
+          {
+            href: buildHref(`/admin/problem-sets/${set.id}`, resolvedSearchParams, { tab: 'lesson-plans', drawer: null }),
+            label: 'Lesson Plans',
+            active: tab === 'lesson-plans',
+            count: lessonPlans.length,
+          },
+          { href: buildHref(`/admin/problem-sets/${set.id}`, resolvedSearchParams, { tab: 'settings', drawer: null }), label: 'Settings', active: tab === 'settings' },
+        ]}
+      />
+
+      {tab === 'overview' ? (
+        <section className="admin-detail-grid">
+          <article className="admin-panel">
+            <div className="admin-panel-head">
+              <h2>Metadata</h2>
+              <Link className="admin-small-button" href={buildHref(`/admin/problem-sets/${set.id}`, resolvedSearchParams, { drawer: 'edit' })}>
+                Edit
+              </Link>
+            </div>
+            <dl className="admin-dl">
+              <dt>ID</dt>
+              <dd>{set.id}</dd>
+              <dt>Type</dt>
+              <dd>{set.type}</dd>
+              <dt>Visibility</dt>
+              <dd>{set.visibility}</dd>
+              <dt>Course</dt>
+              <dd>{courseLabel(set)}</dd>
+              <dt>Description</dt>
+              <dd>{set.description ?? '-'}</dd>
+            </dl>
+          </article>
+
+          <article className="admin-panel">
+            <h2>v0.2 Completeness</h2>
+            <dl className="admin-dl">
+              <dt>Total</dt>
+              <dd>
+                {lessonCompleteness.total}/{V02_LESSON_ITEM_COUNT}
+              </dd>
+              <dt>Mainline</dt>
+              <dd>
+                {lessonCompleteness.required}/{V02_REQUIRED_ITEM_COUNT}
+              </dd>
+              <dt>Advanced</dt>
+              <dd>{lessonCompleteness.advanced}/2</dd>
+              <dt>Ready</dt>
+              <dd>{lessonCompleteness.ready ? '完整：可发布/生成教案' : lessonCompleteness.message}</dd>
+              <dt>AI</dt>
+              <dd>{aiConfig.configured ? `Configured · ${aiConfig.model}` : 'Not configured'}</dd>
+            </dl>
+          </article>
+        </section>
+      ) : null}
+
+      {tab === 'items' ? (
+        <>
+          <div className="admin-page-actions">
+            <Link className="admin-button" href={buildHref(`/admin/problem-sets/${set.id}`, resolvedSearchParams, { drawer: 'add-item' })}>
+              Add level
+            </Link>
+            <Link className="admin-secondary-link" href={buildHref(`/admin/problem-sets/${set.id}`, resolvedSearchParams, { drawer: 'remove-item' })}>
+              Remove level
+            </Link>
+          </div>
+          <form action={updateProblemSetItemsAction} className="admin-table">
+            <input name="problemSetId" type="hidden" value={set.id} />
+            <div className="admin-table-head admin-set-item-edit-grid">
+              <span>Position</span>
+              <span>Level</span>
+              <span>Label</span>
+              <span>Mode / Required</span>
+            </div>
+            {set.items.map((item) => (
+              <article className="admin-table-row admin-set-item-edit-grid" key={item.levelId}>
+                <span>
+                  <input name="levelId" type="hidden" value={item.levelId} />
+                  <input className="admin-inline-input" name={`position:${item.levelId}`} type="number" min={1} defaultValue={item.position} />
+                </span>
+                <span>
+                  <Link className="admin-title-link" href={`/admin/levels/${item.levelId}`}>
+                    {item.title}
+                  </Link>
+                  <small>
+                    {item.levelId} / {item.chapterId} / {item.knowledgePoint}
+                  </small>
+                </span>
+                <span>
+                  <input className="admin-inline-input" name={`label:${item.levelId}`} defaultValue={item.label ?? ''} />
+                </span>
+                <div className="admin-inline-field">
+                  <select className="admin-inline-input" name={`displayMode:${item.levelId}`} defaultValue={item.displayMode}>
+                    <DisplayModeOptions />
+                  </select>
+                  <label className="admin-checkbox">
+                    <input name={`required:${item.levelId}`} type="checkbox" defaultChecked={item.required} />
+                    <span>required</span>
+                  </label>
+                </div>
+              </article>
+            ))}
+            {set.items.length === 0 ? <p className="admin-empty">No levels in this set yet.</p> : null}
+            <div className="admin-table-actions">
+              <button className="admin-button" type="submit" disabled={set.items.length === 0}>
+                Save Item Order
+              </button>
+            </div>
+          </form>
+        </>
+      ) : null}
+
+      {tab === 'lesson-plans' ? (
+        <section className="admin-detail-grid admin-detail-grid-wide">
+          <article className="admin-panel">
+            <div className="admin-panel-head">
+              <h2>Latest Lesson Plan</h2>
+              <div className="admin-row-actions">
+                {set.type === 'lesson' ? (
+                  <form action={generateLessonPlanAction}>
+                    <input name="problemSetId" type="hidden" value={set.id} />
+                    <button className="admin-small-button" type="submit" disabled={!canGenerateLessonPlan}>
+                      Generate AI
+                    </button>
+                  </form>
+                ) : null}
+                <Link className="admin-small-button" href={buildHref(`/admin/problem-sets/${set.id}`, resolvedSearchParams, { drawer: 'edit-plan' })}>
+                  Edit snapshot
+                </Link>
+              </div>
+            </div>
+            {latestPlan ? (
+              <>
+                <p className="admin-help-text">
+                  Version {latestPlan.version} · {latestPlan.source} · {new Date(latestPlan.createdAt).toLocaleString()}
+                </p>
+                <div className="admin-lesson-plan-preview">
+                  <StatementMarkdown markdown={latestPlan.markdown} assets={[]} hideImages />
+                </div>
+              </>
+            ) : (
+              <p className="admin-empty">No lesson plan generated yet.</p>
+            )}
+            {set.type === 'lesson' && !canGenerateLessonPlan ? (
+              <p className="admin-help-text">
+                v0.2 生成教案需要固定 5 道题、至少前 3 道主线必做，并配置 LESSON_PLAN_AI_BASE_URL / KEY / MODEL。
+              </p>
+            ) : null}
+          </article>
+
+          <article className="admin-panel">
+            <h2>Lesson Plan Versions</h2>
+            <section className="admin-version-list">
+              {lessonPlans.map((plan) => (
+                <details className="admin-version-card" key={plan.id}>
+                  <summary>
+                    <span>v{plan.version}</span>
+                    <span>{plan.source}</span>
+                    <span>{plan.model ?? '-'}</span>
+                    <span>{new Date(plan.createdAt).toLocaleString()}</span>
+                  </summary>
+                  <div className="admin-lesson-plan-preview">
+                    <StatementMarkdown markdown={plan.markdown} assets={[]} hideImages />
+                  </div>
+                </details>
+              ))}
+              {lessonPlans.length === 0 ? <p className="admin-empty">No versions yet.</p> : null}
+            </section>
+          </article>
+        </section>
+      ) : null}
+
+      {tab === 'settings' ? (
+        <section className="admin-detail-grid">
+          <article className="admin-panel">
+            <h2>Status Operations</h2>
+            <div className="admin-action-stack">
+              <StatusButton problemSetId={set.id} status="published" label="Publish" disabled={set.status === 'published'} />
+              <StatusButton problemSetId={set.id} status="review" label="Move to review" disabled={set.status === 'review'} />
+              <StatusButton problemSetId={set.id} status="archived" label="Archive" disabled={set.status === 'archived'} />
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {drawer === 'edit' ? (
+        <AdminDrawer closeHref={buildHref(`/admin/problem-sets/${set.id}`, resolvedSearchParams, { drawer: null })} title="Edit problem set" width="lg">
           <form action={updateProblemSetDetailsAction} className="admin-form-grid admin-form-grid-lesson-detail">
             <input name="problemSetId" type="hidden" value={set.id} />
             <label>
@@ -111,54 +313,11 @@ export default async function AdminProblemSetDetailPage({ params }: AdminProblem
               Save Metadata
             </button>
           </form>
-        </article>
+        </AdminDrawer>
+      ) : null}
 
-        <article className="admin-panel">
-          <h2>Operations</h2>
-          <dl className="admin-dl">
-            <dt>ID</dt>
-            <dd>{set.id}</dd>
-            <dt>Course</dt>
-            <dd>{courseLabel(set)}</dd>
-            <dt>Items</dt>
-            <dd>{set.itemCount}</dd>
-            {set.type === 'lesson' ? (
-              <>
-                <dt>v0.2</dt>
-                <dd>
-                  {lessonCompleteness.total}/{V02_LESSON_ITEM_COUNT} 题 · 主线 {lessonCompleteness.required}/
-                  {V02_REQUIRED_ITEM_COUNT} · 提高 {lessonCompleteness.advanced}/2
-                  <small>{lessonCompleteness.ready ? '完整：可发布/生成教案' : lessonCompleteness.message}</small>
-                </dd>
-              </>
-            ) : null}
-            <dt>AI</dt>
-            <dd>{aiConfig.configured ? `Configured · ${aiConfig.model}` : 'Not configured'}</dd>
-          </dl>
-          <div className="admin-action-stack">
-            <StatusButton problemSetId={set.id} status="published" label="Publish" disabled={set.status === 'published'} />
-            <StatusButton problemSetId={set.id} status="review" label="Move to review" disabled={set.status === 'review'} />
-            <StatusButton problemSetId={set.id} status="archived" label="Archive" disabled={set.status === 'archived'} />
-            {set.type === 'lesson' ? (
-              <form action={generateLessonPlanAction}>
-                <input name="problemSetId" type="hidden" value={set.id} />
-                <button className="admin-button" type="submit" disabled={!canGenerateLessonPlan}>
-                  Generate AI Lesson Plan
-                </button>
-              </form>
-            ) : null}
-          </div>
-          {set.type === 'lesson' && !canGenerateLessonPlan ? (
-            <p className="admin-help-text">
-              v0.2 生成教案需要固定 5 道题、至少前 3 道主线必做，并配置 LESSON_PLAN_AI_BASE_URL / KEY / MODEL。
-            </p>
-          ) : null}
-        </article>
-      </section>
-
-      <section className="admin-detail-grid">
-        <article className="admin-panel">
-          <h2>Add Level</h2>
+      {drawer === 'add-item' ? (
+        <AdminDrawer closeHref={buildHref(`/admin/problem-sets/${set.id}`, resolvedSearchParams, { drawer: null })} title="Add level" width="lg">
           <form action={addProblemSetItemAction} className="admin-form-grid admin-form-grid-add-item">
             <input name="problemSetId" type="hidden" value={set.id} />
             <label className="admin-form-span-2">
@@ -196,13 +355,14 @@ export default async function AdminProblemSetDetailPage({ params }: AdminProblem
               Add Level
             </button>
           </form>
-        </article>
+        </AdminDrawer>
+      ) : null}
 
-        <article className="admin-panel">
-          <h2>Remove Level</h2>
-          <form action={removeProblemSetItemAction} className="admin-form-grid admin-form-grid-add-item">
+      {drawer === 'remove-item' ? (
+        <AdminDrawer closeHref={buildHref(`/admin/problem-sets/${set.id}`, resolvedSearchParams, { drawer: null })} title="Remove level" width="md">
+          <form action={removeProblemSetItemAction} className="admin-form-grid">
             <input name="problemSetId" type="hidden" value={set.id} />
-            <label className="admin-form-span-2">
+            <label className="admin-form-wide">
               <span>Level</span>
               <select name="levelId" required defaultValue="">
                 <option value="" disabled>
@@ -219,112 +379,29 @@ export default async function AdminProblemSetDetailPage({ params }: AdminProblem
               Remove
             </button>
           </form>
-        </article>
-      </section>
+        </AdminDrawer>
+      ) : null}
 
-      <form action={updateProblemSetItemsAction} className="admin-table">
-        <input name="problemSetId" type="hidden" value={set.id} />
-        <div className="admin-table-head admin-set-item-edit-grid">
-          <span>Position</span>
-          <span>Level</span>
-          <span>Label</span>
-          <span>Mode / Required</span>
-        </div>
-        {set.items.map((item) => (
-          <article className="admin-table-row admin-set-item-edit-grid" key={item.levelId}>
-            <span>
-              <input name="levelId" type="hidden" value={item.levelId} />
-              <input className="admin-inline-input" name={`position:${item.levelId}`} type="number" min={1} defaultValue={item.position} />
-            </span>
-            <span>
-              <Link className="admin-title-link" href={`/admin/levels/${item.levelId}`}>
-                {item.title}
-              </Link>
-              <small>
-                {item.levelId} / {item.chapterId} / {item.knowledgePoint}
-              </small>
-            </span>
-            <span>
-              <input className="admin-inline-input" name={`label:${item.levelId}`} defaultValue={item.label ?? ''} />
-            </span>
-            <div className="admin-inline-field">
-              <select className="admin-inline-input" name={`displayMode:${item.levelId}`} defaultValue={item.displayMode}>
-                <DisplayModeOptions />
-              </select>
-              <label className="admin-checkbox">
-                <input name={`required:${item.levelId}`} type="checkbox" defaultChecked={item.required} />
-                <span>required</span>
-              </label>
-            </div>
-          </article>
-        ))}
-        {set.items.length === 0 ? <p className="admin-empty">No levels in this set yet.</p> : null}
-        <div className="admin-table-actions">
-          <button className="admin-button" type="submit" disabled={set.items.length === 0}>
-            Save Item Order
-          </button>
-        </div>
-      </form>
-
-      {set.type === 'lesson' ? (
-        <section className="admin-detail-grid admin-detail-grid-wide">
-          <article className="admin-panel">
-            <h2>Latest Lesson Plan</h2>
-            {latestPlan ? (
-              <>
-                <p className="admin-help-text">
-                  Version {latestPlan.version} · {latestPlan.source} · {new Date(latestPlan.createdAt).toLocaleString()}
-                </p>
-                <div className="admin-lesson-plan-preview">
-                  <StatementMarkdown markdown={latestPlan.markdown} assets={[]} hideImages />
-                </div>
-              </>
-            ) : (
-              <p className="admin-empty">No lesson plan generated yet.</p>
-            )}
-          </article>
-
-          <article className="admin-panel">
-            <h2>Edit Markdown Snapshot</h2>
-            <form action={saveLessonPlanMarkdownAction} className="admin-form-grid">
-              <input name="problemSetId" type="hidden" value={set.id} />
-              <label className="admin-form-full">
-                <span>Markdown</span>
-                <textarea
-                  className="admin-lesson-plan-textarea"
-                  name="markdown"
-                  defaultValue={latestPlan?.markdown ?? ''}
-                  rows={22}
-                  placeholder="# SPCG 1级 第1关 A线 教案"
-                  required
-                />
-              </label>
-              <button className="admin-button" type="submit">
-                Save as New Version
-              </button>
-            </form>
-          </article>
-
-          <article className="admin-panel admin-form-full">
-            <h2>Lesson Plan Versions</h2>
-            <section className="admin-version-list">
-              {lessonPlans.map((plan) => (
-                <details className="admin-version-card" key={plan.id}>
-                  <summary>
-                    <span>v{plan.version}</span>
-                    <span>{plan.source}</span>
-                    <span>{plan.model ?? '-'}</span>
-                    <span>{new Date(plan.createdAt).toLocaleString()}</span>
-                  </summary>
-                  <div className="admin-lesson-plan-preview">
-                    <StatementMarkdown markdown={plan.markdown} assets={[]} hideImages />
-                  </div>
-                </details>
-              ))}
-              {lessonPlans.length === 0 ? <p className="admin-empty">No versions yet.</p> : null}
-            </section>
-          </article>
-        </section>
+      {drawer === 'edit-plan' ? (
+        <AdminDrawer closeHref={buildHref(`/admin/problem-sets/${set.id}`, resolvedSearchParams, { drawer: null })} title="Edit lesson plan markdown" width="xl">
+          <form action={saveLessonPlanMarkdownAction} className="admin-form-grid">
+            <input name="problemSetId" type="hidden" value={set.id} />
+            <label className="admin-form-full">
+              <span>Markdown</span>
+              <textarea
+                className="admin-lesson-plan-textarea"
+                name="markdown"
+                defaultValue={latestPlan?.markdown ?? ''}
+                rows={22}
+                placeholder="# SPCG 1级 第1关 A线 教案"
+                required
+              />
+            </label>
+            <button className="admin-button" type="submit">
+              Save as New Version
+            </button>
+          </form>
+        </AdminDrawer>
       ) : null}
     </section>
   )
@@ -396,4 +473,35 @@ function getLessonCompleteness(items: Array<{ required: boolean; displayMode: Pr
         : '完整'
 
   return { total, required, advanced, ready, message }
+}
+
+function normalizeTab(value: string | undefined) {
+  if (value && VALID_TABS.has(value)) return value
+  return 'overview'
+}
+
+function readStringParam(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0]
+  return value
+}
+
+function buildHref(
+  path: string,
+  searchParams: Record<string, string | string[] | undefined> | undefined,
+  updates: Record<string, string | null>,
+) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(searchParams ?? {})) {
+    const raw = readStringParam(value)
+    if (raw) params.set(key, raw)
+  }
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === null || value === '') {
+      params.delete(key)
+    } else {
+      params.set(key, value)
+    }
+  }
+  const query = params.toString()
+  return query ? `${path}?${query}` : path
 }

@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import { getLocalCppCompilerArgs } from '../shared/cpp-config.js'
 import { DIFFICULTY_LAYER_LABELS, getLevelLabel, isDifficultyStars, isSpcgLevel } from '../shared/difficulty.js'
@@ -24,18 +24,27 @@ import {
   type ValidationResult,
 } from './level-import-core.js'
 import type {
+  AlgorithmGraph,
+  AlgorithmGraphKind,
+  AlgorithmGraphLayout,
+  AlgorithmGraphVisibility,
   Difficulty,
   Hint,
+  LevelLocalizedContent,
   LevelRecord,
+  KnowledgeTagClassification,
   ProblemAlgorithm,
   ProblemAlgorithmFamily,
   ProblemAlgorithmRole,
   ProblemImportMeta,
+  ProblemKnowledgePointSnapshot,
+  ProblemKnowledgeTag,
   ProblemSource,
   ResolvedLanguage,
   Solution,
   StatementAsset,
   TestCase,
+  TestCaseDataRef,
   TestCaseVisibility,
 } from '../shared/types.js'
 
@@ -57,6 +66,27 @@ const ALGORITHM_FAMILIES: ProblemAlgorithmFamily[] = [
 ]
 
 const ALGORITHM_ROLES: ProblemAlgorithmRole[] = ['primary', 'secondary', 'supporting']
+const ALGORITHM_GRAPH_KINDS: AlgorithmGraphKind[] = ['graph', 'tree', 'dag', 'state-transition', 'table']
+const ALGORITHM_GRAPH_LAYOUTS: AlgorithmGraphLayout[] = ['auto', 'manual', 'circle', 'tree', 'grid']
+const ALGORITHM_GRAPH_VISIBILITIES: AlgorithmGraphVisibility[] = ['always']
+const KNOWLEDGE_TAG_CLASSIFICATIONS: KnowledgeTagClassification[] = ['编程算法', '数学']
+const DEFAULT_FILE_BACKED_CASE_THRESHOLD_BYTES = 1024 * 1024
+
+type KnowledgePointDictionaryEntry = {
+  tagId: string
+  classification: KnowledgeTagClassification
+  zhName: string
+  enName: string
+  domain: string
+  bandOrLevel: string
+}
+
+type KnowledgeTagReadResult = {
+  tags: ProblemKnowledgeTag[]
+  snapshots: ProblemKnowledgePointSnapshot[]
+}
+
+let knowledgePointDictionaryPromise: Promise<Map<string, KnowledgePointDictionaryEntry>> | null = null
 
 type Args = {
   packagePath: string | null
@@ -71,6 +101,7 @@ type Args = {
 
 type ParsedPackageLevel = ParsedLevel & {
   assetCopies: AssetCopy[]
+  caseFileCopies: CaseFileCopy[]
   stageAssignment: StageAssignment | null
 }
 
@@ -81,6 +112,11 @@ type PackageValidationResult = ValidationResult & {
 type AssetCopy = {
   from: string
   to: string
+}
+
+type CaseFileCopy = {
+  from: string
+  relativePath: string
 }
 
 type StageDisplayMode = ProblemSetItemDisplayMode
@@ -105,12 +141,14 @@ type TestCaseManifestEntry = {
   input: string
   answer: string
   group: string | null
+  storage: 'inline' | 'file' | null
   note?: string
 }
 
 type TestCaseReadResult = {
   cases: TestCase[]
   entries: TestCaseManifestEntry[]
+  caseFileCopies: CaseFileCopy[]
 }
 
 type PackageQualityContext = {
@@ -153,6 +191,7 @@ async function main() {
   }
 
   await syncStatementAssets(parsed)
+  await syncTestCaseFiles(parsed)
   await importLevelRecords(parsed, args.importBatch)
   await syncStageAssignments(parsed)
 }
@@ -301,6 +340,7 @@ async function parsePackage(packageDir: string, args: Args): Promise<PackageVali
   const id = readRequiredString(rawMeta, 'id', errors)
   const name = readRequiredRecord(rawMeta, 'name', errors)
   const title = name ? readRequiredString(name, 'zh', errors) : undefined
+  const titleEn = name ? readOptionalString(name, 'en') ?? null : null
   const limits = readRequiredRecord(rawMeta, 'limits', errors)
   const spcg = readRequiredRecord(rawMeta, 'spcg', errors)
   const difficultyRaw = spcg ? readRequiredRecord(spcg, 'difficulty', errors) : undefined
@@ -316,6 +356,7 @@ async function parsePackage(packageDir: string, args: Args): Promise<PackageVali
   const algorithmFamilyRaw = readRequiredString(spcg, 'algorithmFamily', errors)
   const algorithmFamily = readAlgorithmFamily(algorithmFamilyRaw, 'spcg.algorithmFamily', errors)
   const algorithms = readAlgorithms(spcg.algorithms, algorithmFamily, errors)
+  const knowledgeTagResult = await readKnowledgeTags(spcg.knowledgeTags, errors)
   const defaultLanguage = readLanguage(spcg.defaultLanguage, 'spcg.defaultLanguage', errors) ?? DEFAULT_CPP_LANGUAGE
   const officialCodeLanguage =
     readLanguage(spcg.officialCodeLanguage, 'spcg.officialCodeLanguage', errors) ?? defaultLanguage
@@ -331,18 +372,25 @@ async function parsePackage(packageDir: string, args: Args): Promise<PackageVali
   const stageItemIndex = readStageItemIndex(spcg, id, parentOrder, difficulty?.spcgLevel ?? null, errors)
 
   const statementPath = join(packageDir, 'statement.md')
+  const statementEnPath = join(packageDir, 'statement.en.md')
   const teacherNotesPath = join(packageDir, 'statement_teacher.md')
+  const teacherNotesEnPath = join(packageDir, 'statement_teacher.en.md')
   const solutionPath = join(packageDir, 'solution.md')
+  const solutionEnPath = join(packageDir, 'solution.en.md')
   const officialCodePath = join(packageDir, 'submissions/accepted/official.cpp')
   const testdataPath = join(packageDir, 'data/testdata.yaml')
 
   const statement = await readRequiredFile(statementPath, errors)
+  const statementEn = await readOptionalFile(statementEnPath)
   const teacherNotes = await readOptionalFile(teacherNotesPath)
+  const teacherNotesEn = await readOptionalFile(teacherNotesEnPath)
   const solutionMarkdown = await readRequiredFile(solutionPath, errors)
+  const solutionMarkdownEn = await readOptionalFile(solutionEnPath)
   const officialCode = await readRequiredFile(officialCodePath, errors)
-  const testCaseResult = await readTestCases(packageDir, testdataPath, errors)
+  const testCaseResult = await readTestCases(packageDir, id, testdataPath, errors)
   const testCases = testCaseResult?.cases ?? null
   const solution = solutionMarkdown ? readSolution(solutionMarkdown, errors) : null
+  const solutionEn = solutionMarkdownEn ? readEnglishSolution(solutionMarkdownEn, errors) : null
   const solutionVideoUrl = readSolutionVideoUrl(packageDir, spcg.solutionVideo, errors)
 
   if (
@@ -351,6 +399,7 @@ async function parsePackage(packageDir: string, args: Args): Promise<PackageVali
     !knowledgePoint ||
     !algorithmFamily ||
     !algorithms ||
+    knowledgeTagResult === null ||
     timeLimitMs === null ||
     memoryLimitMb === null ||
     !difficulty ||
@@ -367,9 +416,17 @@ async function parsePackage(packageDir: string, args: Args): Promise<PackageVali
   }
 
   const assetResult = await readStatementAssets(packageDir, chapterId, id, title, spcg.assets, errors)
+  const algorithmGraphs = await readAlgorithmGraphs(packageDir, spcg.algorithmGraphs, errors)
   const sections = splitSections(statement)
   const inputFormat = sections.get('输入格式')
   const outputFormat = sections.get('输出格式')
+  const localizedContent = buildLocalizedContent({
+    titleEn,
+    statementEn,
+    teacherNotesEn,
+    solutionEn,
+    imageMarkdown: assetResult.imageMarkdown,
+  })
 
   errors.push(...validateStatementMarkdown(id, statement))
 
@@ -390,6 +447,12 @@ async function parsePackage(packageDir: string, args: Args): Promise<PackageVali
     schemaVersion: schemaVersion ?? null,
     algorithmFamily,
     algorithms,
+    ...(knowledgeTagResult
+      ? {
+          knowledgeTags: knowledgeTagResult.tags,
+          knowledgePointSnapshots: knowledgeTagResult.snapshots,
+        }
+      : {}),
     parentOrder,
     stageItemIndex,
     defaultDisplayMode,
@@ -397,7 +460,7 @@ async function parsePackage(packageDir: string, args: Args): Promise<PackageVali
     testCasePolicy: isRecord(spcg.testCasePolicy) ? spcg.testCasePolicy : null,
   }
 
-  if (!inputFormat || !outputFormat || errors.length > 0) {
+  if (!inputFormat || !outputFormat || !algorithmGraphs || errors.length > 0) {
     return { filePath: metaPath, errors }
   }
 
@@ -423,6 +486,8 @@ async function parsePackage(packageDir: string, args: Args): Promise<PackageVali
     officialCodeLanguage,
     description: buildDescription(statement, assetResult.imageMarkdown),
     statementAssets: assetResult.assets,
+    algorithmGraphs,
+    localizedContent,
     inputFormat,
     outputFormat,
     testCases,
@@ -464,7 +529,13 @@ async function parsePackage(packageDir: string, args: Args): Promise<PackageVali
     parsed:
       errors.length > 0
         ? undefined
-        : { filePath: packageDir, record, assetCopies: assetResult.assetCopies, stageAssignment },
+        : {
+            filePath: packageDir,
+            record,
+            assetCopies: assetResult.assetCopies,
+            caseFileCopies: testCaseResult?.caseFileCopies ?? [],
+            stageAssignment,
+          },
     errors,
   }
 }
@@ -533,11 +604,279 @@ async function readStatementAssets(
   }
 }
 
+async function readAlgorithmGraphs(
+  packageDir: string,
+  rawGraphs: unknown,
+  errors: string[],
+): Promise<AlgorithmGraph[] | null> {
+  const startErrorCount = errors.length
+  if (rawGraphs === undefined || rawGraphs === null) return []
+  if (!Array.isArray(rawGraphs)) {
+    errors.push('spcg.algorithmGraphs must be an array when present')
+    return null
+  }
+  if (rawGraphs.length > 5) {
+    errors.push(`spcg.algorithmGraphs supports at most 5 graphs, got ${rawGraphs.length}`)
+  }
+
+  const ids = new Set<string>()
+  const graphs: AlgorithmGraph[] = []
+
+  for (const [index, rawEntry] of rawGraphs.entries()) {
+    if (!isRecord(rawEntry)) {
+      errors.push(`spcg.algorithmGraphs[${index}] must be an object`)
+      continue
+    }
+
+    const id = readRequiredString(rawEntry, 'id', errors)
+    const title = readRequiredString(rawEntry, 'title', errors)
+    const graphPath = readRequiredString(rawEntry, 'path', errors)
+    const visibility = readAlgorithmGraphVisibility(rawEntry.visibility, `spcg.algorithmGraphs[${index}].visibility`, errors)
+
+    if (!id || !title || !graphPath || !visibility) continue
+    if (!/^[a-z][a-z0-9-]{0,39}$/.test(id)) {
+      errors.push(`spcg.algorithmGraphs[${index}].id must be kebab-case and at most 40 characters`)
+    }
+    if (title.length > 80) {
+      errors.push(`spcg.algorithmGraphs[${index}].title must be at most 80 characters`)
+    }
+    if (!graphPath.startsWith('algorithm_graphs/') || graphPath.includes('..')) {
+      errors.push(`spcg.algorithmGraphs[${index}].path must stay under algorithm_graphs/`)
+      continue
+    }
+    if (ids.has(id)) {
+      errors.push(`spcg.algorithmGraphs id duplicates ${id}`)
+      continue
+    }
+    ids.add(id)
+
+    const filePath = resolve(packageDir, graphPath)
+    if (!existsSync(filePath)) {
+      errors.push(`algorithm graph file not found: ${filePath}`)
+      continue
+    }
+
+    const graph = await readAlgorithmGraphFile(filePath, id, title, visibility, errors)
+    if (graph) graphs.push(graph)
+  }
+
+  return errors.length === startErrorCount ? graphs : null
+}
+
+async function readAlgorithmGraphFile(
+  filePath: string,
+  id: string,
+  title: string,
+  visibility: AlgorithmGraphVisibility,
+  errors: string[],
+): Promise<AlgorithmGraph | null> {
+  const startErrorCount = errors.length
+  let raw: unknown
+  try {
+    raw = parseYaml(await readFile(filePath, 'utf8'))
+  } catch (error) {
+    errors.push(`${filePath} failed to parse: ${error instanceof Error ? error.message : String(error)}`)
+    return null
+  }
+
+  if (!isRecord(raw)) {
+    errors.push(`${filePath} must parse to an object`)
+    return null
+  }
+
+  const fileId = readOptionalString(raw, 'id')
+  const fileTitle = readOptionalString(raw, 'title')
+  if (fileId && fileId !== id) errors.push(`${filePath}: id must match meta entry id ${id}`)
+  if (fileTitle && fileTitle !== title) errors.push(`${filePath}: title must match meta entry title ${title}`)
+
+  const kind = readAlgorithmGraphKind(raw.kind, `${filePath}.kind`, errors)
+  const layout = readAlgorithmGraphLayout(raw.layout, kind, `${filePath}.layout`, errors)
+  const description = readNullableString(raw, 'description', null)
+  const nodes = readAlgorithmGraphNodes(raw.nodes, filePath, errors)
+  const edges = readAlgorithmGraphEdges(raw.edges, nodes, filePath, kind, errors)
+
+  if (!kind || !layout || !nodes || !edges || errors.length > startErrorCount) return null
+
+  return {
+    id,
+    title,
+    kind,
+    description,
+    layout,
+    visibility,
+    nodes,
+    edges,
+  }
+}
+
+function readAlgorithmGraphKind(value: unknown, key: string, errors: string[]): AlgorithmGraphKind | null {
+  if (typeof value !== 'string' || !ALGORITHM_GRAPH_KINDS.includes(value as AlgorithmGraphKind)) {
+    errors.push(`${key} must be one of ${ALGORITHM_GRAPH_KINDS.join(', ')}`)
+    return null
+  }
+  return value as AlgorithmGraphKind
+}
+
+function readAlgorithmGraphLayout(
+  value: unknown,
+  kind: AlgorithmGraphKind | null,
+  key: string,
+  errors: string[],
+): AlgorithmGraphLayout | null {
+  if (value === undefined || value === null) {
+    if (kind === 'tree') return 'tree'
+    if (kind === 'table') return 'grid'
+    return 'circle'
+  }
+  if (typeof value !== 'string' || !ALGORITHM_GRAPH_LAYOUTS.includes(value as AlgorithmGraphLayout)) {
+    errors.push(`${key} must be one of ${ALGORITHM_GRAPH_LAYOUTS.join(', ')}`)
+    return null
+  }
+  return value as AlgorithmGraphLayout
+}
+
+function readAlgorithmGraphVisibility(
+  value: unknown,
+  key: string,
+  errors: string[],
+): AlgorithmGraphVisibility | null {
+  if (value === undefined || value === null) return 'always'
+  if (typeof value !== 'string' || !ALGORITHM_GRAPH_VISIBILITIES.includes(value as AlgorithmGraphVisibility)) {
+    errors.push(`${key} must be always`)
+    return null
+  }
+  return value as AlgorithmGraphVisibility
+}
+
+function readAlgorithmGraphNodes(rawNodes: unknown, filePath: string, errors: string[]): AlgorithmGraph['nodes'] | null {
+  if (!Array.isArray(rawNodes)) {
+    errors.push(`${filePath}: nodes must be an array`)
+    return null
+  }
+  if (rawNodes.length === 0 || rawNodes.length > 200) {
+    errors.push(`${filePath}: nodes length must be between 1 and 200`)
+  }
+
+  const ids = new Set<string>()
+  const nodes: AlgorithmGraph['nodes'] = []
+  rawNodes.forEach((rawNode, index) => {
+    if (!isRecord(rawNode)) {
+      errors.push(`${filePath}: nodes[${index}] must be an object`)
+      return
+    }
+    const id = readRequiredString(rawNode, 'id', errors)
+    const rawLabel = readOptionalString(rawNode, 'label')
+    if (!id) return
+    if (id.length > 64 || !/^[A-Za-z0-9_.:-]+$/.test(id)) {
+      errors.push(`${filePath}: nodes[${index}].id must use letters, numbers, _, ., :, - and be at most 64 characters`)
+    }
+    if (ids.has(id)) {
+      errors.push(`${filePath}: duplicate node id ${id}`)
+      return
+    }
+    ids.add(id)
+    const label = rawLabel ?? id
+    if (label.length > 80) errors.push(`${filePath}: nodes[${index}].label must be at most 80 characters`)
+
+    const x = readOptionalFiniteNumber(rawNode.x, `${filePath}: nodes[${index}].x`, errors)
+    const y = readOptionalFiniteNumber(rawNode.y, `${filePath}: nodes[${index}].y`, errors)
+    const role = readNullableString(rawNode, 'role', null)
+
+    nodes.push({
+      id,
+      label,
+      ...(x !== null ? { x } : {}),
+      ...(y !== null ? { y } : {}),
+      ...(role !== null ? { role } : {}),
+    })
+  })
+
+  return nodes
+}
+
+function readAlgorithmGraphEdges(
+  rawEdges: unknown,
+  nodes: AlgorithmGraph['nodes'] | null,
+  filePath: string,
+  kind: AlgorithmGraphKind | null,
+  errors: string[],
+): AlgorithmGraph['edges'] | null {
+  const edgesInput = rawEdges === undefined || rawEdges === null ? [] : rawEdges
+  if (!Array.isArray(edgesInput)) {
+    errors.push(`${filePath}: edges must be an array`)
+    return null
+  }
+  if (edgesInput.length > 400) {
+    errors.push(`${filePath}: edges length must be at most 400`)
+  }
+
+  const nodeIds = new Set((nodes ?? []).map((node) => node.id))
+  const edges: AlgorithmGraph['edges'] = []
+
+  edgesInput.forEach((rawEdge, index) => {
+    if (!isRecord(rawEdge)) {
+      errors.push(`${filePath}: edges[${index}] must be an object`)
+      return
+    }
+    const from = readRequiredString(rawEdge, 'from', errors)
+    const to = readRequiredString(rawEdge, 'to', errors)
+    if (!from || !to) return
+    if (!nodeIds.has(from)) errors.push(`${filePath}: edges[${index}].from references missing node ${from}`)
+    if (!nodeIds.has(to)) errors.push(`${filePath}: edges[${index}].to references missing node ${to}`)
+
+    const label = readNullableString(rawEdge, 'label', null)
+    const weight = readOptionalEdgeWeight(rawEdge.weight, `${filePath}: edges[${index}].weight`, errors)
+    if (label && label.length > 80) errors.push(`${filePath}: edges[${index}].label must be at most 80 characters`)
+    if (typeof weight === 'string' && weight.length > 80) errors.push(`${filePath}: edges[${index}].weight must be at most 80 characters`)
+
+    const directed = typeof rawEdge.directed === 'boolean'
+      ? rawEdge.directed
+      : kind === 'dag' || kind === 'state-transition'
+
+    edges.push({
+      from,
+      to,
+      ...(label !== null ? { label } : {}),
+      ...(weight !== null ? { weight } : {}),
+      directed,
+    })
+  })
+
+  return edges
+}
+
+function readOptionalFiniteNumber(value: unknown, key: string, errors: string[]): number | null {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    errors.push(`${key} must be a finite number`)
+    return null
+  }
+  return value
+}
+
+function readOptionalEdgeWeight(value: unknown, key: string, errors: string[]): string | number | null {
+  if (value === undefined || value === null) return null
+  if (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))) return value
+  errors.push(`${key} must be a string, number, or null`)
+  return null
+}
+
 async function syncStatementAssets(parsed: ParsedPackageLevel[]) {
   for (const level of parsed) {
     for (const copy of level.assetCopies) {
       await mkdir(dirname(copy.to), { recursive: true })
       await copyFile(copy.from, copy.to)
+    }
+  }
+}
+
+async function syncTestCaseFiles(parsed: ParsedPackageLevel[]) {
+  const baseDir = getProblemCasesDir()
+  for (const level of parsed) {
+    for (const copy of level.caseFileCopies) {
+      const target = resolveProblemCasePath(baseDir, copy.relativePath)
+      await mkdir(dirname(target), { recursive: true })
+      await copyFile(copy.from, target)
     }
   }
 }
@@ -650,6 +989,7 @@ function buildLessonProblemSetId(spcgLevel: number, stageNo: number, track: 'A')
 
 async function readTestCases(
   packageDir: string,
+  levelId: string,
   testdataPath: string,
   errors: string[],
 ): Promise<TestCaseReadResult | null> {
@@ -666,21 +1006,56 @@ async function readTestCases(
   if (!entries) return null
 
   const cases: TestCase[] = []
+  const caseFileCopies: CaseFileCopy[] = []
   for (const [index, entry] of entries.entries()) {
-    const input = await readRequiredFile(resolve(packageDir, entry.input), errors)
-    const expectedOutput = await readRequiredFile(resolve(packageDir, entry.answer), errors)
-    if (input === null || expectedOutput === null) continue
+    const inputPath = resolve(packageDir, entry.input)
+    const answerPath = resolve(packageDir, entry.answer)
+    if (!existsSync(inputPath)) {
+      errors.push(`required file not found: ${inputPath}`)
+      continue
+    }
+    if (!existsSync(answerPath)) {
+      errors.push(`required file not found: ${answerPath}`)
+      continue
+    }
+
+    const useFileRef = await shouldUseFileBackedCase(entry, inputPath, answerPath)
+    let input = ''
+    let expectedOutput = ''
+    let inputRef: TestCaseDataRef | undefined
+    let expectedOutputRef: TestCaseDataRef | undefined
+    let inputPreview: string | undefined
+
+    if (useFileRef) {
+      const caseId = `case-${String(index + 1).padStart(2, '0')}`
+      const inputRelativePath = `${levelId}/${caseId}.in`
+      const answerRelativePath = `${levelId}/${caseId}.ans`
+      inputRef = await buildFileBackedCaseRef(inputPath, inputRelativePath)
+      expectedOutputRef = await buildFileBackedCaseRef(answerPath, answerRelativePath)
+      inputPreview = await readInputPreview(inputPath)
+      caseFileCopies.push({ from: inputPath, relativePath: inputRelativePath })
+      caseFileCopies.push({ from: answerPath, relativePath: answerRelativePath })
+    } else {
+      const inputText = await readRequiredFile(inputPath, errors)
+      const expectedOutputText = await readRequiredFile(answerPath, errors)
+      if (inputText === null || expectedOutputText === null) continue
+      input = inputText
+      expectedOutput = expectedOutputText
+    }
 
     cases.push({
       id: `case-${String(index + 1).padStart(2, '0')}`,
       visibility: entry.visibility,
       input,
       expectedOutput,
+      ...(inputRef ? { inputRef } : {}),
+      ...(expectedOutputRef ? { expectedOutputRef } : {}),
+      ...(inputPreview ? { inputPreview } : {}),
       ...(entry.note ? { note: entry.note } : {}),
     })
   }
 
-  return { cases, entries }
+  return { cases, entries, caseFileCopies }
 }
 
 function normalizeTestCaseEntries(
@@ -706,6 +1081,7 @@ function normalizeTestCaseEntries(
         input: `data/${folder}/${id}.in`,
         answer: `data/${folder}/${id}.ans`,
         group: readOptionalString(item, 'group') ?? null,
+        storage: readTestCaseStorage(item.storage, `cases[${index}].storage`, errors),
         ...(typeof item.purpose === 'string' ? { note: item.purpose } : {}),
       })
     })
@@ -748,11 +1124,71 @@ function readExplicitTestCaseEntries(
       input,
       answer,
       group: readOptionalString(item, 'group') ?? null,
+      storage: readTestCaseStorage(item.storage, `${key}[${index}].storage`, errors),
       note: typeof item.purpose === 'string' ? item.purpose : undefined,
     })
   })
 
   return entries
+}
+
+function readTestCaseStorage(value: unknown, key: string, errors: string[]): 'inline' | 'file' | null {
+  if (value === undefined || value === null) return null
+  if (value === 'inline' || value === 'file') return value
+  errors.push(`data/testdata.yaml ${key} must be inline or file`)
+  return null
+}
+
+async function shouldUseFileBackedCase(entry: TestCaseManifestEntry, inputPath: string, answerPath: string): Promise<boolean> {
+  if (entry.storage === 'inline') return false
+  if (entry.storage === 'file') return true
+
+  const threshold = getFileBackedCaseThresholdBytes()
+  const [inputStat, answerStat] = await Promise.all([stat(inputPath), stat(answerPath)])
+  return inputStat.size > threshold || answerStat.size > threshold
+}
+
+async function buildFileBackedCaseRef(path: string, relativePath: string): Promise<TestCaseDataRef> {
+  const [fileStat, sha256] = await Promise.all([stat(path), hashFile(path)])
+  return {
+    type: 'file',
+    path: relativePath,
+    bytes: fileStat.size,
+    sha256,
+  }
+}
+
+async function hashFile(path: string): Promise<string> {
+  const hash = createHash('sha256')
+  hash.update(await readFile(path))
+  return hash.digest('hex')
+}
+
+async function readInputPreview(path: string): Promise<string> {
+  const text = await readFile(path, 'utf8')
+  return text.replace(/\r\n/g, '\n').split('\n', 1)[0] ?? ''
+}
+
+function getFileBackedCaseThresholdBytes(): number {
+  const raw = Number(process.env.PROBLEM_CASE_FILE_THRESHOLD_BYTES ?? DEFAULT_FILE_BACKED_CASE_THRESHOLD_BYTES)
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_FILE_BACKED_CASE_THRESHOLD_BYTES
+}
+
+function getProblemCasesDir(): string {
+  return resolve(process.env.PROBLEM_CASES_DIR ?? 'problem-cases')
+}
+
+function resolveProblemCasePath(baseDir: string, relativePath: string): string {
+  if (relativePath.includes('\0') || isAbsolute(relativePath)) {
+    throw new Error(`invalid problem case path: ${relativePath}`)
+  }
+
+  const target = resolve(baseDir, relativePath)
+  const rel = relative(baseDir, target)
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
+    throw new Error(`problem case path escapes base directory: ${relativePath}`)
+  }
+  return target
 }
 
 async function validatePackageQualityGates(context: PackageQualityContext): Promise<string[]> {
@@ -1100,11 +1536,12 @@ async function checkWrongAnswerExecutions(
       let failedCount = 0
       for (const { testCase } of targetCases) {
         if (!testCase) continue
+        if (testCase.inputRef || testCase.expectedOutputRef) continue
         const run = spawnSync(binaryPath, [], {
           input: testCase.input,
           encoding: 'utf8',
           timeout: Math.max(context.record.timeLimitMs + 1000, 5000),
-          maxBuffer: 1024 * 1024,
+          maxBuffer: getRunOutputMaxBuffer(testCase.expectedOutput),
         })
 
         if (run.error || run.status !== 0 || normalizeOutput(run.stdout) !== normalizeOutput(testCase.expectedOutput)) {
@@ -1121,6 +1558,10 @@ async function checkWrongAnswerExecutions(
   }
 
   return errors
+}
+
+function getRunOutputMaxBuffer(expectedOutput: string): number {
+  return Math.max(1024 * 1024, Buffer.byteLength(expectedOutput, 'utf8') + 1024 * 1024)
 }
 
 function validateScaleCoverage(context: PackageQualityContext, aiLog: string, errors: string[]) {
@@ -1146,7 +1587,7 @@ function validateScaleCoverage(context: PackageQualityContext, aiLog: string, er
   }
 
   const scaleEntries = context.testEntries
-    .map((entry, index) => ({ entry, input: context.record.testCases[index]?.input ?? '' }))
+    .map((entry, index) => ({ entry, input: getTestCaseInputForQuality(context.record.testCases[index]) }))
     .filter(({ entry }) => entry.visibility === 'hidden' && ['random-large', 'stress', 'final'].includes(entry.group ?? ''))
 
   const threshold = Math.pow(ratio, scaleVariables.length)
@@ -1201,7 +1642,7 @@ function validateBoundaryCoverage(context: PackageQualityContext, aiLog: string,
   if (!upperPosition || valuePositions.length === 0) return
 
   const endpointEntries = context.testEntries.filter((entry, index) => {
-    const input = context.record.testCases[index]?.input ?? ''
+    const input = getTestCaseInputForQuality(context.record.testCases[index])
     const firstLine = input.replace(/\r\n/g, '\n').split('\n')[0] ?? ''
     const values = firstLine.match(/-?\d+/g)?.map(Number) ?? []
     const upperValue = values[upperPosition - 1]
@@ -1399,6 +1840,10 @@ function normalizeOutput(value: string): string {
   return value.trim()
 }
 
+function getTestCaseInputForQuality(testCase: TestCase | undefined): string {
+  return testCase?.input || testCase?.inputPreview || ''
+}
+
 function extractNumericUpperBounds(statement: string): Map<string, number> {
   const text = statement
     .replace(/\\leq/g, '<=')
@@ -1473,6 +1918,55 @@ function readSolution(markdown: string, errors: string[]): Solution | null {
   }
 }
 
+function readEnglishSolution(markdown: string, errors: string[]): Solution | null {
+  const sections = splitSections(markdown)
+  const model = getFirstSection(sections, ['Model', 'Model Transformation'])
+  const steps = getFirstSection(sections, ['Algorithm Steps', 'Steps'])
+  const proof = getFirstSection(sections, ['Correctness', 'Correctness Proof'])
+  const complexity = getFirstSection(sections, ['Complexity Analysis', 'Complexity'])
+  const keyPointText = getFirstSection(sections, ['Common Mistakes', 'Key Points'])
+
+  if (!steps) errors.push('solution.en.md must include ## Algorithm Steps')
+  if (!proof) errors.push('solution.en.md must include ## Correctness')
+  if (!complexity) errors.push('solution.en.md must include ## Complexity Analysis')
+  if (!keyPointText) errors.push('solution.en.md must include ## Common Mistakes or ## Key Points')
+  if (!steps || !proof || !complexity || !keyPointText) return null
+
+  const explanation = [
+    model ? `## Model\n\n${model}` : null,
+    `## Algorithm Steps\n\n${steps}`,
+    `## Correctness\n\n${proof}`,
+  ]
+    .filter((section): section is string => Boolean(section))
+    .join('\n\n')
+
+  const keyPoints = keyPointText
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('- '))
+    .map((line) => line.slice(2).trim())
+
+  if (keyPoints.length < 3) {
+    errors.push('solution.en.md key points must contain at least 3 list items')
+  }
+
+  const timeMatch = complexity.match(/Time complexity[：:]\s*(.+)/i)
+  const memoryMatch = complexity.match(/(?:Memory|Space) complexity[：:]\s*(.+)/i)
+  if (!timeMatch) errors.push('solution.en.md complexity must include Time complexity')
+  if (!memoryMatch) errors.push('solution.en.md complexity must include Memory complexity or Space complexity')
+
+  if (keyPoints.length < 3 || !timeMatch || !memoryMatch) return null
+
+  return {
+    explanation,
+    keyPoints,
+    complexity: {
+      time: (timeMatch[1] ?? '').trim().replace(/\.$/, ''),
+      memory: (memoryMatch[1] ?? '').trim().replace(/\.$/, ''),
+    },
+  }
+}
+
 function buildDescription(statement: string, imageMarkdown: string | null): string {
   const withoutTitle = statement.replace(/\r\n/g, '\n').trim().replace(/^# .+\n\n?/, '')
   if (!imageMarkdown) return withoutTitle
@@ -1481,6 +1975,38 @@ function buildDescription(statement: string, imageMarkdown: string | null): stri
     return withoutTitle.replace('## 输入格式', `${imageMarkdown}\n\n## 输入格式`)
   }
   return `${imageMarkdown}\n\n${withoutTitle}`
+}
+
+function buildLocalizedContent(input: {
+  titleEn: string | null
+  statementEn: string | null
+  teacherNotesEn: string | null
+  solutionEn: Solution | null
+  imageMarkdown: string | null
+}): LevelLocalizedContent {
+  if (!input.titleEn && !input.statementEn && !input.teacherNotesEn && !input.solutionEn) {
+    return {}
+  }
+
+  const sections = input.statementEn ? splitSections(input.statementEn) : new Map<string, string>()
+  return {
+    en: {
+      title: input.titleEn,
+      description: input.statementEn ? buildDescription(input.statementEn, input.imageMarkdown) : null,
+      inputFormat: getFirstSection(sections, ['Input Format', 'Input']) ?? null,
+      outputFormat: getFirstSection(sections, ['Output Format', 'Output']) ?? null,
+      teacherNotes: input.teacherNotesEn?.trim() || null,
+      solution: input.solutionEn,
+    },
+  }
+}
+
+function getFirstSection(sections: Map<string, string>, names: string[]): string | null {
+  for (const name of names) {
+    const value = sections.get(name)
+    if (value) return value
+  }
+  return null
 }
 
 function readSolutionVideoUrl(packageDir: string, value: unknown, errors: string[]): string | null | undefined {
@@ -1527,8 +2053,11 @@ async function hashPackageImportInputs(packageDir: string, assetCopies: AssetCop
   const paths = [
     'meta.yaml',
     'statement.md',
+    'statement.en.md',
     'statement_teacher.md',
+    'statement_teacher.en.md',
     'solution.md',
+    'solution.en.md',
     'story.md',
     'ai_log.md',
     'data/testdata.yaml',
@@ -1539,6 +2068,7 @@ async function hashPackageImportInputs(packageDir: string, assetCopies: AssetCop
     ...(await listFilesUnder(packageDir, 'submissions/wrong_answer')),
     ...(await listFilesUnder(packageDir, 'input_validators')),
     ...(await listFilesUnder(packageDir, 'answer_validators')),
+    ...(await listFilesUnder(packageDir, 'algorithm_graphs')),
     ...assetCopies.map((copy) => relative(packageDir, copy.from)),
     ...(await listDataFiles(packageDir)),
   ]
@@ -1718,6 +2248,162 @@ function readAlgorithms(
   }
 
   return errors.some((error) => error.startsWith('spcg.algorithms')) ? null : algorithms
+}
+
+async function readKnowledgeTags(
+  value: unknown,
+  errors: string[],
+): Promise<KnowledgeTagReadResult | null | undefined> {
+  if (value === undefined || value === null) return undefined
+  if (!Array.isArray(value)) {
+    errors.push('spcg.knowledgeTags must be an array when present')
+    return null
+  }
+  if (value.length === 0) {
+    errors.push('spcg.knowledgeTags must contain at least 1 item when present')
+    return null
+  }
+
+  const dictionary = await loadKnowledgePointDictionary(errors)
+  if (!dictionary) return null
+
+  const tags: ProblemKnowledgeTag[] = []
+  const snapshots: ProblemKnowledgePointSnapshot[] = []
+  const seen = new Set<string>()
+  const startErrorCount = errors.length
+
+  value.forEach((item, index) => {
+    if (!isRecord(item)) {
+      errors.push(`spcg.knowledgeTags[${index}] must be an object`)
+      return
+    }
+
+    const tagId = readRequiredString(item, 'tagId', errors)
+    const rawClassification = readRequiredString(item, 'classification', errors)
+    const classification = readKnowledgeTagClassification(
+      rawClassification,
+      `spcg.knowledgeTags[${index}].classification`,
+      errors,
+    )
+    const rawRole = readRequiredString(item, 'role', errors)
+    const role = readAlgorithmRole(rawRole, `spcg.knowledgeTags[${index}].role`, errors)
+    const source = readRequiredString(item, 'source', errors)
+
+    if (tagId && !/^[a-z0-9][a-z0-9-]*$/.test(tagId)) {
+      errors.push(`spcg.knowledgeTags[${index}].tagId must use lowercase kebab-case`)
+    }
+    if (source && !/^[a-z0-9][a-z0-9-]*$/.test(source)) {
+      errors.push(`spcg.knowledgeTags[${index}].source must use lowercase kebab-case`)
+    }
+    if (!tagId || !classification || !role || !source) return
+
+    const key = knowledgePointKey(classification, tagId)
+    if (seen.has(key)) {
+      errors.push(`spcg.knowledgeTags duplicate ${key}`)
+      return
+    }
+    seen.add(key)
+
+    const standard = dictionary.get(key)
+    if (!standard) {
+      errors.push(`spcg.knowledgeTags[${index}] ${key} does not exist in knowledge_points`)
+      return
+    }
+
+    tags.push({ tagId, classification, role, source })
+    snapshots.push({
+      tagId,
+      classification,
+      role,
+      source,
+      zhName: standard.zhName,
+      enName: standard.enName,
+      domain: standard.domain,
+      bandOrLevel: standard.bandOrLevel,
+    })
+  })
+
+  if (tags.length === 0) return null
+  if (!tags.some((tag) => tag.role === 'primary')) {
+    errors.push('spcg.knowledgeTags must contain at least one primary tag')
+  }
+
+  return errors.length === startErrorCount ? { tags, snapshots } : null
+}
+
+function readKnowledgeTagClassification(
+  value: string | undefined,
+  fieldName: string,
+  errors: string[],
+): KnowledgeTagClassification | null {
+  if (!value) return null
+  if (!KNOWLEDGE_TAG_CLASSIFICATIONS.includes(value as KnowledgeTagClassification)) {
+    errors.push(`${fieldName} must be one of: ${KNOWLEDGE_TAG_CLASSIFICATIONS.join(', ')}`)
+    return null
+  }
+  return value as KnowledgeTagClassification
+}
+
+async function loadKnowledgePointDictionary(
+  errors: string[],
+): Promise<Map<string, KnowledgePointDictionaryEntry> | null> {
+  if (knowledgePointDictionaryPromise) return knowledgePointDictionaryPromise
+
+  const databaseUrl = process.env.DATABASE_URL
+  if (!databaseUrl) {
+    errors.push('DATABASE_URL is required to validate spcg.knowledgeTags against knowledge_points')
+    return null
+  }
+
+  knowledgePointDictionaryPromise = (async () => {
+    const { default: pg } = await import('pg')
+    const pool = new pg.Pool({ connectionString: databaseUrl })
+    try {
+      const result = await pool.query<{
+        tag_id: string
+        classification: string
+        zh_name: string
+        en_name: string
+        domain: string
+        band_or_level: string
+      }>(
+        `
+        SELECT tag_id, classification, zh_name, en_name, domain, band_or_level
+        FROM knowledge_points
+        `,
+      )
+      const dictionary = new Map<string, KnowledgePointDictionaryEntry>()
+      for (const row of result.rows) {
+        if (!KNOWLEDGE_TAG_CLASSIFICATIONS.includes(row.classification as KnowledgeTagClassification)) continue
+        const classification = row.classification as KnowledgeTagClassification
+        dictionary.set(knowledgePointKey(classification, row.tag_id), {
+          tagId: row.tag_id,
+          classification,
+          zhName: row.zh_name,
+          enName: row.en_name,
+          domain: row.domain,
+          bandOrLevel: row.band_or_level,
+        })
+      }
+      return dictionary
+    } finally {
+      await pool.end()
+    }
+  })()
+
+  try {
+    return await knowledgePointDictionaryPromise
+  } catch (error) {
+    knowledgePointDictionaryPromise = null
+    errors.push(
+      `failed to load knowledge_points for spcg.knowledgeTags: ${error instanceof Error ? error.message : String(error)}`,
+    )
+    return null
+  }
+}
+
+function knowledgePointKey(classification: KnowledgeTagClassification, tagId: string): string {
+  return `${classification}:${tagId}`
 }
 
 function readHints(value: unknown, errors: string[]): Hint[] | null {

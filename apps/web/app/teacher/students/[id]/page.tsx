@@ -1,168 +1,599 @@
+import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { RANKED_ASSESSMENT_TOTAL_SCORE } from '@spcg/shared/ranked-assessment'
 import { requireTeacherSession } from '@/lib/teacher-auth'
-import { getLessonStageMenu, getMapMainlineLevels } from '@/lib/level-data'
 import {
+  getTeacherLessonStageMenus,
+  getTeacherStudentSharedTeachers,
   getTeacherStudentCurrentLevel,
   getTeacherStudentProgress,
   getTeacherStudents,
   getTeacherStudentSubmissions,
 } from '@/lib/services/teacher-service'
-import { removeTeacherStudentAction, setTeacherStudentCurrentLevelAction } from '../../actions'
+import { getParentsForTeacherStudent } from '@/lib/services/parent-service'
+import { getTeacherStudentGrowthReports } from '@/lib/services/growth-report-service'
+import { requireUserInventory } from '@/lib/services/inventory-service'
+import { listRankedAssessmentHistoryForUser } from '@/lib/services/assessment-service'
+import { requireWalletSummary } from '@/lib/services/wallet-service'
+import { getUserEntitlement, STUDENT_USER_TYPE_OPTIONS } from '@/lib/services/entitlement-service'
+import {
+  bindParentToStudentAction,
+  createParentForStudentAction,
+  generateStudentGrowthReportAction,
+  removeParentStudentBindingAction,
+  removeTeacherStudentAction,
+  resetStudentParentInviteAction,
+  revokeTeacherStudentShareAction,
+  setTeacherStudentCurrentLevelAction,
+  setTeacherStudentUserTypeAction,
+  shareTeacherStudentAction,
+  updateTeacherStudentProfileAction,
+} from '../../actions'
+import {
+  TeacherDrawer,
+  TeacherEmpty,
+  TeacherPageHeader,
+  TeacherPanel,
+  TeacherStatCard,
+  TeacherStatusBadge,
+  TeacherTabs,
+} from '../../components/TeacherChrome'
 
 type TeacherStudentDetailPageProps = {
   params: Promise<{ id: string }> | { id: string }
+  searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>
 }
 
-export default async function TeacherStudentDetailPage({ params }: TeacherStudentDetailPageProps) {
+type StudentDetailTab = 'overview' | 'progress' | 'submissions' | 'assessments' | 'rewards' | 'parents' | 'settings'
+
+export default async function TeacherStudentDetailPage({ params, searchParams }: TeacherStudentDetailPageProps) {
   const { id } = await params
+  const query = (await searchParams) ?? {}
+  const activeTab = normalizeTab(readParam(query.tab))
+  const drawer = readParam(query.drawer)
+  const parentInviteCode = readParam(query.parentInviteCode)
   const session = await requireTeacherSession(`/teacher/students/${id}`)
-  const [students, progress, submissions, mainlineLevels, currentStudyLevel] = await Promise.all([
+  const [
+    students,
+    progress,
+    submissions,
+    stageMenus,
+    currentStudyLevel,
+    wallet,
+    inventory,
+    assessmentHistory,
+    sharedTeachers,
+    parents,
+    growthReports,
+    entitlement,
+  ] = await Promise.all([
     getTeacherStudents(session.user.id),
     getTeacherStudentProgress({ teacherUserId: session.user.id, studentUserId: id }),
     getTeacherStudentSubmissions({ teacherUserId: session.user.id, studentUserId: id, limit: 50 }),
-    getMapMainlineLevels(),
+    getTeacherLessonStageMenus(session.user.id),
     getTeacherStudentCurrentLevel({ teacherUserId: session.user.id, studentUserId: id }),
+    requireWalletSummary(id).catch(() => null),
+    requireUserInventory(id).catch(() => []),
+    listRankedAssessmentHistoryForUser({ userId: id, limit: 8 }).catch(() => []),
+    getTeacherStudentSharedTeachers({ teacherUserId: session.user.id, studentUserId: id }).catch(() => []),
+    getParentsForTeacherStudent({ teacherUserId: session.user.id, studentUserId: id }).catch(() => []),
+    getTeacherStudentGrowthReports({ teacherUserId: session.user.id, studentUserId: id, limit: 8 }).catch(() => []),
+    getUserEntitlement(id).catch(() => null),
   ])
-  const stageMenus = (await Promise.all(mainlineLevels.map((level) => getLessonStageMenu(level.id)))).filter(
-    (menu): menu is NonNullable<typeof menu> => Boolean(menu),
-  )
   const student = students.find((item) => item.id === id)
   if (!student) notFound()
+
   const progressByLevelId = new Map(progress.map((item) => [item.levelId, item]))
   const stageRows = stageMenus.map((menu) => buildStageRow(menu, progressByLevelId))
   const pendingRepair = progress.filter((item) => !item.passed && item.attemptCount > 0).length
   const repairedSuccess = progress.filter((item) => item.passed && item.attemptCount > 1).length
   const recentErrorTypes = summarizeRecentErrors(submissions)
+  const canManage = student.accessLevel === 'owner'
+  const baseHref = `/teacher/students/${student.id}?tab=${activeTab}`
 
   return (
-    <section className="admin-stack">
-      <header className="admin-page-head">
+    <section className="teacher-page">
+      <TeacherPageHeader
+        eyebrow="Student"
+        title={student.displayName ?? student.username ?? student.id}
+        description={`@${student.username} · ${student.accessLevel === 'owner' ? '主老师管理' : '共享查看'}`}
+        actions={
+          <>
+            <Link className="teacher-button secondary" href="/teacher/students">
+              返回列表
+            </Link>
+            {canManage ? (
+              <form action={removeTeacherStudentAction}>
+                <input name="studentUserId" type="hidden" value={student.id} />
+                <button className="teacher-button danger" type="submit">
+                  移除关联
+                </button>
+              </form>
+            ) : null}
+          </>
+        }
+      />
+
+      <section className="teacher-student-hero">
+        <div className="teacher-student-avatar">{(student.displayName ?? student.username).slice(0, 1).toUpperCase()}</div>
         <div>
-          <span className="admin-eyebrow">Student Detail</span>
-          <h1>{student.displayName ?? student.email ?? student.id}</h1>
+          <h2>{currentStudyLevel ? currentStudyLevel.title : '暂未计算当前关卡'}</h2>
+          <p>
+            {currentStudyLevel
+              ? `SPCG ${currentStudyLevel.spcgLevel}级 · 第${currentStudyLevel.stageNo ?? '-'}关 · ${currentStudyLevel.source === 'teacher_set' ? '老师指定' : '按进度自动计算'}`
+              : '学生完成题目后会自动出现学习位置。'}
+          </p>
         </div>
-        <form action={removeTeacherStudentAction}>
-          <input name="studentUserId" type="hidden" value={student.id} />
-          <button className="admin-button" type="submit">
-            Remove student
-          </button>
-        </form>
-      </header>
-
-      <section className="admin-grid-3">
-        <AdminFact label="Passed Levels" value={student.passedCount} />
-        <AdminFact label="Submissions" value={student.submissionCount} />
-        <AdminFact label="待修错题" value={pendingRepair} />
-        <AdminFact label="修错成功" value={repairedSuccess} />
-        <AdminFact label="最近错误" value={recentErrorTypes || '-'} />
+        <TeacherStatusBadge tone={student.isOnline ? 'success' : 'neutral'}>{student.isOnline ? '在线' : '离线'}</TeacherStatusBadge>
       </section>
 
-      <section className="admin-panel">
-        <h2>当前关卡</h2>
-        <p className="admin-help">
-          当前：{currentStudyLevel ? `SPCG ${currentStudyLevel.spcgLevel}级 第${currentStudyLevel.stageNo ?? '-'}关 · ${currentStudyLevel.title}` : '暂未计算'}
-          {currentStudyLevel?.source === 'teacher_set' ? '（老师指定）' : '（按进度自动计算）'}
-        </p>
-        <form action={setTeacherStudentCurrentLevelAction} className="admin-form-grid">
-          <input name="studentUserId" type="hidden" value={student.id} />
-          <label>
-            <span>设置学生当前关卡</span>
-            <select name="levelId" defaultValue={currentStudyLevel?.levelId ?? mainlineLevels[0]?.id ?? ''} required>
-              {mainlineLevels.map((level) => (
-                <option key={level.id} value={level.id}>
-                  第{level.difficulty.spcgLevel}级 · 第{level.order}关 · {level.title}
-                </option>
+      <section className="teacher-stat-grid compact">
+        <TeacherStatCard label="通过题目" value={student.passedCount} />
+        <TeacherStatCard label="今日提交" value={student.todaySubmissionCount} />
+        <TeacherStatCard label="待修错" value={pendingRepair} />
+        <TeacherStatCard label="修错成功" value={repairedSuccess} />
+        <TeacherStatCard label="金币" value={wallet?.coinTotal ?? 0} hint={wallet?.rankLabel ?? '暂无段位'} />
+        <TeacherStatCard label="蒜粒" value={wallet?.garlicBalance ?? 0} hint={wallet?.title ?? '暂无称谓'} />
+        <TeacherStatCard label="用户类型" value={entitlement?.label ?? '体验用户'} hint={entitlement?.updatedAt ? new Date(entitlement.updatedAt).toLocaleDateString() : '默认权益'} />
+      </section>
+
+      {parentInviteCode ? (
+        <div className="teacher-once-code">
+          本次家长邀请码：<strong>{parentInviteCode}</strong>
+        </div>
+      ) : null}
+
+      <TeacherTabs
+        tabs={[
+          { href: `/teacher/students/${student.id}?tab=overview`, label: '概览', active: activeTab === 'overview' },
+          { href: `/teacher/students/${student.id}?tab=progress`, label: '关卡进度', count: stageRows.length, active: activeTab === 'progress' },
+          { href: `/teacher/students/${student.id}?tab=submissions`, label: '提交记录', count: submissions.length, active: activeTab === 'submissions' },
+          { href: `/teacher/students/${student.id}?tab=assessments`, label: '考试记录', count: assessmentHistory.length, active: activeTab === 'assessments' },
+          { href: `/teacher/students/${student.id}?tab=rewards`, label: '奖励成长', active: activeTab === 'rewards' },
+          { href: `/teacher/students/${student.id}?tab=parents`, label: '家长与报告', count: parents.length, active: activeTab === 'parents' },
+          { href: `/teacher/students/${student.id}?tab=settings`, label: '设置', active: activeTab === 'settings' },
+        ]}
+      />
+
+      {activeTab === 'overview' ? (
+        <section className="teacher-dashboard-grid">
+          <TeacherPanel title="学习状态" meta="Learning pulse">
+            <div className="teacher-summary-list">
+              <SummaryRow label="当前关卡" value={currentStudyLevel?.title ?? '-'} />
+              <SummaryRow label="最近错误" value={recentErrorTypes || '暂无明显错误'} />
+              <SummaryRow label="提交总数" value={student.submissionCount} />
+              <SummaryRow label="家长绑定" value={`${parents.length} 位`} />
+              <SummaryRow label="成长报告" value={`${growthReports.length} 份`} />
+            </div>
+          </TeacherPanel>
+          <TeacherPanel title="近期提交" meta="Latest 8" action={<Link href={`/teacher/students/${student.id}?tab=submissions`}>查看全部</Link>}>
+            <div className="teacher-compact-list">
+              {submissions.slice(0, 8).map((submission) => (
+                <Link className="teacher-compact-row" href={`/teacher/submissions?studentUserId=${student.id}&levelId=${submission.levelId}`} key={submission.id}>
+                  <div>
+                    <strong>{submission.levelTitle}</strong>
+                    <span>{new Date(submission.createdAt).toLocaleString()}</span>
+                  </div>
+                  <TeacherStatusBadge tone={submission.result === 'AC' ? 'success' : submission.result ? 'warning' : 'neutral'}>
+                    {submission.result ?? submission.status}
+                  </TeacherStatusBadge>
+                </Link>
               ))}
-            </select>
-          </label>
-          <button className="admin-button" disabled={mainlineLevels.length === 0} type="submit">
-            保存当前关卡
-          </button>
-        </form>
-      </section>
+              {submissions.length === 0 ? <TeacherEmpty>暂无提交记录。</TeacherEmpty> : null}
+            </div>
+          </TeacherPanel>
+        </section>
+      ) : null}
 
-      <section className="admin-table">
-        <div className="admin-table-head teacher-stage-grid">
-          <span>关卡</span>
-          <span>主线</span>
-          <span>提高</span>
-          <span>状态</span>
-          <span>待修错</span>
-        </div>
-        {stageRows.map((stage) => (
-          <article className="admin-table-row teacher-stage-grid" key={stage.id}>
-            <span>
-              第{stage.stageNo}关 · {stage.title}
-              <small>{stage.lessonFocus ?? '-'}</small>
-            </span>
-            <span>{stage.requiredPassed}/3</span>
-            <span>{stage.advancedPassed}/2</span>
-            <span>{stage.status}</span>
-            <span>{stage.pendingRepair}</span>
-          </article>
-        ))}
-        {stageRows.length === 0 ? <p className="admin-empty">No lesson stage data yet.</p> : null}
-      </section>
+      {activeTab === 'progress' ? (
+        <TeacherPanel title="每关 5 题完成度" meta="前 3 题为主线">
+          <div className="teacher-data-table">
+            <div className="teacher-data-head teacher-stage-table-grid">
+              <span>关卡</span>
+              <span>主线</span>
+              <span>提高</span>
+              <span>状态</span>
+              <span>待修错</span>
+            </div>
+            {stageRows.map((stage) => (
+              <div className="teacher-data-row teacher-stage-table-grid" key={stage.id}>
+                <span>
+                  <strong>第{stage.stageNo}关 · {stage.title}</strong>
+                  <small>{stage.lessonFocus ?? '-'}</small>
+                </span>
+                <span>{stage.requiredPassed}/3</span>
+                <span>{stage.advancedPassed}/2</span>
+                <span>{stage.status}</span>
+                <span>{stage.pendingRepair}</span>
+              </div>
+            ))}
+            {stageRows.length === 0 ? <TeacherEmpty>暂无关卡题单数据。</TeacherEmpty> : null}
+          </div>
+        </TeacherPanel>
+      ) : null}
 
-      <section className="admin-table">
-        <div className="admin-table-head admin-user-progress-grid">
-          <span>Level</span>
-          <span>Status</span>
-          <span>Attempts</span>
-          <span>Best Runtime</span>
-          <span>Last Submitted</span>
-        </div>
-        {progress.map((item) => (
-          <article className="admin-table-row admin-user-progress-grid" key={item.levelId}>
-            <span>
-              {item.levelTitle}
-              <small>
-                {item.levelId} / Lv.{item.spcgLevel || '-'}
-              </small>
-            </span>
-            <span>{item.passed ? 'passed' : 'not passed'}</span>
-            <span>{item.attemptCount}</span>
-            <span>{item.bestRuntimeMs === null ? '-' : `${item.bestRuntimeMs}ms`}</span>
-            <span>{item.lastSubmittedAt ? new Date(item.lastSubmittedAt).toLocaleString() : '-'}</span>
-          </article>
-        ))}
-        {progress.length === 0 ? <p className="admin-empty">No progress records yet.</p> : null}
-      </section>
+      {activeTab === 'submissions' ? (
+        <TeacherPanel title="提交记录" meta="最近 50 条" action={<Link href={`/teacher/submissions?studentUserId=${student.id}`}>打开提交检索</Link>}>
+          <div className="teacher-data-table">
+            <div className="teacher-data-head teacher-student-submission-grid">
+              <span>题目</span>
+              <span>状态</span>
+              <span>结果</span>
+              <span>语言</span>
+              <span>提交时间</span>
+            </div>
+            {submissions.map((submission) => (
+              <Link className="teacher-data-row teacher-student-submission-grid" href={`/teacher/submissions?studentUserId=${student.id}&levelId=${submission.levelId}`} key={submission.id}>
+                <span>
+                  <strong>{submission.levelTitle}</strong>
+                  <small>{submission.levelId}</small>
+                </span>
+                <span>{submission.status}</span>
+                <span>
+                  <TeacherStatusBadge tone={submission.result === 'AC' ? 'success' : submission.result ? 'warning' : 'neutral'}>
+                    {submission.result ?? '-'}
+                  </TeacherStatusBadge>
+                </span>
+                <span>{submission.language}</span>
+                <span>{new Date(submission.createdAt).toLocaleString()}</span>
+              </Link>
+            ))}
+            {submissions.length === 0 ? <TeacherEmpty>暂无提交记录。</TeacherEmpty> : null}
+          </div>
+        </TeacherPanel>
+      ) : null}
 
-      <section className="admin-table">
-        <div className="admin-table-head teacher-submission-grid">
-          <span>Submission</span>
-          <span>Level</span>
-          <span>Status</span>
-          <span>Result</span>
-          <span>Created</span>
-        </div>
-        {submissions.map((submission) => (
-          <article className="admin-table-row teacher-submission-grid" key={submission.id}>
-            <span>
-              {submission.id.slice(0, 8)}
-              <small>{submission.language}</small>
-            </span>
-            <span>
-              {submission.levelTitle}
-              <small>{submission.levelId}</small>
-            </span>
-            <span>{submission.status}</span>
-            <span>{submission.result ?? '-'}</span>
-            <span>{new Date(submission.createdAt).toLocaleString()}</span>
-          </article>
-        ))}
-        {submissions.length === 0 ? <p className="admin-empty">No submissions yet.</p> : null}
-      </section>
+      {activeTab === 'assessments' ? (
+        <TeacherPanel title="段位赛历史" meta={`${assessmentHistory.length} records`}>
+          <div className="teacher-compact-list">
+            {assessmentHistory.map((attempt) => (
+              <div className="teacher-compact-row" key={attempt.id}>
+                <div>
+                  <strong>{attempt.sessionTitle}</strong>
+                  <span>{attempt.finishedAt ? new Date(attempt.finishedAt).toLocaleString() : '未完成'}</span>
+                </div>
+                <TeacherStatusBadge tone={attempt.status === 'completed' ? 'success' : 'neutral'}>
+                  {attempt.score}/{RANKED_ASSESSMENT_TOTAL_SCORE}
+                </TeacherStatusBadge>
+              </div>
+            ))}
+            {assessmentHistory.length === 0 ? <TeacherEmpty>暂无考试记录。</TeacherEmpty> : null}
+          </div>
+        </TeacherPanel>
+      ) : null}
+
+      {activeTab === 'rewards' ? (
+        <section className="teacher-dashboard-grid">
+          <TeacherPanel title="钱包与段位" meta="Reward summary">
+            <div className="teacher-summary-list">
+              <SummaryRow label="金币" value={wallet?.coinTotal ?? 0} />
+              <SummaryRow label="段位" value={wallet?.rankLabel ?? '-'} />
+              <SummaryRow label="蒜粒" value={wallet?.garlicBalance ?? 0} />
+              <SummaryRow label="称谓" value={wallet?.title ?? '-'} />
+            </div>
+          </TeacherPanel>
+          <TeacherPanel title="背包摘要" meta={`${inventory.length} items`}>
+            <div className="teacher-compact-list">
+              {inventory.slice(0, 10).map((item) => (
+                <div className="teacher-compact-row" key={item.item.id}>
+                  <div>
+                    <strong>{item.item.name}</strong>
+                    <span>{item.item.rarity} · {item.item.algorithmTag ?? '-'}</span>
+                  </div>
+                  <TeacherStatusBadge>{item.quantity}</TeacherStatusBadge>
+                </div>
+              ))}
+              {inventory.length === 0 ? <TeacherEmpty>暂无背包物品。</TeacherEmpty> : null}
+            </div>
+          </TeacherPanel>
+        </section>
+      ) : null}
+
+      {activeTab === 'parents' ? (
+        <section className="teacher-dashboard-grid">
+          <TeacherPanel
+            title="家长绑定"
+            meta={`${parents.length} active`}
+            action={
+              canManage ? (
+                <div className="teacher-row-actions">
+                  <Link className="teacher-small-button" href={`${baseHref}&drawer=parent-invite`}>重置邀请码</Link>
+                  <Link className="teacher-small-button" href={`${baseHref}&drawer=create-parent`}>新建家长</Link>
+                  <Link className="teacher-small-button" href={`${baseHref}&drawer=bind-parent`}>绑定已有</Link>
+                </div>
+              ) : null
+            }
+          >
+            <div className="teacher-compact-list">
+              {parents.map((binding) => (
+                <div className="teacher-compact-row" key={binding.parentUserId}>
+                  <div>
+                    <strong>{binding.parent.displayName ?? binding.parent.username}</strong>
+                    <span>
+                      @{binding.parent.username}
+                      {binding.parent.phoneNumberMasked ? ` · ${binding.parent.phoneNumberMasked}` : ''}
+                    </span>
+                  </div>
+                  {canManage ? (
+                    <form action={removeParentStudentBindingAction}>
+                      <input name="studentUserId" type="hidden" value={student.id} />
+                      <input name="parentUserId" type="hidden" value={binding.parentUserId} />
+                      <button className="teacher-small-button subtle" type="submit">移除</button>
+                    </form>
+                  ) : null}
+                </div>
+              ))}
+              {parents.length === 0 ? <TeacherEmpty>暂无家长绑定。</TeacherEmpty> : null}
+            </div>
+          </TeacherPanel>
+          <TeacherPanel
+            title="成长报告"
+            meta={`${growthReports.length} recent`}
+            action={canManage ? <Link className="teacher-small-button" href={`${baseHref}&drawer=growth-report`}>生成报告</Link> : null}
+          >
+            <div className="teacher-compact-list">
+              {growthReports.map((report) => (
+                <div className="teacher-compact-row" key={report.id}>
+                  <div>
+                    <strong>{report.title}</strong>
+                    <span>{report.periodStart} 至 {report.periodEnd}</span>
+                  </div>
+                  <TeacherStatusBadge>{report.status}</TeacherStatusBadge>
+                </div>
+              ))}
+              {growthReports.length === 0 ? <TeacherEmpty>暂无成长报告。</TeacherEmpty> : null}
+            </div>
+          </TeacherPanel>
+        </section>
+      ) : null}
+
+      {activeTab === 'settings' ? (
+        <section className="teacher-dashboard-grid">
+          <TeacherPanel title="学习设置" meta={canManage ? '可编辑' : '共享老师只读'}>
+            <div className="teacher-summary-list">
+              <SummaryRow label="显示名" value={student.displayName ?? student.username} />
+              <SummaryRow label="年龄" value={student.age ?? '-'} />
+              <SummaryRow label="真实姓名" value={student.realName ?? '-'} />
+              <SummaryRow label="身份证" value={maskIdCardNumber(student.idCardNumber)} />
+              <SummaryRow label="手机号" value={student.phoneNumberMasked ?? '未绑定'} />
+              <SummaryRow label="用户类型" value={entitlement?.label ?? '体验用户'} />
+              <SummaryRow label="老师备注" value={student.teacherNote ?? '-'} />
+            </div>
+            {canManage ? (
+              <div className="teacher-row-actions">
+                <Link className="teacher-button" href={`${baseHref}&drawer=edit-profile`}>编辑资料</Link>
+                <Link className="teacher-button secondary" href={`${baseHref}&drawer=current-level`}>设置当前关卡</Link>
+                <Link className="teacher-button secondary" href={`${baseHref}&drawer=user-type`}>设置用户类型</Link>
+              </div>
+            ) : null}
+          </TeacherPanel>
+          <TeacherPanel
+            title="共享老师"
+            meta={`${sharedTeachers.length} viewers`}
+            action={canManage ? <Link className="teacher-small-button" href={`${baseHref}&drawer=share-teacher`}>共享学生</Link> : null}
+          >
+            <div className="teacher-compact-list">
+              {sharedTeachers.map((teacher) => (
+                <div className="teacher-compact-row" key={teacher.teacherUserId}>
+                  <div>
+                    <strong>{teacher.displayName ?? teacher.username}</strong>
+                    <span>@{teacher.username} · {teacher.sharedAt ? new Date(teacher.sharedAt).toLocaleString() : 'shared'}</span>
+                  </div>
+                  {canManage ? (
+                    <form action={revokeTeacherStudentShareAction}>
+                      <input name="studentUserId" type="hidden" value={student.id} />
+                      <input name="targetTeacherUserId" type="hidden" value={teacher.teacherUserId} />
+                      <button className="teacher-small-button subtle" type="submit">撤销</button>
+                    </form>
+                  ) : null}
+                </div>
+              ))}
+              {sharedTeachers.length === 0 ? <TeacherEmpty>暂无共享老师。</TeacherEmpty> : null}
+            </div>
+          </TeacherPanel>
+        </section>
+      ) : null}
+
+      {renderDrawer({
+        drawer,
+        closeHref: baseHref,
+        studentId: student.id,
+        student,
+        levelOptions: stageMenus,
+        currentLevelId: currentStudyLevel?.levelId ?? stageMenus[0]?.items[0]?.levelId ?? '',
+        userType: entitlement?.userType ?? 'experience',
+      })}
     </section>
   )
 }
 
-function summarizeRecentErrors(
-  submissions: Array<{
-    result: string | null
-  }>,
-) {
+function renderDrawer(input: {
+  drawer: string | null
+  closeHref: string
+  studentId: string
+  student: {
+    displayName: string | null
+    username: string
+    age: number | null
+    realName?: string | null
+    idCardNumber?: string | null
+    parentEmail: string | null
+    teacherNote: string | null
+  }
+  levelOptions: Array<{
+    problemSetId: string
+    title: string
+    spcgLevel: number
+    stageNo: number
+    lessonFocus: string | null
+    items: Array<{ levelId: string; title: string; position: number }>
+  }>
+  currentLevelId: string
+  userType: string
+}) {
+  if (!input.drawer) return null
+  if (input.drawer === 'edit-profile') {
+    return (
+      <TeacherDrawer title="编辑学习资料" closeHref={input.closeHref}>
+        <form action={updateTeacherStudentProfileAction} className="teacher-form-grid">
+          <input name="studentUserId" type="hidden" value={input.studentId} />
+          <label><span>显示名</span><input name="displayName" defaultValue={input.student.displayName ?? input.student.username} required /></label>
+          <label><span>年龄</span><input name="age" type="number" min={0} max={120} defaultValue={input.student.age ?? ''} /></label>
+          <label><span>真实姓名</span><input name="realName" defaultValue={input.student.realName ?? ''} placeholder="用于考试、证书或实名资料" /></label>
+          <label><span>身份证号</span><input name="idCardNumber" defaultValue={input.student.idCardNumber ?? ''} placeholder="15或18位身份证号" /></label>
+          <label><span>家长邮箱</span><input name="parentEmail" type="email" defaultValue={input.student.parentEmail ?? ''} /></label>
+          <label><span>老师备注</span><textarea name="teacherNote" defaultValue={input.student.teacherNote ?? ''} rows={4} /></label>
+          <button className="teacher-button" type="submit">保存资料</button>
+        </form>
+      </TeacherDrawer>
+    )
+  }
+  if (input.drawer === 'current-level') {
+    return (
+      <TeacherDrawer title="设置当前关卡" closeHref={input.closeHref}>
+        <form action={setTeacherStudentCurrentLevelAction} className="teacher-form-grid">
+          <input name="studentUserId" type="hidden" value={input.studentId} />
+          <label>
+            <span>当前关卡</span>
+            <select name="levelId" defaultValue={input.currentLevelId} required>
+              {input.levelOptions.map((stage) => {
+                const levelId = stage.items[0]?.levelId
+                if (!levelId) return null
+                return (
+                  <option key={stage.problemSetId} value={levelId}>
+                    第{stage.spcgLevel}级 · 第{stage.stageNo}关 · {stage.title}
+                    {stage.lessonFocus ? ` · ${stage.lessonFocus}` : ''}
+                  </option>
+                )
+              })}
+            </select>
+          </label>
+          <button className="teacher-button" disabled={input.levelOptions.length === 0} type="submit">保存当前关卡</button>
+        </form>
+      </TeacherDrawer>
+    )
+  }
+  if (input.drawer === 'user-type') {
+    return (
+      <TeacherDrawer title="设置学生用户类型" description="用户类型只影响访问权益，不改变学生账号角色。" closeHref={input.closeHref}>
+        <form action={setTeacherStudentUserTypeAction} className="teacher-form-grid">
+          <input name="studentUserId" type="hidden" value={input.studentId} />
+          <label>
+            <span>用户类型</span>
+            <select name="userType" defaultValue={input.userType} required>
+              {STUDENT_USER_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label><span>备注</span><textarea name="note" rows={3} placeholder="记录开通原因、付款备注或测试批次" /></label>
+          <div className="teacher-form-note">
+            {STUDENT_USER_TYPE_OPTIONS.map((option) => (
+              <p key={option.value}><strong>{option.label}</strong>：{option.description}</p>
+            ))}
+          </div>
+          <button className="teacher-button" type="submit">保存用户类型</button>
+        </form>
+      </TeacherDrawer>
+    )
+  }
+  if (input.drawer === 'share-teacher') {
+    return (
+      <TeacherDrawer title="共享给其他老师" closeHref={input.closeHref}>
+        <form action={shareTeacherStudentAction} className="teacher-form-grid">
+          <input name="studentUserId" type="hidden" value={input.studentId} />
+          <label><span>老师用户名或 ID</span><input name="targetTeacherIdentifier" required placeholder="teacher01" /></label>
+          <button className="teacher-button" type="submit">共享学生</button>
+        </form>
+      </TeacherDrawer>
+    )
+  }
+  if (input.drawer === 'parent-invite') {
+    return (
+      <TeacherDrawer title="重置家长邀请码" description="旧邀请码会立即失效，新邀请码只在本次页面显示一次。" closeHref={input.closeHref}>
+        <form action={resetStudentParentInviteAction} className="teacher-form-grid">
+          <input name="studentUserId" type="hidden" value={input.studentId} />
+          <button className="teacher-button" type="submit">重置并显示邀请码</button>
+        </form>
+      </TeacherDrawer>
+    )
+  }
+  if (input.drawer === 'create-parent') {
+    return (
+      <TeacherDrawer title="新建家长账号" closeHref={input.closeHref}>
+        <form action={createParentForStudentAction} className="teacher-form-grid">
+          <input name="studentUserId" type="hidden" value={input.studentId} />
+          <label><span>家长用户名</span><input name="username" required placeholder="parent01" /></label>
+          <label><span>显示名</span><input name="displayName" required placeholder="王同学家长" /></label>
+          <label><span>临时密码</span><input name="password" minLength={8} required type="password" /></label>
+          <label><span>手机号</span><input name="phoneNumber" inputMode="tel" placeholder="13800000000" /></label>
+          <label><span>邮箱</span><input name="email" type="email" placeholder="parent@example.com" /></label>
+          <label><span>备注</span><input name="note" placeholder="妈妈 / 爸爸 / 监护人" /></label>
+          <button className="teacher-button" type="submit">创建并绑定家长</button>
+        </form>
+      </TeacherDrawer>
+    )
+  }
+  if (input.drawer === 'bind-parent') {
+    return (
+      <TeacherDrawer title="绑定已有家长" closeHref={input.closeHref}>
+        <form action={bindParentToStudentAction} className="teacher-form-grid">
+          <input name="studentUserId" type="hidden" value={input.studentId} />
+          <label><span>家长用户名或 ID</span><input name="parentIdentifier" required placeholder="parent01" /></label>
+          <label><span>备注</span><input name="note" placeholder="关系说明" /></label>
+          <button className="teacher-button" type="submit">绑定家长</button>
+        </form>
+      </TeacherDrawer>
+    )
+  }
+  if (input.drawer === 'growth-report') {
+    return (
+      <TeacherDrawer title="生成成长报告" closeHref={input.closeHref}>
+        <form action={generateStudentGrowthReportAction} className="teacher-form-grid">
+          <input name="studentUserId" type="hidden" value={input.studentId} />
+          <label><span>开始日期</span><input name="periodStart" type="date" /></label>
+          <label><span>结束日期</span><input name="periodEnd" type="date" /></label>
+          <button className="teacher-button" type="submit">生成报告</button>
+        </form>
+      </TeacherDrawer>
+    )
+  }
+  return null
+}
+
+function SummaryRow({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
+}
+
+function maskIdCardNumber(value?: string | null): string {
+  const text = value?.trim() ?? ''
+  if (!text) return '-'
+  if (text.length <= 8) return text
+  return `${text.slice(0, 3)}***********${text.slice(-4)}`
+}
+
+function normalizeTab(value: string | null): StudentDetailTab {
+  if (
+    value === 'progress' ||
+    value === 'submissions' ||
+    value === 'assessments' ||
+    value === 'rewards' ||
+    value === 'parents' ||
+    value === 'settings'
+  ) {
+    return value
+  }
+  return 'overview'
+}
+
+function summarizeRecentErrors(submissions: Array<{ result: string | null }>) {
   const counts = new Map<string, number>()
   for (const submission of submissions) {
     const result = submission.result
@@ -196,13 +627,7 @@ function buildStageRow(
     return progress && !progress.passed && progress.attemptCount > 0
   }).length
   const status =
-    totalPassed >= 5
-      ? '完全掌握'
-      : totalPassed >= 4
-        ? '掌握良好'
-        : requiredPassed >= 3
-          ? '主线完成'
-          : '进行中'
+    totalPassed >= 5 ? '完全掌握' : totalPassed >= 4 ? '掌握良好' : requiredPassed >= 3 ? '主线完成' : '进行中'
 
   return {
     id: menu.problemSetId,
@@ -216,11 +641,8 @@ function buildStageRow(
   }
 }
 
-function AdminFact({ label, value }: { label: string; value: string | number }) {
-  return (
-    <article className="admin-fact">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </article>
-  )
+function readParam(value: string | string[] | undefined): string | null {
+  const raw = Array.isArray(value) ? value[0] : value
+  const trimmed = raw?.trim() ?? ''
+  return trimmed.length > 0 ? trimmed : null
 }

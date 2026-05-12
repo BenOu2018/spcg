@@ -5,6 +5,7 @@ import { addStudentToTeacher, createStudentForTeacher, getTeacherStudents } from
 
 type AddStudentBody = {
   studentIdentifier?: unknown
+  username?: unknown
   email?: unknown
   password?: unknown
   displayName?: unknown
@@ -26,12 +27,13 @@ export async function POST(request: Request) {
   try {
     const session = await auth()
     const body = (await request.json()) as AddStudentBody
-    const email = typeof body.email === 'string' ? body.email.trim() : ''
-    if (email) {
+    const username = typeof body.username === 'string' ? body.username.trim() : ''
+    if (username) {
       const age = typeof body.age === 'number' ? body.age : Number(body.age ?? '')
       const student = await createStudentForTeacher({
         teacherUserId: session?.user?.id,
-        email,
+        username,
+        email: typeof body.email === 'string' ? body.email.trim() : null,
         password: typeof body.password === 'string' ? body.password : '',
         displayName: typeof body.displayName === 'string' ? body.displayName : '',
         parentEmail: typeof body.parentEmail === 'string' ? body.parentEmail : null,

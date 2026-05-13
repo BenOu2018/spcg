@@ -51,8 +51,18 @@ export default async function TeacherSubmissionsPage({ searchParams }: TeacherSu
         }
       />
 
-      <TeacherPanel title="筛选条件" meta="Filter bar">
-        <form className="teacher-filter-bar" action="/teacher/submissions">
+      <TeacherPanel
+        action={
+          <div className="teacher-panel-summary">
+            <strong>提交列表</strong>
+            <span>{submissions.length} 条匹配记录</span>
+          </div>
+        }
+        className="teacher-filter-panel"
+        title="筛选条件"
+        meta="Filter bar"
+      >
+        <form className="teacher-filter-bar teacher-filter-bar-dense teacher-submission-filter-bar" action="/teacher/submissions">
           <label>
             <span>学生</span>
             <select name="studentUserId" defaultValue={filters.studentUserId ?? ''}>
@@ -116,7 +126,7 @@ export default async function TeacherSubmissionsPage({ searchParams }: TeacherSu
         </form>
       </TeacherPanel>
 
-      <TeacherPanel title="提交列表" meta={`${submissions.length} 条匹配记录`}>
+      <TeacherPanel className="teacher-list-panel" title="提交列表" hideHeader>
         {submissions.length > 0 ? (
           <>
             <TeacherSubmissionTable

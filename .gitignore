@@ -29,6 +29,7 @@ pnpm-debug.log*
 *.jpg
 *.jpeg
 *.webp
+!assets/art/ui/today-news/spcg-online-launch-thumb.webp
 *.gif
 *.mp4
 *.mov
@@ -43,7 +44,8 @@ pnpm-debug.log*
 tmp/
 backups/
 problem-bank/reports/*.json
-problem-bank/
+problem-bank/*
+!problem-bank/Knowledge_point_relations.json
 lesson/
 docs/
 apps/web/public/monaco/

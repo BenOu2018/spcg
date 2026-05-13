@@ -39,6 +39,46 @@ export async function getMiniMaxCodeHelpConfig(): Promise<MiniMaxCodeHelpConfig>
   return getMiniMaxCodeHelpRuntimeConfig()
 }
 
+export async function generateMiniMaxJsonText(input: {
+  systemPrompt: string
+  userPrompt: string
+}): Promise<{ content: string; model: string }> {
+  const config = await getMiniMaxCodeHelpConfig()
+  const apiKey = config.apiKey
+
+  if (!config.enabled) {
+    throw new ServiceError('bad_request', 'MiniMax 已关闭。', 400)
+  }
+
+  if (!apiKey) {
+    throw new ServiceError('bad_request', 'MiniMax API Key 未配置。', 400)
+  }
+
+  const controller = new AbortController()
+  const timeoutMs = Math.max(config.timeoutMs, MIN_EFFECTIVE_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const content =
+      config.apiMode === 'openai'
+        ? await requestOpenAICompatibleAnalysis(config, apiKey, input, controller.signal)
+        : await requestAnthropicCompatibleAnalysis(config, apiKey, input, controller.signal)
+    return { content, model: config.model }
+  } catch (error) {
+    if (error instanceof ServiceError) throw error
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new ServiceError('internal_error', 'MiniMax 请求超时，请稍后重试。', 504)
+    }
+    throw new ServiceError(
+      'internal_error',
+      error instanceof Error ? `MiniMax 请求失败：${error.message}` : 'MiniMax 请求失败。',
+      502,
+    )
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function generateCodeErrorAnalysisWithMiniMax(input: {
   systemPrompt: string
   userPrompt: string

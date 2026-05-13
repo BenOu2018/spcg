@@ -2,10 +2,11 @@
 
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { RotateCcw, Search, Sparkles, Target, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { GitBranch, Maximize2, Minimize2, RotateCcw, Search, Sparkles, Target, X, ZoomIn, ZoomOut } from 'lucide-react'
 import type {
   KnowledgeProgress,
   KnowledgeTreeLink,
+  KnowledgeTreeLinkKind,
   KnowledgeTreeNode,
   KnowledgeTreePayload,
   KnowledgeTreeProgressStatus,
@@ -21,6 +22,10 @@ type NodeView = KnowledgeTreeNode & {
   isVisible: boolean
   isSearchMatch: boolean
   isSelected: boolean
+  isInSelectionContext: boolean
+  isUpstreamContext: boolean
+  isDownstreamContext: boolean
+  isContextDimmed: boolean
   isRecent: boolean
 }
 
@@ -32,10 +37,26 @@ type DragState = {
   scrollTop: number
 }
 
+type RelationDisplayMode = 'trunk' | 'focused' | 'all' | 'hidden'
+
+type SelectionContext = {
+  all: Set<string>
+  upstream: Set<string>
+  downstream: Set<string>
+  routeLinks: Set<string>
+}
+
+type LearningRoute = {
+  prerequisites: NodeView[]
+  nextNodes: NodeView[]
+  relatedNodes: NodeView[]
+}
+
 const allLevel = '全部'
-const zoomStep = 0.15
+const treeBaseZoom = 0.6
+const zoomStep = 0.1
 const minZoom = 0.5
-const maxZoom = 1.85
+const maxZoom = 1.5
 
 const statusLabels: Record<KnowledgeTreeProgressStatus, string> = {
   unstarted: '未开始',
@@ -57,7 +78,10 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
   const [query, setQuery] = useState('')
   const [selectedTagId, setSelectedTagId] = useState(tree.nodes[0]?.tagId ?? '')
   const [zoom, setZoom] = useState(1)
+  const [relationMode, setRelationMode] = useState<RelationDisplayMode>('trunk')
   const [usePreviewProgress, setUsePreviewProgress] = useState(false)
+  const [hasFocusHighlight, setHasFocusHighlight] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(false)
   const scrollerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
 
@@ -65,6 +89,20 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
   const progress = usePreviewProgress ? previewProgress : tree.progress
   const progressMap = useMemo(() => new Map(progress.map((item) => [item.tagId, item])), [progress])
   const selectedDomainSet = useMemo(() => new Set(selectedDomains), [selectedDomains])
+  const selectedSourceNode = useMemo(
+    () => tree.nodes.find((node) => node.tagId === selectedTagId) ?? tree.nodes[0],
+    [selectedTagId, tree.nodes],
+  )
+  const selectedSourceLevel = selectedSourceNode ? nodeLevelNumber(selectedSourceNode.bandOrLevel) : 0
+  const routeHighlightEnabled = hasFocusHighlight && selectedSourceLevel >= 3
+  const selectionContext = useMemo(
+    () => buildSelectionContext(tree.links, tree.nodes, selectedTagId, routeHighlightEnabled),
+    [routeHighlightEnabled, selectedTagId, tree.links, tree.nodes],
+  )
+  const detailSelectionContext = useMemo(
+    () => buildSelectionContext(tree.links, tree.nodes, selectedTagId, selectedSourceLevel >= 2),
+    [selectedSourceLevel, selectedTagId, tree.links, tree.nodes],
+  )
   const normalizedQuery = query.trim().toLowerCase()
 
   const nodeViews = useMemo(
@@ -80,6 +118,8 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
             .toLowerCase()
             .includes(normalizedQuery)
         const isVisible = matchesLevel && matchesDomain && isSearchMatch
+        const isInSelectionContext = selectionContext.all.has(node.tagId)
+        const isContextDimmed = routeHighlightEnabled && isVisible && !isInSelectionContext
 
         return {
           ...node,
@@ -87,28 +127,58 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
           isVisible,
           isSearchMatch: normalizedQuery.length > 0 && isSearchMatch,
           isSelected: node.tagId === selectedTagId,
+          isInSelectionContext,
+          isUpstreamContext: selectionContext.upstream.has(node.tagId),
+          isDownstreamContext: selectionContext.downstream.has(node.tagId),
+          isContextDimmed,
           isRecent: isRecentProgress(nodeProgress.lastPracticedAt),
         }
       }),
-    [activeLevel, normalizedQuery, progressMap, selectedDomainSet, selectedDomains.length, selectedTagId, tree.nodes],
+    [
+      activeLevel,
+      normalizedQuery,
+      progressMap,
+      routeHighlightEnabled,
+      selectedDomainSet,
+      selectedDomains.length,
+      selectedTagId,
+      selectionContext,
+      tree.nodes,
+    ],
   )
 
   const visibleNodeCount = nodeViews.filter((node) => node.isVisible).length
   const masteredCount = nodeViews.filter((node) => node.progress.status === 'mastered').length
   const coloredCount = nodeViews.filter((node) => node.progress.status !== 'unstarted').length
   const selectedNode = nodeViews.find((node) => node.tagId === selectedTagId) ?? nodeViews.find((node) => node.isVisible) ?? nodeViews[0]
-  const selectedParent = selectedNode ? findParent(selectedNode.tagId, tree.links, nodeViews) : null
-  const selectedChildren = selectedNode ? findChildren(selectedNode.tagId, tree.links, nodeViews) : []
-  const links = useMemo(() => buildLinkViews(tree.links, nodeViews), [nodeViews, tree.links])
+  const selectedLearningRoute = selectedNode
+    ? buildLearningRoute(selectedNode.tagId, tree.links, nodeViews, detailSelectionContext)
+    : emptyLearningRoute()
+  const selectedPrerequisites = selectedLearningRoute.prerequisites
+  const selectedNextNodes = selectedLearningRoute.nextNodes
+  const links = useMemo(
+    () => buildLinkViews(tree.links, nodeViews, selectedTagId, relationMode, routeHighlightEnabled, selectionContext),
+    [nodeViews, relationMode, routeHighlightEnabled, selectedTagId, selectionContext, tree.links],
+  )
   const treeGuides = useMemo(() => buildTreeGuides(tree.asset.width, tree.asset.height), [tree.asset.height, tree.asset.width])
+  const actualTreeZoom = treeBaseZoom * zoom
   const canvasStyle = {
     '--tree-aspect': `${tree.asset.width} / ${tree.asset.height}`,
-    '--tree-width': `${Math.round(tree.asset.width * zoom)}px`,
-    '--tree-zoom': String(zoom),
+    '--tree-width': `${Math.round(tree.asset.width * actualTreeZoom)}px`,
+    '--tree-zoom': String(actualTreeZoom),
   } as CSSProperties
 
   useEffect(() => {
     scrollToRoot(scrollerRef.current, 'auto')
+  }, [])
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setHasFocusHighlight(false)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
   function changeZoom(direction: 1 | -1) {
@@ -121,6 +191,9 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
     setSelectedDomains([])
     setQuery('')
     setUsePreviewProgress(false)
+    setRelationMode('trunk')
+    setHasFocusHighlight(false)
+    setIsExpanded(false)
     setSelectedTagId(tree.nodes[0]?.tagId ?? '')
     scrollToRoot(scrollerRef.current, 'smooth')
   }
@@ -158,7 +231,7 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
   }
 
   return (
-    <main className={styles.page}>
+    <main className={[styles.page, isExpanded ? styles.expandedPage : ''].filter(Boolean).join(' ')}>
       <header className={styles.header}>
         <div className={styles.brand}>
           <img src="/assets/art/ui/knowledge-tree/svg/crest-cpp.svg" alt="" />
@@ -225,14 +298,14 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
                   onChange={() => setSelectedDomains([])}
                 />
                 <i style={{ '--legend-color': '#f5d784' } as CSSProperties} />
-                <span>All</span>
+                <span title="全部 / All">全部</span>
                 <strong>{tree.nodes.length}</strong>
               </label>
               {tree.domains.map((domain) => (
                 <label
                   key={domain.value}
                   className={selectedDomainSet.has(domain.value) ? styles.activeCheck : undefined}
-                  title={`${domain.value} (${domain.count})`}
+                  title={`${domainZhLabel(domain.value)} / ${domainEnLabel(domain.value)} (${domain.count})`}
                 >
                   <input
                     type="checkbox"
@@ -240,7 +313,7 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
                     onChange={() => toggleDomain(domain.value)}
                   />
                   <i style={{ '--legend-color': domain.color } as CSSProperties} />
-                  <span>{compactDomainLabel(domain.value)}</span>
+                  <span>{domainZhLabel(domain.value)}</span>
                   <strong>{domain.count}</strong>
                 </label>
               ))}
@@ -257,7 +330,7 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
                 <div className={styles.detailHero}>
                   <span style={{ '--detail-color': selectedNode.color } as CSSProperties} />
                   <div>
-                    <small>{selectedNode.bandOrLevel} · {selectedNode.domain}</small>
+                    <small>{selectedNode.bandOrLevel} · {domainZhLabel(selectedNode.domain)}</small>
                     <h2>{selectedNode.zhName}</h2>
                     <p>{selectedNode.enName}</p>
                   </div>
@@ -279,7 +352,9 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
                   <div>
                     <strong>{statusLabels[selectedNode.progress.status]}</strong>
                     <span>
-                      {selectedNode.progress.attemptCount} 次使用 · 通过 {selectedNode.progress.correctCount} 题
+                      {selectedNode.progress.attemptCount} 次使用
+                      <br />
+                      通过 {selectedNode.progress.correctCount} 题
                     </span>
                     <small>{formatDate(selectedNode.progress.lastPracticedAt)}</small>
                   </div>
@@ -295,14 +370,44 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
                     <dd>{selectedNode.algorithmFamily}</dd>
                   </div>
                   <div>
-                    <dt>上游</dt>
-                    <dd>{selectedParent?.zhName ?? '树根节点'}</dd>
+                    <dt>需要先会</dt>
+                    <dd>{formatLinkedNodes(selectedPrerequisites, '暂无显式前置')}</dd>
                   </div>
                   <div>
-                    <dt>下游</dt>
-                    <dd>{selectedChildren.length > 0 ? `${selectedChildren.length} 个关联节点` : '叶子节点'}</dd>
+                    <dt>可继续学</dt>
+                    <dd>{formatLinkedNodes(selectedNextNodes, '暂无显式后续')}</dd>
                   </div>
                 </dl>
+
+                <section className={styles.learningRoute}>
+                  <div className={styles.routeTitle}>
+                    <strong>学习路线</strong>
+                    <span>
+                      {selectedPrerequisites.length} 前置 · {selectedNextNodes.length} 后续
+                    </span>
+                  </div>
+                  <div className={styles.routeTrack}>
+                    {selectedPrerequisites.map((node) => (
+                      <span key={`pre-${node.tagId}`} style={{ '--route-color': node.color } as CSSProperties}>
+                        {compactKnowledgeName(node.zhName)}
+                        <small>{nodeLevelNumber(node.bandOrLevel)}</small>
+                      </span>
+                    ))}
+                    <span className={styles.currentRouteNode} style={{ '--route-color': selectedNode.color } as CSSProperties}>
+                      {compactKnowledgeName(selectedNode.zhName)}
+                      <small>{nodeLevelNumber(selectedNode.bandOrLevel)}</small>
+                    </span>
+                    {selectedNextNodes.map((node) => (
+                      <span key={`next-${node.tagId}`} style={{ '--route-color': node.color } as CSSProperties}>
+                        {compactKnowledgeName(node.zhName)}
+                        <small>{nodeLevelNumber(node.bandOrLevel)}</small>
+                      </span>
+                    ))}
+                  </div>
+                  {selectedLearningRoute.relatedNodes.length > 0 ? (
+                    <p>相关：{formatLinkedNodes(selectedLearningRoute.relatedNodes, '')}</p>
+                  ) : null}
+                </section>
 
                 <section className={styles.nextStep}>
                   <strong>下一步建议</strong>
@@ -318,7 +423,10 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
           </section>
         </aside>
 
-        <section className={styles.treePanel} aria-label="编程算法知识树">
+        <section
+          className={[styles.treePanel, isExpanded ? styles.expandedTreePanel : ''].filter(Boolean).join(' ')}
+          aria-label="编程算法知识树"
+        >
           <div className={styles.boardRibbon}>
             <span />
             <strong>算法成长树</strong>
@@ -342,9 +450,38 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
               <Sparkles size={17} />
               <span>预览成长</span>
             </button>
+            <div className={styles.relationModes} aria-label="关系显示模式">
+              <GitBranch size={17} aria-hidden="true" />
+              {([
+                ['trunk', '树干'],
+                ['focused', '仅当前'],
+                ['all', '全部关系'],
+                ['hidden', '隐藏关系'],
+              ] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={relationMode === mode ? styles.relationModeActive : undefined}
+                  onClick={() => setRelationMode(mode)}
+                  aria-pressed={relationMode === mode}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <button type="button" onClick={resetView}>
               <RotateCcw size={17} />
               <span>重置</span>
+            </button>
+            <button
+              type="button"
+              className={isExpanded ? styles.expandActive : undefined}
+              onClick={() => setIsExpanded((value) => !value)}
+              aria-label={isExpanded ? '恢复知识树尺寸' : '扩展知识树'}
+              aria-pressed={isExpanded}
+            >
+              {isExpanded ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+              <span>{isExpanded ? '恢复' : '扩展'}</span>
             </button>
           </div>
 
@@ -356,8 +493,27 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
             onPointerUp={handlePointerEnd}
             onPointerCancel={handlePointerEnd}
           >
-            <div className={styles.treeCanvas} style={canvasStyle}>
+            <div
+              className={[styles.treeCanvas, routeHighlightEnabled ? styles.focusCanvas : ''].filter(Boolean).join(' ')}
+              style={canvasStyle}
+            >
               <svg className={styles.linkLayer} viewBox={`0 0 ${tree.asset.width} ${tree.asset.height}`} aria-hidden="true">
+                <defs>
+                  <marker
+                    id="knowledge-relation-arrow"
+                    markerWidth="8"
+                    markerHeight="8"
+                    refX="7"
+                    refY="4"
+                    orient="auto"
+                    markerUnits="strokeWidth"
+                  >
+                    <path d="M 0 0 L 8 4 L 0 8 z" fill="context-stroke" />
+                  </marker>
+                </defs>
+                {treeGuides.canopy.map((path, index) => (
+                  <path key={`canopy-${index}`} className={styles.canopyGuide} d={path} />
+                ))}
                 {treeGuides.roots.map((path, index) => (
                   <path key={`root-${index}`} className={styles.rootGuide} d={path} />
                 ))}
@@ -367,12 +523,30 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
                 ))}
                 {links.map((link) => (
                   <path
-                    key={`${link.from.tagId}-${link.to.tagId}`}
-                    className={[styles.treeLink, link.isActive ? styles.activeLink : '', link.isVisible ? '' : styles.hiddenLink]
+                    key={`${link.kind}-${link.from.tagId}-${link.to.tagId}`}
+                    className={[
+                      styles.treeLink,
+                      linkKindClass(link.kind),
+                      link.isRootLift ? styles.rootLiftLink : '',
+                      link.isCrownInternal ? styles.crownInternalLink : '',
+                      link.isFocused ? styles.focusedLink : '',
+                      link.isActive ? styles.activeLink : '',
+                      link.isVisible ? '' : styles.hiddenLink,
+                    ]
                       .filter(Boolean)
                       .join(' ')}
-                    d={buildPath(link.from, link.to, tree.asset.width, tree.asset.height)}
-                    style={{ '--link-color': link.to.color } as CSSProperties}
+                    d={buildLinkPath(link, tree.asset.width, tree.asset.height)}
+                    markerEnd={
+                      link.kind === 'prerequisite' && link.isVisible && (!link.isCrownInternal || link.isFocused)
+                        ? 'url(#knowledge-relation-arrow)'
+                        : undefined
+                    }
+                    style={
+                      {
+                        '--link-color': link.kind === 'tree' ? 'rgba(88, 104, 101, 0.62)' : link.to.color,
+                        '--link-strength': String(link.strength),
+                      } as CSSProperties
+                    }
                   />
                 ))}
               </svg>
@@ -388,6 +562,10 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
                       nodeShapeRegion(node.bandOrLevel) === 'trunk' ? styles.trunkNode : '',
                       nodeShapeRegion(node.bandOrLevel) === 'crown' ? styles.leafNode : '',
                       node.isVisible ? '' : styles.hiddenNode,
+                      node.isContextDimmed ? styles.contextDimmedNode : '',
+                      node.isInSelectionContext && routeHighlightEnabled ? styles.contextHighlightedNode : '',
+                      node.isUpstreamContext && routeHighlightEnabled ? styles.upstreamNode : '',
+                      node.isDownstreamContext && routeHighlightEnabled ? styles.downstreamNode : '',
                       node.isSelected ? styles.selectedNode : '',
                       node.isSearchMatch ? styles.searchMatchNode : '',
                       node.isRecent && node.progress.status !== 'unstarted' ? styles.recentNode : '',
@@ -404,7 +582,10 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
                     }
                     data-tooltip={`${node.zhName} · ${node.bandOrLevel} · ${statusLabels[node.progress.status]} · 使用 ${node.progress.attemptCount} 次`}
                     aria-label={`${node.zhName}，${node.bandOrLevel}，${statusLabels[node.progress.status]}，使用 ${node.progress.attemptCount} 次`}
-                    onClick={() => setSelectedTagId(node.tagId)}
+                    onClick={() => {
+                      setSelectedTagId(node.tagId)
+                      setHasFocusHighlight(nodeLevelNumber(node.bandOrLevel) >= 3)
+                    }}
                   >
                     <span className={styles.nodeBadge}>{nodeLevelNumber(node.bandOrLevel)}</span>
                     <span className={styles.nodeTitle}>{compactKnowledgeName(node.zhName)}</span>
@@ -427,7 +608,7 @@ export function KnowledgeTreeClient({ tree }: KnowledgeTreeClientProps) {
           <img src="/assets/art/ui/leaderboard-rpg/svg/ak-star.svg" alt="" />
           <div>
             <strong>{selectedNode?.zhName ?? '选择一个知识节点'}</strong>
-            <span>{selectedNode ? `${selectedNode.bandOrLevel} · ${selectedNode.domain}` : '点击树上的节点查看掌握状态'}</span>
+            <span>{selectedNode ? `${selectedNode.bandOrLevel} · ${domainZhLabel(selectedNode.domain)}` : '点击树上的节点查看掌握状态'}</span>
           </div>
         </div>
         <Summary label="掌握度" value={`${selectedNode?.progress.mastery ?? 0}%`} positive={(selectedNode?.progress.mastery ?? 0) >= 100} />
@@ -467,14 +648,27 @@ function Summary({ label, value, positive }: { label: string; value: string; pos
   )
 }
 
-function compactDomainLabel(domain: string): string {
+function domainZhLabel(domain: string): string {
   const labels: Record<string, string> = {
-    algorithm: 'algo',
-    'control-flow': 'flow',
-    'data-structure': 'data',
-    engineering: 'eng',
-    math: 'math',
-    syntax: 'syn',
+    algorithm: '算法',
+    'control-flow': '流程控制',
+    'data-structure': '数据结构',
+    engineering: '工程能力',
+    math: '数学',
+    syntax: '语法',
+  }
+
+  return labels[domain] ?? domain
+}
+
+function domainEnLabel(domain: string): string {
+  const labels: Record<string, string> = {
+    algorithm: 'Algorithm',
+    'control-flow': 'Control Flow',
+    'data-structure': 'Data Structure',
+    engineering: 'Engineering',
+    math: 'Math',
+    syntax: 'Syntax',
   }
 
   return labels[domain] ?? domain
@@ -528,33 +722,187 @@ function buildPreviewProgress(nodes: KnowledgeTreeNode[]): KnowledgeProgress[] {
   })
 }
 
-function buildLinkViews(links: KnowledgeTreeLink[], nodes: NodeView[]) {
+function buildLinkViews(
+  links: KnowledgeTreeLink[],
+  nodes: NodeView[],
+  selectedTagId: string,
+  relationMode: RelationDisplayMode,
+  routeHighlightEnabled: boolean,
+  selectionContext: SelectionContext,
+) {
   const nodeMap = new Map(nodes.map((node) => [node.tagId, node]))
   return links
     .map((link) => {
       const from = nodeMap.get(link.fromTagId)
       const to = nodeMap.get(link.toTagId)
       if (!from || !to) return null
+      const touchesSelectedNode = from.tagId === selectedTagId || to.tagId === selectedTagId
+      const isRouteLink = routeHighlightEnabled && link.kind !== 'tree' && selectionContext.routeLinks.has(relationKey(link))
+      const isFocused = link.kind !== 'tree' && (touchesSelectedNode || isRouteLink)
+      const matchesMode = relationMode === 'all' || (relationMode === 'focused' && isFocused) || (relationMode === 'trunk' && isFocused)
+      const isRootLift = nodeLevelNumber(from.bandOrLevel) <= 1 && nodeLevelNumber(to.bandOrLevel) > 1
+      const isCrownInternal = nodeShapeRegion(from.bandOrLevel) === 'crown' && nodeShapeRegion(to.bandOrLevel) === 'crown'
+      const isVisible = relationMode !== 'hidden' && matchesMode && from.isVisible && to.isVisible
+      const shouldRender =
+        isVisible &&
+        (routeHighlightEnabled
+          ? isFocused
+          : relationMode === 'focused' || (relationMode === 'all' && (isFocused || isRootLift || !isCrownInternal)))
+
+      if (!shouldRender) return null
+
       return {
+        kind: link.kind,
+        strength: link.strength,
+        label: link.label,
         from,
         to,
-        isActive: from.progress.status !== 'unstarted' && to.progress.status !== 'unstarted',
-        isVisible: from.isVisible && to.isVisible,
+        isFocused,
+        isRootLift,
+        isCrownInternal,
+        isActive: isFocused || (from.progress.status !== 'unstarted' && to.progress.status !== 'unstarted'),
+        isVisible,
       }
     })
     .filter((link): link is NonNullable<typeof link> => Boolean(link))
 }
 
-function buildPath(from: KnowledgeTreeNode, to: KnowledgeTreeNode, width: number, height: number): string {
+function buildSelectionContext(
+  links: KnowledgeTreeLink[],
+  nodes: KnowledgeTreeNode[],
+  selectedTagId: string,
+  routeEnabled: boolean,
+): SelectionContext {
+  const upstream = new Set<string>()
+  const downstream = new Set<string>()
+  const all = new Set<string>(selectedTagId ? [selectedTagId] : [])
+  const routeLinks = new Set<string>()
+  if (!routeEnabled) return { all, upstream, downstream, routeLinks }
+
+  const incomingPrerequisites = new Map<string, KnowledgeTreeLink[]>()
+  const outgoingPrerequisites = new Map<string, KnowledgeTreeLink[]>()
+
+  for (const link of links) {
+    if (link.kind !== 'prerequisite') continue
+    appendMapList(incomingPrerequisites, link.toTagId, link)
+    appendMapList(outgoingPrerequisites, link.fromTagId, link)
+  }
+
+  collectRelationSide(selectedTagId, incomingPrerequisites, upstream, all, routeLinks, 'upstream')
+  collectRelationSide(selectedTagId, outgoingPrerequisites, downstream, all, routeLinks, 'downstream')
+
+  for (const node of nodes) {
+    if (nodeLevelNumber(node.bandOrLevel) !== 1 || node.tagId === selectedTagId) continue
+    upstream.add(node.tagId)
+    all.add(node.tagId)
+  }
+
+  for (const link of links) {
+    if (link.kind !== 'related') continue
+    if (link.toTagId === selectedTagId) {
+      all.add(link.fromTagId)
+      routeLinks.add(relationKey(link))
+    }
+    if (link.fromTagId === selectedTagId) {
+      all.add(link.toTagId)
+      routeLinks.add(relationKey(link))
+    }
+  }
+
+  return { all, upstream, downstream, routeLinks }
+}
+
+function collectRelationSide(
+  selectedTagId: string,
+  map: Map<string, KnowledgeTreeLink[]>,
+  side: Set<string>,
+  all: Set<string>,
+  routeLinks: Set<string>,
+  direction: 'upstream' | 'downstream',
+) {
+  const queue = [selectedTagId]
+  const visited = new Set<string>([selectedTagId])
+
+  while (queue.length > 0) {
+    const tagId = queue.shift()
+    if (!tagId) continue
+    for (const link of map.get(tagId) ?? []) {
+      const nextTagId = direction === 'upstream' ? link.fromTagId : link.toTagId
+      routeLinks.add(relationKey(link))
+      if (visited.has(nextTagId)) continue
+      visited.add(nextTagId)
+      side.add(nextTagId)
+      all.add(nextTagId)
+      queue.push(nextTagId)
+    }
+  }
+}
+
+function appendMapList(map: Map<string, KnowledgeTreeLink[]>, key: string, value: KnowledgeTreeLink) {
+  const current = map.get(key)
+  if (current) {
+    current.push(value)
+    return
+  }
+  map.set(key, [value])
+}
+
+function relationKey(link: Pick<KnowledgeTreeLink, 'fromTagId' | 'toTagId' | 'kind'>): string {
+  return `${link.kind}:${link.fromTagId}->${link.toTagId}`
+}
+
+function buildLinkPath(
+  link: { from: KnowledgeTreeNode; to: KnowledgeTreeNode; isRootLift: boolean },
+  width: number,
+  height: number,
+): string {
+  if (link.isRootLift) return buildRootLiftPath(link.from, link.to, width, height)
+  return buildArcPath(link.from, link.to, width, height)
+}
+
+function buildRootLiftPath(from: KnowledgeTreeNode, to: KnowledgeTreeNode, width: number, height: number): string {
   const x1 = from.x * width
   const y1 = from.y * height
   const x2 = to.x * width
   const y2 = to.y * height
-  const midY = y1 + (y2 - y1) * 0.5
-  return `M ${x1.toFixed(1)} ${y1.toFixed(1)} L ${x1.toFixed(1)} ${midY.toFixed(1)} L ${x2.toFixed(1)} ${midY.toFixed(1)} L ${x2.toFixed(1)} ${y2.toFixed(1)}`
+  const trunkX = width / 2
+  const rootJoinY = height * 0.78
+  const crownJoinY = height * 0.55
+  const forkY = Math.max(height * 0.18, Math.min(crownJoinY - 80, y2 + 86))
+
+  return [
+    `M ${x1.toFixed(1)} ${y1.toFixed(1)}`,
+    `C ${x1.toFixed(1)} ${(y1 - 72).toFixed(1)}, ${(trunkX + (x1 - trunkX) * 0.18).toFixed(1)} ${(rootJoinY + 42).toFixed(1)}, ${trunkX.toFixed(1)} ${rootJoinY.toFixed(1)}`,
+    `C ${(trunkX - 18).toFixed(1)} ${(rootJoinY - 78).toFixed(1)}, ${(trunkX + 18).toFixed(1)} ${(crownJoinY + 86).toFixed(1)}, ${trunkX.toFixed(1)} ${crownJoinY.toFixed(1)}`,
+    `C ${trunkX.toFixed(1)} ${forkY.toFixed(1)}, ${(x2 + trunkX) / 2} ${(y2 + forkY) / 2}, ${x2.toFixed(1)} ${y2.toFixed(1)}`,
+  ].join(' ')
 }
 
-function buildTreeGuides(width: number, height: number): { trunk: string; branches: string[]; roots: string[] } {
+function buildArcPath(from: KnowledgeTreeNode, to: KnowledgeTreeNode, width: number, height: number): string {
+  const x1 = from.x * width
+  const y1 = from.y * height
+  const x2 = to.x * width
+  const y2 = to.y * height
+  const dx = x2 - x1
+  const dy = y2 - y1
+
+  if (Math.abs(dy) < 24) {
+    const lift = Math.max(58, Math.min(150, Math.abs(dx) * 0.16))
+    return `M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${x1.toFixed(1)} ${(y1 - lift).toFixed(1)}, ${x2.toFixed(1)} ${(y2 - lift).toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}`
+  }
+
+  const direction = dy < 0 ? -1 : 1
+  const bend = Math.max(76, Math.min(270, Math.abs(dx) * 0.24 + Math.abs(dy) * 0.26))
+  return `M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${x1.toFixed(1)} ${(y1 + direction * bend).toFixed(1)}, ${x2.toFixed(1)} ${(y2 - direction * bend).toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}`
+}
+
+function linkKindClass(kind: KnowledgeTreeLinkKind): string {
+  if (kind === 'prerequisite') return styles.prerequisiteLink ?? ''
+  if (kind === 'related') return styles.relatedLink ?? ''
+  return styles.structuralLink ?? ''
+}
+
+function buildTreeGuides(width: number, height: number): { trunk: string; branches: string[]; roots: string[]; canopy: string[] } {
   const x = width / 2
   const crownTop = height * 0.08
   const crownMid = height * 0.35
@@ -563,12 +911,13 @@ function buildTreeGuides(width: number, height: number): { trunk: string; branch
   const rootBottom = height * 0.95
 
   return {
-    trunk: `M ${x} ${trunkTop} C ${x - 34} ${height * 0.61}, ${x + 32} ${height * 0.69}, ${x} ${trunkBottom}`,
+    trunk: `M ${x} ${trunkTop} C ${x - 42} ${height * 0.61}, ${x + 38} ${height * 0.69}, ${x} ${trunkBottom}`,
     branches: [
-      `M ${x} ${trunkTop} C ${x - 260} ${height * 0.45}, ${x - 610} ${height * 0.34}, ${x - 880} ${crownMid}`,
-      `M ${x} ${trunkTop} C ${x + 250} ${height * 0.43}, ${x + 640} ${height * 0.32}, ${x + 900} ${crownMid}`,
-      `M ${x} ${height * 0.49} C ${x - 130} ${height * 0.34}, ${x - 260} ${height * 0.22}, ${x - 360} ${crownTop}`,
-      `M ${x} ${height * 0.49} C ${x + 140} ${height * 0.34}, ${x + 290} ${height * 0.22}, ${x + 390} ${crownTop}`,
+      `M ${x} ${trunkTop} C ${x - 220} ${height * 0.44}, ${x - 560} ${height * 0.31}, ${x - 890} ${crownMid}`,
+      `M ${x} ${trunkTop} C ${x - 120} ${height * 0.34}, ${x - 260} ${height * 0.18}, ${x - 470} ${crownTop}`,
+      `M ${x} ${trunkTop} C ${x - 18} ${height * 0.36}, ${x + 18} ${height * 0.25}, ${x} ${height * 0.1}`,
+      `M ${x} ${trunkTop} C ${x + 130} ${height * 0.34}, ${x + 280} ${height * 0.18}, ${x + 500} ${crownTop}`,
+      `M ${x} ${trunkTop} C ${x + 230} ${height * 0.43}, ${x + 580} ${height * 0.3}, ${x + 900} ${crownMid}`,
     ],
     roots: [
       `M ${x} ${trunkBottom} C ${x - 190} ${height * 0.84}, ${x - 480} ${height * 0.9}, ${x - 820} ${rootBottom}`,
@@ -576,17 +925,64 @@ function buildTreeGuides(width: number, height: number): { trunk: string; branch
       `M ${x} ${trunkBottom} C ${x - 70} ${height * 0.86}, ${x - 150} ${height * 0.91}, ${x - 230} ${rootBottom}`,
       `M ${x} ${trunkBottom} C ${x + 70} ${height * 0.86}, ${x + 150} ${height * 0.91}, ${x + 230} ${rootBottom}`,
     ],
+    canopy: [
+      `M ${x - 980} ${height * 0.38} C ${x - 820} ${height * 0.11}, ${x - 430} ${height * 0.04}, ${x} ${height * 0.08} C ${x + 430} ${height * 0.04}, ${x + 820} ${height * 0.11}, ${x + 980} ${height * 0.38}`,
+      `M ${x - 1030} ${height * 0.55} C ${x - 760} ${height * 0.72}, ${x - 360} ${height * 0.78}, ${x} ${height * 0.73} C ${x + 360} ${height * 0.78}, ${x + 760} ${height * 0.72}, ${x + 1030} ${height * 0.55}`,
+    ],
   }
 }
 
-function findParent(tagId: string, links: KnowledgeTreeLink[], nodes: NodeView[]): NodeView | null {
-  const parentTagId = links.find((link) => link.toTagId === tagId)?.fromTagId
-  return nodes.find((node) => node.tagId === parentTagId) ?? null
+function buildLearningRoute(
+  tagId: string,
+  links: KnowledgeTreeLink[],
+  nodes: NodeView[],
+  selectionContext: SelectionContext,
+): LearningRoute {
+  const nodeMap = new Map(nodes.map((node) => [node.tagId, node]))
+  const prerequisites = sortRouteNodes(
+    [...selectionContext.upstream].map((id) => nodeMap.get(id)).filter((node): node is NodeView => Boolean(node)),
+  )
+  const nextNodes = sortRouteNodes(
+    [...selectionContext.downstream].map((id) => nodeMap.get(id)).filter((node): node is NodeView => Boolean(node)),
+  )
+  const relatedIds = new Set<string>()
+
+  for (const link of links) {
+    if (link.kind !== 'related') continue
+    if (link.fromTagId === tagId) relatedIds.add(link.toTagId)
+    if (link.toTagId === tagId) relatedIds.add(link.fromTagId)
+  }
+
+  const relatedNodes = sortRouteNodes(
+    [...relatedIds].map((id) => nodeMap.get(id)).filter((node): node is NodeView => Boolean(node)),
+  )
+
+  return { prerequisites, nextNodes, relatedNodes }
 }
 
-function findChildren(tagId: string, links: KnowledgeTreeLink[], nodes: NodeView[]): NodeView[] {
-  const childIds = new Set(links.filter((link) => link.fromTagId === tagId).map((link) => link.toTagId))
-  return nodes.filter((node) => childIds.has(node.tagId))
+function emptyLearningRoute(): LearningRoute {
+  return { prerequisites: [], nextNodes: [], relatedNodes: [] }
+}
+
+function sortRouteNodes(nodes: NodeView[]): NodeView[] {
+  return [...nodes].sort((a, b) => {
+    const levelDiff = nodeLevelNumber(a.bandOrLevel) - nodeLevelNumber(b.bandOrLevel)
+    if (levelDiff !== 0) return levelDiff
+    const domainDiff = domainRank(a.domain) - domainRank(b.domain)
+    if (domainDiff !== 0) return domainDiff
+    return a.sortOrder - b.sortOrder
+  })
+}
+
+function domainRank(domain: string): number {
+  const rank = ['syntax', 'control-flow', 'data-structure', 'algorithm', 'math', 'engineering'].indexOf(domain)
+  return rank === -1 ? 999 : rank
+}
+
+function formatLinkedNodes(nodes: NodeView[], emptyLabel: string): string {
+  if (nodes.length === 0) return emptyLabel
+  const names = nodes.slice(0, 3).map((node) => node.zhName)
+  return nodes.length > names.length ? `${names.join('、')} 等 ${nodes.length} 个` : names.join('、')
 }
 
 function clampZoom(value: number): number {
@@ -601,7 +997,6 @@ function nodeLevelNumber(value: string): number {
 function nodeShapeRegion(bandOrLevel: string): 'root' | 'trunk' | 'crown' {
   const level = nodeLevelNumber(bandOrLevel)
   if (level <= 1) return 'root'
-  if (level === 2) return 'trunk'
   return 'crown'
 }
 

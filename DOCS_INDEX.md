@@ -58,6 +58,7 @@
 | 编程关卡 UI 规则 | [docs/programming-level-ui-design-rules.md](./docs/programming-level-ui-design-rules.md) | 普通编程关卡页面设计和交互规则 |
 | 段位赛 UI 规则 | [docs/exam-coding-ui-design-rules.md](./docs/exam-coding-ui-design-rules.md) | 考试/段位赛编程界面设计规则 |
 | 健康游戏化投入系统 | [docs/healthy-engagement-system.md](./docs/healthy-engagement-system.md) | 学习留存、健康投入、防沉迷边界和游戏化机制白/灰/黑名单 |
+| 今日资讯文章规则 | [docs/today-news-article-rules.md](./docs/today-news-article-rules.md) | 地图页今日资讯文章生成、入库、双语展示、点赞收藏持久化规则 |
 | SPCG 设计建议 v0.1 | [docs/SPCG_设计建议_v0.1.md](./docs/SPCG_设计建议_v0.1.md) | 早期产品视觉和设计方向 |
 | 工程资产审查 | [docs/engineering-asset-review.md](./docs/engineering-asset-review.md) | 资产工程化和可维护性审查 |
 | 素材目录说明 | [assets/README.md](./assets/README.md) | 项目图片、视频、UI 素材目录入口 |

@@ -4,6 +4,7 @@ import type {
   KnowledgeProgress,
   KnowledgeTagClassification,
   KnowledgeTreeLink,
+  KnowledgeTreeLinkKind,
   KnowledgeTreeNode,
   KnowledgeTreePayload,
   ProblemAlgorithmFamily,
@@ -54,23 +55,31 @@ type LevelShape = {
   arcBend: number
 }
 
+type ExplicitKnowledgeRelation = {
+  fromTagId: string
+  toTagId: string
+  kind: Exclude<KnowledgeTreeLinkKind, 'tree'>
+  strength: number
+  label: string
+}
+
 const programmingClassification: KnowledgeTagClassification = '编程算法'
 const maxVisibleProgrammingLevel = 8
 const wireframeWidth = 2300
 const wireframeMarginX = 110
 const wireframeCardWidth = 118
 const wireframeGapX = 14
-const wireframeBottom = 70
+const wireframeBottom = 90
 
 const levelShapes: Record<number, LevelShape> = {
   8: { region: 'crown', y: 80, rowCounts: [7, 12], rowGap: 58, centerOffsets: [0, 40], arcBend: 22 },
   7: { region: 'crown', y: 220, rowCounts: [8, 10], rowGap: 58, centerOffsets: [-120, 120], arcBend: 20 },
   6: { region: 'crown', y: 340, rowCounts: [8, 10], rowGap: 58, centerOffsets: [100, -120], arcBend: 18 },
   5: { region: 'crown', y: 470, rowCounts: [8, 10, 11], rowGap: 58, centerOffsets: [0, -140, 140], arcBend: 18 },
-  4: { region: 'crown', y: 640, rowCounts: [8, 11], rowGap: 58, centerOffsets: [-80, 80], arcBend: 16 },
-  3: { region: 'crown', y: 790, rowCounts: [8, 10, 12], rowGap: 58, centerOffsets: [0, -120, 120], arcBend: 16 },
-  2: { region: 'trunk', y: 1040, rowCounts: [3, 4, 4, 4], rowGap: 60, centerOffsets: [0, -28, 28, 0], arcBend: 0 },
-  1: { region: 'root', y: 1320, rowCounts: [8, 14], rowGap: 82, centerOffsets: [0, 0], arcBend: 36 },
+  4: { region: 'crown', y: 625, rowCounts: [8, 11], rowGap: 58, centerOffsets: [-80, 80], arcBend: 16 },
+  3: { region: 'crown', y: 770, rowCounts: [8, 10, 12], rowGap: 58, centerOffsets: [0, -120, 120], arcBend: 16 },
+  2: { region: 'crown', y: 1000, rowCounts: [7, 8], rowGap: 62, centerOffsets: [-72, 72], arcBend: 14 },
+  1: { region: 'root', y: 1230, rowCounts: [8, 14], rowGap: 82, centerOffsets: [0, 0], arcBend: 36 },
 }
 
 const domainColors: Record<string, string> = {
@@ -82,6 +91,7 @@ const domainColors: Record<string, string> = {
   engineering: '#7dd5e7',
 }
 
+const domainOrder = ['syntax', 'control-flow', 'data-structure', 'algorithm', 'math', 'engineering']
 const defaultNodeColor = '#8fb3ff'
 
 const supportedAlgorithmFamilies = new Set<ProblemAlgorithmFamily>([
@@ -109,7 +119,8 @@ export async function getKnowledgeTree(input: {
   const points = await loadKnowledgePoints(classification)
   const layout = layoutKnowledgePoints(points)
   const nodes = layout.nodes
-  const links = buildKnowledgeLinks(nodes)
+  const relations = await loadKnowledgeRelations(classification, nodes)
+  const links = buildKnowledgeLinks(nodes, relations)
   const progress = input.currentUserId ? await loadUserKnowledgeProgress(input.currentUserId, nodes) : []
 
   return {
@@ -142,6 +153,37 @@ async function loadKnowledgePoints(classification: KnowledgeTagClassification): 
   }
 
   return readKnowledgePointsFromMarkdown(classification)
+}
+
+async function loadKnowledgeRelations(
+  classification: KnowledgeTagClassification,
+  nodes: KnowledgeTreeNode[],
+): Promise<ExplicitKnowledgeRelation[]> {
+  if (classification !== programmingClassification) return []
+
+  const visibleTagIds = new Set(nodes.map((node) => node.tagId))
+  const text = await readRepoFile('problem-bank/Knowledge_point_relations.json')
+  const parsed: unknown = JSON.parse(text)
+  if (!isRecord(parsed) || parsed.classification !== programmingClassification || !Array.isArray(parsed.relations)) {
+    return []
+  }
+
+  return parsed.relations
+    .map((item): ExplicitKnowledgeRelation | null => {
+      if (!isRecord(item)) return null
+      const fromTagId = readNonEmptyString(item.fromTagId)
+      const toTagId = readNonEmptyString(item.toTagId)
+      const kind = item.kind === 'related' ? 'related' : item.kind === 'prerequisite' ? 'prerequisite' : null
+      if (!fromTagId || !toTagId || !kind || !visibleTagIds.has(fromTagId) || !visibleTagIds.has(toTagId)) return null
+      return {
+        fromTagId,
+        toTagId,
+        kind,
+        strength: clampNumber(typeof item.strength === 'number' ? item.strength : 0.65, 0.1, 1),
+        label: readNonEmptyString(item.label) ?? (kind === 'prerequisite' ? '前置' : '相关'),
+      }
+    })
+    .filter((relation): relation is ExplicitKnowledgeRelation => Boolean(relation))
 }
 
 function mapRegistryRow(row: KnowledgePointRegistryRow): RegistryPoint {
@@ -365,25 +407,73 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-function compareKnowledgePoint(a: RegistryPoint, b: RegistryPoint): number {
-  return levelNumber(a.bandOrLevel) - levelNumber(b.bandOrLevel) || a.sortOrder - b.sortOrder || a.tagId.localeCompare(b.tagId)
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min
+  return Math.min(max, Math.max(min, value))
 }
 
-function buildKnowledgeLinks(nodes: KnowledgeTreeNode[]): KnowledgeTreeLink[] {
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function compareKnowledgePoint(a: RegistryPoint, b: RegistryPoint): number {
+  return (
+    levelNumber(a.bandOrLevel) - levelNumber(b.bandOrLevel) ||
+    domainRank(a.domain) - domainRank(b.domain) ||
+    a.sortOrder - b.sortOrder ||
+    a.tagId.localeCompare(b.tagId)
+  )
+}
+
+function domainRank(domain: string): number {
+  const index = domainOrder.indexOf(domain)
+  return index >= 0 ? index : domainOrder.length
+}
+
+function buildKnowledgeLinks(nodes: KnowledgeTreeNode[], relations: ExplicitKnowledgeRelation[]): KnowledgeTreeLink[] {
+  const explicitPairKeys = new Set(relations.map((relation) => `${relation.fromTagId}:${relation.toTagId}`))
   const links: KnowledgeTreeLink[] = []
   const placed: KnowledgeTreeNode[] = []
 
   for (const node of [...nodes].sort(compareNodeByTreePosition)) {
     const parent = findNearestParent(node, placed)
-    if (parent) links.push({ fromTagId: parent.tagId, toTagId: node.tagId })
+    if (parent && !explicitPairKeys.has(`${parent.tagId}:${node.tagId}`)) {
+      links.push({
+        fromTagId: parent.tagId,
+        toTagId: node.tagId,
+        kind: 'tree',
+        strength: 0.28,
+        label: '树状',
+      })
+    }
     placed.push(node)
   }
 
-  return links
+  for (const relation of relations) {
+    links.push({
+      fromTagId: relation.fromTagId,
+      toTagId: relation.toTagId,
+      kind: relation.kind,
+      strength: relation.strength,
+      label: relation.label,
+    })
+  }
+
+  return links.sort(compareLinkByKind)
 }
 
 function compareNodeByTreePosition(a: KnowledgeTreeNode, b: KnowledgeTreeNode): number {
   return b.y - a.y || Math.abs(a.x - 0.5) - Math.abs(b.x - 0.5) || a.sortOrder - b.sortOrder
+}
+
+function compareLinkByKind(a: KnowledgeTreeLink, b: KnowledgeTreeLink): number {
+  return linkKindRank(a.kind) - linkKindRank(b.kind) || b.strength - a.strength || a.toTagId.localeCompare(b.toTagId)
+}
+
+function linkKindRank(kind: KnowledgeTreeLinkKind): number {
+  if (kind === 'tree') return 0
+  if (kind === 'related') return 1
+  return 2
 }
 
 function findNearestParent(node: KnowledgeTreeNode, candidates: KnowledgeTreeNode[]): KnowledgeTreeNode | null {

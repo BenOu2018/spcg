@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "npm run typecheck && npm run check:architecture && npm run judge:check && npm run reward:check && npm run import-validation:check && npm run validate:levels && npm run problem-bank:validate && npm run web:typecheck",
+    "check": "npm run typecheck && npm run check:architecture && npm run judge:check && npm run reward:check && npm run import-validation:check && npm run knowledge:relations:check && npm run validate:levels && npm run problem-bank:validate && npm run web:typecheck",
     "check:architecture": "tsx scripts/check-architecture-boundaries.ts",
     "typecheck": "tsc --noEmit",
     "judge:check": "tsx scripts/check-judge.ts",
@@ -13,7 +13,9 @@
     "judge:worker": "tsx scripts/judge-worker.ts",
     "db:migrate": "tsx scripts/db-migrate.ts",
     "db:seed": "tsx scripts/db-seed.ts",
+    "today-news:seed": "tsx scripts/seed-today-news.ts",
     "knowledge:sync": "tsx scripts/sync-knowledge-points.ts",
+    "knowledge:relations:check": "tsx scripts/check-knowledge-tree-relations.ts",
     "prepare:monaco": "tsx scripts/prepare-monaco-assets.ts",
     "web:dev": "npm run prepare:monaco && next dev apps/web --hostname 0.0.0.0 --port 3000",
     "web:build": "npm run prepare:monaco && next build apps/web",

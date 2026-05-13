@@ -9,7 +9,7 @@ import styles from './leaderboard.module.css'
 
 export const metadata: Metadata = {
   title: 'SPCG 挑战榜',
-  description: '按 SPCG 级别统计首次 AC 金币的排行榜。',
+  description: '按 SPCG 级别统计题目、复习和段位赛积分的排行榜。',
 }
 
 export const dynamic = 'force-dynamic'
@@ -22,8 +22,20 @@ type LeaderboardPageProps = {
 }
 
 const assetBase = '/assets/art/ui/leaderboard-rpg/svg'
+const rankWeaponBase = '/assets/art/ui/rewards/rank-weapons/thumbnails'
 const fallbackAvatars = ['avatar-ranger.svg', 'avatar-knight.svg', 'avatar-mage.svg', 'avatar-scout.svg']
 const levelNumbers = Array.from({ length: 9 }, (_, index) => index + 1)
+const levelWeaponThumbnails = {
+  1: { fileName: 'black-iron-weapon-thumb.webp', label: '黑铁' },
+  2: { fileName: 'bronze-weapon-thumb.webp', label: '青铜' },
+  3: { fileName: 'silver-weapon-thumb.webp', label: '白银' },
+  4: { fileName: 'gold-weapon-thumb.webp', label: '黄金' },
+  5: { fileName: 'platinum-weapon-thumb.webp', label: '铂金' },
+  6: { fileName: 'diamond-weapon-thumb.webp', label: '钻石' },
+  7: { fileName: 'star-glory-weapon-thumb.webp', label: '星耀' },
+  8: { fileName: 'king-weapon-thumb.webp', label: '王者' },
+  9: { fileName: 'master-weapon-thumb.webp', label: '大师' },
+} as const
 
 export default async function LeaderboardPage({ searchParams }: LeaderboardPageProps) {
   const params = searchParams ? await searchParams : {}
@@ -37,6 +49,8 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
   const currentTitle = currentUser?.title ?? (session ? '本级暂无积分' : '未登录')
   const currentAvatar = currentUser?.avatarUrl ?? session?.user?.avatarUrl ?? `${assetBase}/avatar-ranger.svg`
   const currentPassedCount = currentUser?.passedCount ?? 0
+  const levelWeapon = getLevelWeaponThumbnail(leaderboard.spcgLevel)
+  const rankListEntries = leaderboard.topEntries.filter((student) => student.rank > 3)
   const pageStyle = {
     '--leaderboard-map-bg': `url("${leaderboard.mapAsset}")`,
   } as CSSProperties
@@ -76,13 +90,13 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
       <section className={styles.boardLayout}>
         <aside className={styles.levelPanel} aria-label={messages.leaderboard.levelOverview}>
           <div className={styles.levelBanner}>
-            <img src={`${assetBase}/level-gem.svg`} alt="" />
+            <img src={levelWeapon.src} alt="" />
             <strong>{leaderboard.hudTitle}</strong>
           </div>
 
           <div className={styles.portalCard}>
             <div className={styles.portalArt}>
-              <img src={`${assetBase}/level-gem.svg`} alt="" />
+              <img className={styles.portalWeapon} src={levelWeapon.src} alt={levelWeapon.alt} />
             </div>
             <span>{messages.leaderboard.levelOverview}</span>
           </div>
@@ -94,12 +108,12 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
               <strong>{formatNumber(leaderboard.totalCoins)}</strong>
               <em>{messages.profile.coins}</em>
             </div>
-            <small>只来自 SPCG {leaderboard.spcgLevel}级题目的首次 AC 奖励。</small>
+            <small>来自 SPCG {leaderboard.spcgLevel}级题目、复习 AC 和段位赛奖励。</small>
           </div>
 
           <div className={styles.decayNotice}>
             <img src={`${assetBase}/scroll-pass.svg`} alt="" />
-            <p>用户总金币、考试奖励、隐藏蒜粒、后台调整暂不计入本榜。</p>
+            <p>只统计当级别积分；隐藏蒜粒、后台调整和其他级别奖励不计入本榜。</p>
           </div>
 
           <div className={styles.sideStats}>
@@ -124,7 +138,7 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
                   <img className={styles.avatar} src={avatarFor(student, index)} alt="学员头像" />
                   <strong>{student.displayName}</strong>
                   <small>{student.title}</small>
-                  <span>{formatNumber(student.coinTotal)} 金币</span>
+                  <PodiumStats student={student} />
                 </article>
               ))}
             </div>
@@ -148,7 +162,7 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
               <span>{messages.leaderboard.currentScore}</span>
             </div>
 
-            {leaderboard.topEntries.map((student, index) => (
+            {rankListEntries.map((student, index) => (
               <div key={student.userId} className={[styles.rankRow, student.rank === 1 ? styles.championRow : ''].filter(Boolean).join(' ')}>
                 <RankIcon rank={student.rank} />
                 <div className={styles.studentCell}>
@@ -162,14 +176,14 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
                   <img src={`${assetBase}/coin.svg`} alt="" />
                   {formatNumber(student.coinTotal)}
                 </span>
-                <span>{formatPassed(student.passedCount, levelTotal)}</span>
-                <span className={styles.sourceCell}>{messages.leaderboard.firstAc}</span>
+                <span>{formatPassed(student.passedCount)}</span>
+                <span className={styles.sourceCell}>多源积分</span>
                 <span className={styles.akCell}>
                   <img src={`${assetBase}/ak-star.svg`} alt="" />
                   {student.passedCount}
                 </span>
                 <ActivityBadge kind={activityKind(student.lastScoredAt)} label={activityLabel(student.lastScoredAt)} />
-                <span className={styles.scoreCell}>{formatNumber(student.coinTotal)}</span>
+                <span className={styles.scoreCell}>{formatNumber(student.rankScore)}</span>
               </div>
             ))}
           </div>
@@ -179,19 +193,17 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
           <PanelTitle icon="scroll-pass.svg" title={messages.leaderboard.rules} />
 
           <div className={styles.ruleList}>
-            <Rule icon="coin.svg" label={messages.leaderboard.firstAc} value="SPCG级别 × 星级" />
-            <Rule icon="scroll-pass.svg" label="本级榜单" value={`只计 ${leaderboard.spcgLevel}级`} />
-            <Rule icon="ak-star.svg" label="重复 AC" value="不重复加分" />
-            <Rule icon="error-rune.svg" label="考试 / 后台" value="暂不计入" />
+            <Rule icon="coin.svg" label="普通题" value="难度系数金币" />
+            <Rule icon="scroll-pass.svg" label="复习 AC" value="每题+2金币" />
+            <Rule icon="error-rune.svg" label="段位赛" value="得分比例×难度" />
+            <Rule icon="ak-star.svg" label="段位赛 AK" value="+10金币/榜分" />
           </div>
 
           <div className={styles.decayPanel}>
-            <PanelTitle icon="level-gem.svg" title="计入口径" />
-            <p>排行榜只看本级题目的首次 AC 金币，用来比较同一级别内的学习推进情况。</p>
-            <div><span>统计来源</span><strong>reward_ledger</strong></div>
-            <div><span>奖励类型</span><strong>level_first_ac</strong></div>
-            <div><span>公开信息</span><strong>昵称、头像、称谓</strong></div>
-            <small>不会展示手机号、邮箱、源码或隐藏测试点。</small>
+            <PanelTitle icon="level-gem.svg" title="特殊说明" />
+            <div><span>1</span><strong>获得前三的同学将获得“上榜”背包物品，每周结算。</strong></div>
+            <div><span>2</span><strong>获得第一的同学激活“霸榜”物品。</strong></div>
+            <div className={styles.decayWarning}><span>3</span><strong>超过 15 天没有获得当级别积分的学员，该榜积分将按每周扣减 10%，新学员要趁机超越霸榜。</strong></div>
           </div>
         </aside>
       </section>
@@ -208,17 +220,17 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
             <span>{currentTitle}</span>
           </div>
         </div>
-        <Summary label={messages.leaderboard.currentScore} value={`${formatNumber(currentUser?.coinTotal ?? 0)} ${messages.profile.coins}`} />
-        <Summary label={messages.leaderboard.passed} value={formatPassed(currentPassedCount, levelTotal)} positive={currentPassedCount > 0} />
+        <Summary label={messages.leaderboard.currentScore} value={formatScorePair(currentUser)} />
+        <Summary label={messages.leaderboard.passed} value={formatPassed(currentPassedCount)} positive={currentPassedCount > 0} />
         <div className={styles.progressBlock}>
           <span>{messages.leaderboard.myProgress}</span>
           <div><i style={{ width: `${progressPercent(currentPassedCount, levelTotal)}%` }} /></div>
-          <strong>{formatPassed(currentPassedCount, levelTotal)}</strong>
+          <strong>{formatPassed(currentPassedCount)}</strong>
         </div>
         <div className={styles.rewardCard}>
           <img src={`${assetBase}/treasure-chest.svg`} alt="" />
           <span>本级排名说明</span>
-          <strong>{session ? (currentUser ? '已进入本级榜单' : '完成首次 AC 即可上榜') : '登录后查看个人排名'}</strong>
+          <strong>{session ? (currentUser ? '已进入本级榜单' : '获得当级别积分即可上榜') : '登录后查看个人排名'}</strong>
         </div>
       </section>
     </main>
@@ -259,6 +271,17 @@ function RankIcon({ rank }: { rank: number }) {
     return <img className={styles.rankMedal} src={`${assetBase}/medal-${rank}.svg`} alt={`第 ${rank} 名`} />
   }
 
+  if (rank <= 6) {
+    return (
+      <span
+        className={[styles.rankMedal, styles.rankMedalText, styles[`rankMedal${rank}`]].filter(Boolean).join(' ')}
+        aria-label={`第 ${rank} 名`}
+      >
+        {rank}
+      </span>
+    )
+  }
+
   return <span className={styles.rankNumber}>{rank}</span>
 }
 
@@ -269,6 +292,25 @@ function ActivityBadge({ kind, label }: { kind: ActivityKind; label: string }) {
       <img src={`${assetBase}/${icon}`} alt="" />
       {label}
     </span>
+  )
+}
+
+function PodiumStats({ student }: { student: LevelLeaderboardEntry }) {
+  return (
+    <div className={styles.podiumStats} aria-label={`${formatNumber(student.coinTotal)} 金币，${student.passedCount} 题，${formatActiveDays(student.lastScoredAt)}`}>
+      <span title="金币">
+        <img src={`${assetBase}/coin.svg`} alt="" />
+        {formatNumber(student.coinTotal)}
+      </span>
+      <span title="题目">
+        <img src={`${assetBase}/scroll-pass.svg`} alt="" />
+        {student.passedCount}
+      </span>
+      <span title="最近得分">
+        <img src={`${assetBase}/decay-hourglass.svg`} alt="" />
+        {formatActiveDays(student.lastScoredAt)}
+      </span>
+    </div>
   )
 }
 
@@ -291,12 +333,28 @@ function avatarFor(entry: Pick<LevelLeaderboardEntry, 'avatarUrl' | 'rank'>, ind
   return entry.avatarUrl ?? `${assetBase}/${fallbackAvatars[(entry.rank + index) % fallbackAvatars.length]}`
 }
 
+function getLevelWeaponThumbnail(level: number): { src: string; alt: string } {
+  const weapon =
+    levelWeaponThumbnails[level as keyof typeof levelWeaponThumbnails] ??
+    levelWeaponThumbnails[8]
+
+  return {
+    src: `${rankWeaponBase}/${weapon.fileName}`,
+    alt: `SPCG ${level}级 ${weapon.label}兵器`,
+  }
+}
+
 function formatNumber(value: number): string {
   return new Intl.NumberFormat('zh-CN').format(value)
 }
 
-function formatPassed(passedCount: number, total: number): string {
-  return total > 0 ? `${passedCount}/${total}` : String(passedCount)
+function formatPassed(passedCount: number): string {
+  return `${passedCount} 题`
+}
+
+function formatScorePair(student: LevelLeaderboardEntry | null): string {
+  if (!student) return '0 金币 / 折后 0'
+  return `${formatNumber(student.coinTotal)} 金币 / 折后 ${formatNumber(student.rankScore)}`
 }
 
 function progressPercent(passedCount: number, total: number): number {
@@ -315,6 +373,12 @@ function activityLabel(value: string): string {
   if (days <= 0) return '今日得分'
   if (days === 1) return '1 天前'
   return `${days} 天前`
+}
+
+function formatActiveDays(value: string): string {
+  const days = daysSince(value)
+  if (days <= 0) return '今天'
+  return `${days}天`
 }
 
 function daysSince(value: string): number {

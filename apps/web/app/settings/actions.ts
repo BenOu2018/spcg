@@ -1,6 +1,6 @@
 'use server'
 
-import { redirect } from 'next/navigation'
+import { redirect, RedirectType } from 'next/navigation'
 import { cookies } from 'next/headers'
 import { auth } from '@/auth'
 import { isAvatarUploadFile, saveAvatarUpload } from '@/lib/avatar-upload'
@@ -23,13 +23,13 @@ export async function updateAccountProfileAction(formData: FormData) {
   const avatarFile = formData.get('avatarFile')
   if (isAvatarUploadFile(avatarFile)) {
     const upload = await saveAvatarUpload({ userId, file: avatarFile })
-    if (!upload.ok && upload.code !== 'avatar-empty') redirect(`/settings?profile=${upload.code}`)
+    if (!upload.ok && upload.code !== 'avatar-empty') redirectToSettings(`/settings?tab=profile&profile=${upload.code}`)
     if (upload.ok) avatarUrl = upload.avatarUrl
   }
   const result = await updateAccountProfile({ userId, displayName, avatarUrl })
-  if (!result.ok) redirect(`/settings?tab=profile&profile=${result.code}`)
+  if (!result.ok) redirectToSettings(`/settings?tab=profile&profile=${result.code}`)
 
-  redirect('/settings?tab=profile&profile=saved')
+  redirectToSettings('/settings?tab=profile&profile=saved')
 }
 
 export async function updatePasswordAction(formData: FormData) {
@@ -42,9 +42,9 @@ export async function updatePasswordAction(formData: FormData) {
   const confirmPassword = readRequired(formData, 'confirmPassword')
   const result = await updateAccountPassword({ userId, currentPassword, nextPassword, confirmPassword })
   if (!result.ok && result.code === 'not-found') redirect('/auth/sign-in?next=/settings')
-  if (!result.ok) redirect(`/settings?tab=security&password=${result.code}`)
+  if (!result.ok) redirectToSettings(`/settings?tab=security&password=${result.code}`)
 
-  redirect('/settings?tab=security&password=saved')
+  redirectToSettings('/settings?tab=security&password=saved')
 }
 
 export async function updateUiLocaleAction(formData: FormData) {
@@ -54,7 +54,7 @@ export async function updateUiLocaleAction(formData: FormData) {
 
   const uiLocale = readRequired(formData, 'uiLocale')
   const result = await updateAccountUiLocale({ userId, uiLocale })
-  if (!result.ok) redirect(`/settings?tab=language&language=${result.code}`)
+  if (!result.ok) redirectToSettings(`/settings?tab=language&language=${result.code}`)
 
   const cookieStore = await cookies()
   cookieStore.set(UI_LOCALE_COOKIE, result.uiLocale, {
@@ -63,7 +63,7 @@ export async function updateUiLocaleAction(formData: FormData) {
     sameSite: 'lax',
   })
 
-  redirect('/settings?tab=language&language=saved')
+  redirectToSettings('/settings?tab=language&language=saved')
 }
 
 export async function requestPhoneVerificationAction(formData: FormData) {
@@ -73,7 +73,7 @@ export async function requestPhoneVerificationAction(formData: FormData) {
 
   const phoneNumber = readRequired(formData, 'phoneNumber')
   const result = await requestPhoneVerification({ userId, phoneNumber })
-  if (!result.ok) redirect(`/settings?phone=${result.code}`)
+  if (!result.ok) redirectToSettings(`/settings?tab=phone&phone=${result.code}`)
 
   const params = new URLSearchParams({
     tab: 'phone',
@@ -81,7 +81,7 @@ export async function requestPhoneVerificationAction(formData: FormData) {
     phoneNumber: phoneNumber.trim(),
     devCode: result.developmentCode,
   })
-  redirect(`/settings?${params.toString()}`)
+  redirectToSettings(`/settings?${params.toString()}`)
 }
 
 export async function verifyPhoneCodeAction(formData: FormData) {
@@ -92,9 +92,13 @@ export async function verifyPhoneCodeAction(formData: FormData) {
   const phoneNumber = readRequired(formData, 'phoneNumber')
   const code = readRequired(formData, 'code')
   const result = await verifyPhoneCode({ userId, phoneNumber, code })
-  if (!result.ok) redirect(`/settings?tab=phone&phone=${result.code}`)
+  if (!result.ok) redirectToSettings(`/settings?tab=phone&phone=${result.code}`)
 
-  redirect('/settings?tab=phone&phone=verified')
+  redirectToSettings('/settings?tab=phone&phone=verified')
+}
+
+function redirectToSettings(path: string): never {
+  redirect(path, RedirectType.replace)
 }
 
 function readRequired(formData: FormData, key: string): string {

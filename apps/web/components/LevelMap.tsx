@@ -29,6 +29,7 @@ type MapPoint = {
   id: string
   x: number
   y: number
+  stageId?: string
 }
 
 type StageProgressMenu = {
@@ -215,8 +216,10 @@ function buildRoutePositions(
   return levels.map((level, index) => {
     const stagePositionId = chapterPrefix ? `${chapterPrefix}-${String(level.order).padStart(2, '0')}` : null
     const configured = configuredById.get(level.id) ?? (stagePositionId ? configuredById.get(stagePositionId) : undefined)
-    if (configured) return { ...configured, id: level.id }
-    return fallbackPositions[index] ?? { id: level.id, x: 0.12, y: 0.78 }
+    const stageId = stagePositionId ?? undefined
+    if (configured) return { ...configured, id: level.id, stageId }
+    const fallback = fallbackPositions[index] ?? { id: level.id, x: 0.12, y: 0.78 }
+    return { ...fallback, id: level.id, stageId }
   })
 }
 
@@ -239,7 +242,11 @@ function buildGeneratedRoutePositions(levels: Level[]): MapPoint[] {
 function buildRouteSegments(nodePositions: MapPoint[], configuredSegments?: string[][]): MapPoint[][] {
   if (!configuredSegments || configuredSegments.length === 0) return [nodePositions]
 
-  const nodeById = new Map(nodePositions.map((position) => [position.id, position]))
+  const nodeById = new Map<string, MapPoint>()
+  for (const position of nodePositions) {
+    nodeById.set(position.id, position)
+    if (position.stageId) nodeById.set(position.stageId, position)
+  }
   const segments = configuredSegments
     .map((segment) => segment.map((id) => nodeById.get(id)).filter((point): point is MapPoint => Boolean(point)))
     .filter((segment) => segment.length > 1)

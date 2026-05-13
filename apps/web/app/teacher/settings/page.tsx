@@ -22,7 +22,7 @@ export default async function TeacherSettingsPage() {
       />
 
       <section className="teacher-stat-grid compact">
-        <TeacherStatCard label="当前账号" value={displayName} hint={session.user.username ? `@${session.user.username}` : session.user.id} />
+        <TeacherStatCard label="当前账号" value={displayName} hint={session.user.username ?? session.user.id} />
         <TeacherStatCard label="后台类型" value="Teacher" hint="教师管理后台" />
         <TeacherStatCard label="资料设置" value="预留" hint="后续支持头像、昵称、通知" />
       </section>

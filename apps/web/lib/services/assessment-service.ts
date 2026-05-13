@@ -19,11 +19,13 @@ import {
   listRankedAssessmentCandidates,
   queueFinalAssessmentSubmissions,
   refreshAssessmentAttemptScore,
+  setAssessmentAttemptReward,
   type RankedAssessmentHistoryItem,
 } from '@/lib/repositories/assessment-repository'
 import { isDatabaseConfigured } from '@/lib/repositories/database-repository'
-import { grantAssessmentReward } from '@/lib/services/reward-service'
+import { grantAssessmentReward, grantRankedAssessmentReward } from '@/lib/services/reward-service'
 import { ServiceError } from '@/lib/services/errors'
+import { formatStudentDateKey } from '@/lib/student-date'
 import {
   getFeatureAccess,
   getRankedAssessmentAccess,
@@ -83,7 +85,7 @@ export async function startRankedAssessmentAttempt(input: {
   })
   if (!access.allowed) throw new ServiceError('forbidden', access.reason ?? '当前用户类型无法参加该级别段位赛。', 403)
 
-  const dateKey = formatShanghaiDate(new Date())
+  const dateKey = formatStudentDateKey()
   const candidates = await listRankedAssessmentCandidates({ spcgLevel: input.spcgLevel })
   const paperItems = buildRankedPaperItems(candidates, `${input.spcgLevel}:${dateKey}`)
   const paper = await getOrCreateRankedAssessmentPaper({
@@ -101,11 +103,17 @@ export async function startRankedAssessmentAttempt(input: {
     if (existingAttempt.status === 'scoring') {
       await refreshAssessmentAttemptScore({ attemptId: existingAttempt.id })
     }
+    const refreshedAttempt =
+      existingAttempt.status === 'scoring'
+        ? (await getAssessmentAttemptForUser({ userId: input.userId, attemptId: existingAttempt.id })) ?? existingAttempt
+        : existingAttempt
+    const rewardedAttempt = await grantRankedAssessmentRewardIfReady({
+      userId: input.userId,
+      attempt: refreshedAttempt,
+      allowReward: existingAttempt.status === 'scoring',
+    })
     return {
-      attempt:
-        existingAttempt.status === 'scoring'
-          ? (await getAssessmentAttemptForUser({ userId: input.userId, attemptId: existingAttempt.id })) ?? existingAttempt
-          : existingAttempt,
+      attempt: rewardedAttempt,
       session: paper.session,
       levels: await maskLevelHintsForUser(input.userId, await listAssessmentAttemptLevels({ userId: input.userId, attemptId: existingAttempt.id })),
       items: await getAssessmentAttemptItems({ userId: input.userId, attemptId: existingAttempt.id }),
@@ -137,7 +145,7 @@ export async function getCurrentRankedAssessmentAttempt(input: {
   if (!input.userId) throw new ServiceError('unauthorized', '当前未登录。', 401)
   if (!isDatabaseConfigured()) throw new ServiceError('db_unconfigured', '数据库未配置。', 503)
 
-  const dateKey = formatShanghaiDate(new Date())
+  const dateKey = formatStudentDateKey()
   const access = await getRankedAssessmentAccess({
     userId: input.userId,
     spcgLevel: input.spcgLevel,
@@ -159,9 +167,14 @@ export async function getCurrentRankedAssessmentAttempt(input: {
     attempt.status === 'scoring'
       ? (await getAssessmentAttemptForUser({ userId: input.userId, attemptId: attempt.id })) ?? attempt
       : attempt
+  const rewardedAttempt = await grantRankedAssessmentRewardIfReady({
+    userId: input.userId,
+    attempt: refreshedAttempt,
+    allowReward: attempt.status === 'scoring',
+  })
 
   return {
-    attempt: refreshedAttempt,
+    attempt: rewardedAttempt,
     levels: await maskLevelHintsForUser(input.userId, await listAssessmentAttemptLevels({ userId: input.userId, attemptId: attempt.id })),
     items: await getAssessmentAttemptItems({ userId: input.userId, attemptId: attempt.id }),
     access,
@@ -207,9 +220,14 @@ export async function getRankedAssessmentDetail(input: {
     attempt.status === 'scoring'
       ? (await getAssessmentAttemptForUser({ userId: input.userId, attemptId: input.attemptId })) ?? attempt
       : attempt
+  const rewardedAttempt = await grantRankedAssessmentRewardIfReady({
+    userId: input.userId,
+    attempt: refreshedAttempt,
+    allowReward: attempt.status === 'scoring',
+  })
 
   return {
-    attempt: refreshedAttempt,
+    attempt: rewardedAttempt,
     levels: await maskLevelHintsForUser(input.userId, await listAssessmentAttemptLevels({ userId: input.userId, attemptId: input.attemptId })),
     items: await getAssessmentAttemptItems({ userId: input.userId, attemptId: input.attemptId }),
     access,
@@ -301,11 +319,51 @@ export async function finishRankedAssessmentAttempt(input: {
   if (!input.userId) throw new ServiceError('unauthorized', '当前未登录。', 401)
   if (!isDatabaseConfigured()) throw new ServiceError('db_unconfigured', '数据库未配置。', 503)
 
-  return queueFinalAssessmentSubmissions({
+  const attempt = await queueFinalAssessmentSubmissions({
     userId: input.userId,
     attemptId: input.attemptId,
     expired: input.expired,
   })
+
+  return grantRankedAssessmentRewardIfReady({
+    userId: input.userId,
+    attempt,
+    allowReward: attempt.status === 'completed' || attempt.status === 'expired',
+  })
+}
+
+async function grantRankedAssessmentRewardIfReady(input: {
+  userId: string
+  attempt: AssessmentAttempt
+  allowReward: boolean
+}): Promise<AssessmentAttempt> {
+  if (!input.allowReward) return input.attempt
+  if (!['completed', 'expired'].includes(input.attempt.status)) return input.attempt
+  if (input.attempt.reward?.ledgerIds.length) return input.attempt
+
+  const [items, levels] = await Promise.all([
+    getAssessmentAttemptItems({ userId: input.userId, attemptId: input.attempt.id }),
+    listAssessmentAttemptLevels({ userId: input.userId, attemptId: input.attempt.id }),
+  ])
+  const reward = await grantRankedAssessmentReward({
+    userId: input.userId,
+    attemptId: input.attempt.id,
+    items,
+    levels,
+    acceptedCount: input.attempt.acceptedCount,
+    totalCount: input.attempt.totalCount,
+  })
+
+  await setAssessmentAttemptReward({
+    userId: input.userId,
+    attemptId: input.attempt.id,
+    reward,
+  })
+
+  return (await getAssessmentAttemptForUser({ userId: input.userId, attemptId: input.attempt.id })) ?? {
+    ...input.attempt,
+    reward,
+  }
 }
 
 type RankedCandidate = Awaited<ReturnType<typeof listRankedAssessmentCandidates>>[number]
@@ -379,15 +437,6 @@ function stableHash(value: string): string {
 
 function isActiveAssessmentAttempt(attempt: AssessmentAttempt): boolean {
   return attempt.status === 'in_progress' || attempt.status === 'scoring'
-}
-
-function formatShanghaiDate(date: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date)
 }
 
 function buildRankedSessionId(spcgLevel: number, dateKey: string): string {

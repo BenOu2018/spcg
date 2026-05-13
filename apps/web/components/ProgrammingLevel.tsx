@@ -5,6 +5,7 @@ import type { Level, Progress } from '@spcg/shared/types'
 import { getUnlockedLevelSolutionAction } from '@/app/level/actions'
 import { CodeWorkspace } from '@/components/CodeWorkspace'
 import { TaskCard } from '@/components/TaskCard'
+import { emitBehaviorEvent } from '@/components/behavior-events'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 import type { SampleRunResultMap } from '@/components/sample-run'
 
@@ -96,7 +97,18 @@ export function ProgrammingLevel({
         sampleResults={sampleResults}
         expanded={taskExpanded}
         onToggleExpanded={() => setTaskExpanded((value) => !value)}
-        onPlayVideo={videoUrl ? () => setVideoOpen(true) : undefined}
+        onPlayVideo={
+          videoUrl
+            ? () => {
+                emitBehaviorEvent({
+                  type: 'solution_video',
+                  levelId: activeLevel.id,
+                  metadata: { action: 'open' },
+                })
+                setVideoOpen(true)
+              }
+            : undefined
+        }
         canViewHints={canViewHints}
         hintsUpgradeMessage={hintsUpgradeMessage}
         messages={messages}

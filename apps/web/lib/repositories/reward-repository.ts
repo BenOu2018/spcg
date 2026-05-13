@@ -10,8 +10,10 @@ import type {
   WalletSummary,
 } from '@spcg/shared/types'
 import { getEarnedTitlePoolKeyForRank, pickEarnedTitleFromPool } from '@spcg/shared/earned-titles'
+import { getLeaderboardRankAwards } from '@spcg/shared/leaderboard-rank-awards'
 import type { PoolClient } from 'pg'
 import { query, queryOne, withTransaction } from '@/lib/db'
+import { getLevelLeaderboardRankForClient } from '@/lib/repositories/leaderboard-repository'
 import { deterministicEarnedTitleSeed, generateTitle, getRankForCoins, getRankLabel } from '@/lib/reward-rules'
 
 type WalletRow = {
@@ -74,6 +76,22 @@ type UserTitleRecordRow = {
   awarded_at: Date | string
 }
 
+type LeaderboardRankAwardTrigger = {
+  spcgLevel: number
+  source: RewardSource
+  sourceRef: string
+  submissionId: string | null
+  attemptId: string | null
+  levelId: string | null
+}
+
+const leaderboardScoringSources = new Set<RewardSource>([
+  'level_first_ac',
+  'daily_review_complete',
+  'assessment_complete',
+  'assessment_rank_bonus',
+])
+
 export type GrantRewardInput = {
   userId: string
   source: RewardSource
@@ -133,71 +151,74 @@ export async function listLedgerBySubmissionId(userId: string, submissionId: str
   return rows.map(mapLedgerRow)
 }
 
+export async function listLedgerByAttemptId(userId: string, attemptId: string): Promise<RewardLedgerEntry[]> {
+  const rows = await query<LedgerRow>(
+    `
+    SELECT id, user_id, source, source_ref, coin_delta, garlic_delta, item_id, item_quantity, metadata, created_at
+    FROM reward_ledger
+    WHERE user_id = $1 AND metadata->>'attemptId' = $2
+    ORDER BY created_at ASC
+    `,
+    [userId, attemptId],
+  )
+
+  return rows.map(mapLedgerRow)
+}
+
 export async function listUserInventory(userId: string): Promise<UserInventoryItem[]> {
-  const knowledgeRows = await query<KnowledgeInventoryRow>(
-    `
-    SELECT
-      tag_id,
-      zh_name,
-      en_name,
-      domain,
-      band_or_level,
-      usage_count,
-      first_used_at,
-      last_used_at
-    FROM user_knowledge_usage
-    WHERE user_id = $1
-      AND classification = '编程算法'
-      AND usage_count > 0
-    ORDER BY last_used_at DESC, usage_count DESC, zh_name ASC
-    `,
-    [userId],
-  )
+  const [knowledgeRows, rows] = await Promise.all([
+    query<KnowledgeInventoryRow>(
+      `
+      SELECT
+        tag_id,
+        zh_name,
+        en_name,
+        domain,
+        band_or_level,
+        usage_count,
+        first_used_at,
+        last_used_at
+      FROM user_knowledge_usage
+      WHERE user_id = $1
+        AND classification = '编程算法'
+        AND usage_count > 0
+      ORDER BY last_used_at DESC, usage_count DESC, zh_name ASC
+      `,
+      [userId],
+    ),
+    query<InventoryRow>(
+      `
+      SELECT
+        i.id AS item_id,
+        i.name,
+        i.description,
+        i.algorithm_tag,
+        i.rarity,
+        i.icon,
+        i.stackable,
+        ui.quantity,
+        ui.first_acquired_at,
+        ui.last_acquired_at
+      FROM user_inventory ui
+      JOIN inventory_items i ON i.id = ui.item_id
+      WHERE ui.user_id = $1 AND ui.quantity > 0
+      ORDER BY
+        CASE WHEN i.algorithm_tag = 'leaderboard-rank' THEN 0 ELSE 1 END,
+        ui.last_acquired_at DESC,
+        i.rarity DESC,
+        i.name ASC
+      `,
+      [userId],
+    ),
+  ])
 
-  if (knowledgeRows.length > 0) {
-    return knowledgeRows.map((row) => ({
-      item: {
-        id: row.tag_id,
-        name: row.zh_name,
-        description: buildKnowledgeInventoryDescription(row),
-        algorithmTag: row.domain,
-        rarity: getKnowledgeInventoryRarity(row.domain),
-        icon: getKnowledgeInventoryIcon(row.domain),
-        stackable: true,
-      },
-      quantity: row.usage_count,
-      firstAcquiredAt: toIsoString(row.first_used_at),
-      lastAcquiredAt: toIsoString(row.last_used_at),
-    }))
-  }
-
-  const rows = await query<InventoryRow>(
-    `
-    SELECT
-      i.id AS item_id,
-      i.name,
-      i.description,
-      i.algorithm_tag,
-      i.rarity,
-      i.icon,
-      i.stackable,
-      ui.quantity,
-      ui.first_acquired_at,
-      ui.last_acquired_at
-    FROM user_inventory ui
-    JOIN inventory_items i ON i.id = ui.item_id
-    WHERE ui.user_id = $1 AND ui.quantity > 0
-    ORDER BY ui.last_acquired_at DESC, i.rarity DESC, i.name ASC
-    `,
-    [userId],
-  )
-
-  return rows.map((row) => ({
+  const inventoryItems: UserInventoryItem[] = rows.map((row) => ({
     item: {
       id: row.item_id,
       name: row.name,
       description: row.description,
       algorithmTag: row.algorithm_tag,
+      category: row.algorithm_tag === 'leaderboard-rank' ? 'rank' : 'reward',
       rarity: row.rarity,
       icon: row.icon,
       stackable: row.stackable,
@@ -206,6 +227,24 @@ export async function listUserInventory(userId: string): Promise<UserInventoryIt
     firstAcquiredAt: toIsoString(row.first_acquired_at),
     lastAcquiredAt: toIsoString(row.last_acquired_at),
   }))
+
+  const knowledgeItems: UserInventoryItem[] = knowledgeRows.map((row) => ({
+    item: {
+      id: row.tag_id,
+      name: row.zh_name,
+      description: buildKnowledgeInventoryDescription(row),
+      algorithmTag: row.domain,
+      category: 'knowledge' as const,
+      rarity: getKnowledgeInventoryRarity(row.domain),
+      icon: getKnowledgeInventoryIcon(row.domain),
+      stackable: true,
+    },
+    quantity: row.usage_count,
+    firstAcquiredAt: toIsoString(row.first_used_at),
+    lastAcquiredAt: toIsoString(row.last_used_at),
+  }))
+
+  return [...inventoryItems, ...knowledgeItems]
 }
 
 function buildKnowledgeInventoryDescription(row: KnowledgeInventoryRow): string {
@@ -298,9 +337,11 @@ export async function grantRewards(inputs: GrantRewardInput[]): Promise<RewardGr
     let firstAcTitleInput: GrantRewardInput | null = null
     let coinDelta = 0
     let garlicDelta = 0
+    const scoredSpcgLevelTriggers = new Map<number, LeaderboardRankAwardTrigger>()
 
     for (const input of inputs) {
       if (input.userId !== userId) throw new Error('Cannot grant rewards to multiple users in one transaction')
+      const insertedCoinDelta = input.coinDelta ?? 0
       const result = await client.query<{ id: string }>(
         `
         INSERT INTO reward_ledger
@@ -324,8 +365,21 @@ export async function grantRewards(inputs: GrantRewardInput[]): Promise<RewardGr
       if (!result.rows[0]) continue
       ledgerIds.push(result.rows[0].id)
       if (input.source === 'level_first_ac') firstAcTitleInput = input
-      coinDelta += input.coinDelta ?? 0
+      coinDelta += insertedCoinDelta
       garlicDelta += input.garlicDelta ?? 0
+      if (leaderboardScoringSources.has(input.source) && insertedCoinDelta > 0) {
+        const spcgLevel = readMetadataNumber(input.metadata, 'spcgLevel')
+        if (spcgLevel && !scoredSpcgLevelTriggers.has(spcgLevel)) {
+          scoredSpcgLevelTriggers.set(spcgLevel, {
+            spcgLevel,
+            source: input.source,
+            sourceRef: input.sourceRef,
+            submissionId: readMetadataString(input.metadata, 'submissionId'),
+            attemptId: readMetadataString(input.metadata, 'attemptId'),
+            levelId: readMetadataString(input.metadata, 'levelId'),
+          })
+        }
+      }
 
       if (input.itemId && (input.itemQuantity ?? 0) > 0) {
         await client.query(
@@ -348,6 +402,13 @@ export async function grantRewards(inputs: GrantRewardInput[]): Promise<RewardGr
         })
       }
     }
+
+    const rankAwards = await awardLeaderboardRankItemsForLevels(client, {
+      userId,
+      triggers: Array.from(scoredSpcgLevelTriggers.values()),
+    })
+    ledgerIds.push(...rankAwards.ledgerIds)
+    items.push(...rankAwards.items)
 
     const nextCoinTotal = beforeWallet.coin_total + coinDelta
     const nextGarlicBalance = beforeWallet.garlic_balance + garlicDelta
@@ -402,6 +463,88 @@ export async function grantRewards(inputs: GrantRewardInput[]): Promise<RewardGr
       ledgerIds,
     }
   })
+}
+
+async function awardLeaderboardRankItemsForLevels(
+  client: PoolClient,
+  input: {
+    userId: string
+    triggers: LeaderboardRankAwardTrigger[]
+  },
+): Promise<{ ledgerIds: string[]; items: RewardGrantResult['items'] }> {
+  const ledgerIds: string[] = []
+  const items: RewardGrantResult['items'] = []
+
+  for (const trigger of input.triggers) {
+    const rankEntry = await getLevelLeaderboardRankForClient(client, {
+      spcgLevel: trigger.spcgLevel,
+      userId: input.userId,
+    })
+    if (!rankEntry) continue
+
+    for (const award of getLeaderboardRankAwards(rankEntry.rank)) {
+      const metadata: Record<string, unknown> = {
+        spcgLevel: trigger.spcgLevel,
+        rank: rankEntry.rank,
+        rankScore: rankEntry.rankScore,
+        coinTotal: rankEntry.coinTotal,
+        threshold: award.threshold,
+        triggerSource: trigger.source,
+        triggerSourceRef: trigger.sourceRef,
+        reason: 'leaderboard_rank_entered',
+      }
+      if (trigger.submissionId) metadata.submissionId = trigger.submissionId
+      if (trigger.attemptId) metadata.attemptId = trigger.attemptId
+      if (trigger.levelId) metadata.levelId = trigger.levelId
+
+      const inserted = await client.query<{ id: string }>(
+        `
+        INSERT INTO reward_ledger
+          (user_id, source, source_ref, coin_delta, garlic_delta, item_id, item_quantity, metadata)
+        VALUES ($1, 'leaderboard_rank_award', $2, 0, 0, $3, 1, $4)
+        ON CONFLICT (user_id, source, source_ref) DO NOTHING
+        RETURNING id
+        `,
+        [
+          input.userId,
+          `leaderboard:${trigger.spcgLevel}:${award.itemId}`,
+          award.itemId,
+          metadata,
+        ],
+      )
+      const ledgerId = inserted.rows[0]?.id
+      if (!ledgerId) continue
+
+      ledgerIds.push(ledgerId)
+      await addInventoryItemForClient(client, input.userId, award.itemId, 1)
+      items.push({
+        itemId: award.itemId,
+        name: await getInventoryItemNameForClient(client, award.itemId),
+        quantity: 1,
+      })
+    }
+  }
+
+  return { ledgerIds, items }
+}
+
+async function addInventoryItemForClient(client: PoolClient, userId: string, itemId: string, quantity: number) {
+  await client.query(
+    `
+    INSERT INTO user_inventory (user_id, item_id, quantity)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (user_id, item_id)
+    DO UPDATE SET
+      quantity = user_inventory.quantity + EXCLUDED.quantity,
+      last_acquired_at = NOW()
+    `,
+    [userId, itemId, quantity],
+  )
+}
+
+async function getInventoryItemNameForClient(client: PoolClient, itemId: string): Promise<string> {
+  const result = await client.query<{ name: string }>('SELECT name FROM inventory_items WHERE id = $1', [itemId])
+  return result.rows[0]?.name ?? itemId
 }
 
 async function ensureWallet(userId: string): Promise<WalletRow> {
@@ -630,6 +773,13 @@ function titleAwardFromRecord(record: UserTitleRecord): EarnedTitleAward {
 function readMetadataString(metadata: Record<string, unknown> | undefined, key: string): string | null {
   const value = metadata?.[key]
   return typeof value === 'string' && value ? value : null
+}
+
+function readMetadataNumber(metadata: Record<string, unknown> | undefined, key: string): number | null {
+  const value = metadata?.[key]
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN
+  if (!Number.isInteger(parsed) || parsed <= 0) return null
+  return parsed
 }
 
 function toIsoString(value: Date | string): string {

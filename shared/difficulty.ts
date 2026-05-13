@@ -9,6 +9,9 @@ export type DifficultyInput = Pick<Difficulty, 'spcgLevel' | 'stars'> | {
   stars?: number | null
 }
 
+export const DAILY_REVIEW_COIN_PER_ACCEPTED = 2
+export const RANKED_ASSESSMENT_AK_COIN_BONUS = 10
+
 export function isSpcgLevel(value: number): value is SpcgLevel {
   return Number.isInteger(value) && value >= 1 && value <= 10
 }
@@ -30,6 +33,21 @@ export function getDifficultyCoefficient(input: DifficultyInput): number {
 
 export function getLevelCoinReward(input: DifficultyInput): number {
   return getDifficultyCoefficient(input)
+}
+
+export function getDailyReviewCoinReward(acceptedCount: number): number {
+  const normalizedCount = Number.isFinite(acceptedCount) ? Math.max(0, Math.floor(acceptedCount)) : 0
+  return normalizedCount * DAILY_REVIEW_COIN_PER_ACCEPTED
+}
+
+export function getRankedAssessmentQuestionCoinReward(input: DifficultyInput & {
+  score: number
+  maxScore: number
+}): number {
+  const score = Number.isFinite(input.score) ? input.score : 0
+  const maxScore = Number.isFinite(input.maxScore) ? input.maxScore : 0
+  const ratio = maxScore > 0 ? Math.max(0, Math.min(1, score / maxScore)) : 0
+  return Math.round(ratio * getDifficultyCoefficient(input))
 }
 
 function normalizeSpcgLevel(value: number | null | undefined): SpcgLevel {

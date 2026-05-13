@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import type { Level, Progress } from '@spcg/shared/types'
+import type { Level, Progress, UiLocale } from '@spcg/shared/types'
 import { getGameChapter, listGameChapters } from '@spcg/shared/game-chapters'
 import { isRankedAssessmentEnabledLevel } from '@spcg/shared/ranked-assessment'
 import type { Session } from 'next-auth'
@@ -7,6 +7,7 @@ import { GameMapMenus } from '@/components/GameMapMenus'
 import { LevelMap } from '@/components/LevelMap'
 import { TopbarAccountActions } from '@/components/TopbarAccountActions'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
+import type { TodayNewsArticleCard } from '@/lib/services/today-news-service'
 
 type StageProgressMenu = {
   items: Array<{ levelId: string }>
@@ -20,6 +21,9 @@ type GameVillageProps = {
   allowFreeJump?: boolean
   currentLevelIdOverride?: string | null
   stageMenus?: StageProgressMenu[]
+  showTodayNews?: boolean
+  todayNewsArticles?: TodayNewsArticleCard[]
+  uiLocale?: UiLocale
   messages?: StudentUiMessages
 }
 
@@ -33,6 +37,9 @@ export function GameVillage({
   allowFreeJump = false,
   currentLevelIdOverride = null,
   stageMenus = [],
+  showTodayNews = false,
+  todayNewsArticles = [],
+  uiLocale = 'zh-CN',
   messages = fallbackMessages,
 }: GameVillageProps) {
   const availableChapters = listGameChapters().filter((chapter) =>
@@ -90,7 +97,13 @@ export function GameVillage({
           messages={messages}
         />
         <div className="village-actions">
-          <TopbarAccountActions session={session} messages={messages} />
+          <TopbarAccountActions
+            session={session}
+            messages={messages}
+            showTodayNews={showTodayNews}
+            todayNewsArticles={todayNewsArticles}
+            uiLocale={uiLocale}
+          />
         </div>
       </header>
 
@@ -109,13 +122,15 @@ export function GameVillage({
       />
 
       {ctaLevel ? (
-        <Link className="current-level-cta" href={`/level/${ctaLevel.id}`} prefetch={false}>
+        <Link className="current-level-cta" href={`/daily-review?levelId=${encodeURIComponent(ctaLevel.id)}`} prefetch={false}>
           <span>
-            {messages.map.levelPrefix}
-            {ctaLevel.order}
-            {messages.map.stageSuffix}
+            {messages.map.dailyTask}
           </span>
-          <strong>{ctaLevel.title}</strong>
+          <strong>
+            {messages.map.dailyTaskContinuePrefix}
+            {ctaLevel.order}
+            {messages.map.dailyTaskContinueSuffix}
+          </strong>
         </Link>
       ) : null}
     </main>

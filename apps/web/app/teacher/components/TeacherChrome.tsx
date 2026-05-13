@@ -1,11 +1,27 @@
+'use client'
+
 import Link from 'next/link'
-import type { ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 
 export type TeacherNavItem = {
   href: string
   label: string
   hint?: string
 }
+
+type TeacherTopbarCopy = {
+  eyebrow?: string
+  title: string
+  description?: string
+  actions?: ReactNode
+}
+
+const defaultTopbarCopy: TeacherTopbarCopy = {
+  eyebrow: 'SPCG Teacher Console',
+  title: '老师工作台',
+}
+
+const TeacherTopbarContext = createContext<Dispatch<SetStateAction<TeacherTopbarCopy>> | null>(null)
 
 export function TeacherShell({
   children,
@@ -18,38 +34,46 @@ export function TeacherShell({
   userLabel: string
   signOutForm: ReactNode
 }) {
+  const [topbarCopy, setTopbarCopy] = useState<TeacherTopbarCopy>(defaultTopbarCopy)
+
   return (
-    <main className="teacher-shell">
-      <aside className="teacher-sidebar">
-        <Link className="teacher-brand" href="/teacher">
-          <span>SPCG</span>
-          <strong>Teacher</strong>
-        </Link>
-        <nav className="teacher-nav" aria-label="Teacher navigation">
-          {navItems.map((item) => (
-            <Link href={item.href} key={item.href}>
-              <strong>{item.label}</strong>
-              {item.hint ? <span>{item.hint}</span> : null}
-            </Link>
-          ))}
-        </nav>
-        <div className="teacher-account">
-          <span>Signed in</span>
-          <strong>{userLabel}</strong>
-          {signOutForm}
-        </div>
-      </aside>
-      <section className="teacher-main">
-        <header className="teacher-topbar">
-          <div>
-            <span>SPCG Teacher Console</span>
-            <strong>学习管理后台</strong>
+    <TeacherTopbarContext.Provider value={setTopbarCopy}>
+      <main className="teacher-shell">
+        <aside className="teacher-sidebar">
+          <Link className="teacher-brand" href="/teacher">
+            <span>SPCG</span>
+            <strong>Teacher</strong>
+          </Link>
+          <nav className="teacher-nav" aria-label="Teacher navigation">
+            {navItems.map((item) => (
+              <Link href={item.href} key={item.href}>
+                <strong>{item.label}</strong>
+                {item.hint ? <span>{item.hint}</span> : null}
+              </Link>
+            ))}
+          </nav>
+          <div className="teacher-account">
+            <span>Signed in</span>
+            <strong>{userLabel}</strong>
+            {signOutForm}
           </div>
-          <div className="teacher-topbar-user">{userLabel}</div>
-        </header>
-        <div className="teacher-content">{children}</div>
-      </section>
-    </main>
+        </aside>
+        <section className="teacher-main">
+          <header className="teacher-topbar">
+            <div className="teacher-topbar-copy">
+              {topbarCopy.eyebrow ? <span>{topbarCopy.eyebrow}</span> : null}
+              <strong>{topbarCopy.title}</strong>
+              {topbarCopy.description ? <p>{topbarCopy.description}</p> : null}
+            </div>
+            <div className="teacher-topbar-right">
+              {topbarCopy.actions ? <div className="teacher-topbar-actions">{topbarCopy.actions}</div> : null}
+              <div className="teacher-topbar-user">{userLabel}</div>
+            </div>
+          </header>
+          <div className="teacher-content">{children}</div>
+        </section>
+      </main>
+    </TeacherTopbarContext.Provider>
   )
 }
 
@@ -64,16 +88,13 @@ export function TeacherPageHeader({
   description?: string
   actions?: ReactNode
 }) {
-  return (
-    <header className="teacher-page-header">
-      <div>
-        {eyebrow ? <span>{eyebrow}</span> : null}
-        <h1>{title}</h1>
-        {description ? <p>{description}</p> : null}
-      </div>
-      {actions ? <div className="teacher-page-actions">{actions}</div> : null}
-    </header>
-  )
+  const topbar = useContext(TeacherTopbarContext)
+
+  useEffect(() => {
+    topbar?.({ eyebrow, title, description, actions })
+  }, [actions, description, eyebrow, title, topbar])
+
+  return null
 }
 
 export function TeacherStatCard({
@@ -98,22 +119,28 @@ export function TeacherPanel({
   title,
   meta,
   action,
+  className,
+  hideHeader = false,
   children,
 }: {
   title: string
   meta?: string
   action?: ReactNode
+  className?: string
+  hideHeader?: boolean
   children: ReactNode
 }) {
   return (
-    <section className="teacher-panel">
-      <div className="teacher-panel-head">
-        <div>
-          <h2>{title}</h2>
-          {meta ? <span>{meta}</span> : null}
+    <section className={className ? `teacher-panel ${className}` : 'teacher-panel'}>
+      {hideHeader ? null : (
+        <div className="teacher-panel-head">
+          <div>
+            <h2>{title}</h2>
+            {meta ? <span>{meta}</span> : null}
+          </div>
+          {action}
         </div>
-        {action}
-      </div>
+      )}
       {children}
     </section>
   )

@@ -17,6 +17,11 @@ import {
   createParentForTeacherStudent,
   removeParentFromTeacherStudent,
 } from '@/lib/services/parent-service'
+import {
+  deleteBehaviorAnalysisForTeacherStudent,
+  generateBehaviorAnalysisForTeacherStudent,
+} from '@/lib/services/behavior-analytics-service'
+import { toServiceError } from '@/lib/services/errors'
 import { generateGrowthReportForTeacherStudent } from '@/lib/services/growth-report-service'
 import { explainSubmissionErrorForTeacher } from '@/lib/services/submission-error-analysis-service'
 import { resetStudentParentInviteForTeacher } from '@/lib/services/student-parent-invite-service'
@@ -256,17 +261,89 @@ export async function generateStudentGrowthReportAction(formData: FormData) {
   const periodEnd = String(formData.get('periodEnd') ?? '').trim()
   if (!studentUserId) throw new Error('Student id is required')
 
-  const result = await generateGrowthReportForTeacherStudent({
-    teacherUserId: session?.user?.id,
-    studentUserId,
-    periodStart: periodStart || null,
-    periodEnd: periodEnd || null,
-  })
+  let result: Awaited<ReturnType<typeof generateGrowthReportForTeacherStudent>>
+  try {
+    result = await generateGrowthReportForTeacherStudent({
+      teacherUserId: session?.user?.id,
+      studentUserId,
+      periodStart: periodStart || null,
+      periodEnd: periodEnd || null,
+    })
+  } catch (error) {
+    const serviceError = toServiceError(error)
+    redirect(
+      `/teacher/students/${studentUserId}?tab=parents&drawer=growth-report&growthReportError=${encodeURIComponent(serviceError.message)}`,
+    )
+  }
 
   revalidatePath('/teacher')
   revalidatePath('/teacher/students')
   revalidatePath(`/teacher/students/${studentUserId}`)
-  redirect(result.publicUrl)
+  redirect(
+    `/teacher/students/${studentUserId}?tab=parents&growthReportId=${encodeURIComponent(result.report.id)}&growthReportMessage=${encodeURIComponent(
+      `家长报告已生成：${result.report.periodStart} 至 ${result.report.periodEnd}`,
+    )}`,
+  )
+}
+
+export async function generateStudentBehaviorAnalysisAction(formData: FormData) {
+  const session = await auth()
+  const studentUserId = String(formData.get('studentUserId') ?? '').trim()
+  const periodStart = String(formData.get('periodStart') ?? '').trim()
+  const periodEnd = String(formData.get('periodEnd') ?? '').trim()
+  const periodDaysValue = Number(formData.get('periodDays') ?? 7)
+  const periodDays = Number.isInteger(periodDaysValue) ? periodDaysValue : 7
+  if (!studentUserId) throw new Error('Student id is required')
+
+  let result: Awaited<ReturnType<typeof generateBehaviorAnalysisForTeacherStudent>>
+  try {
+    result = await generateBehaviorAnalysisForTeacherStudent({
+      teacherUserId: session?.user?.id,
+      studentUserId,
+      periodStart: periodStart || null,
+      periodEnd: periodEnd || null,
+      periodDays,
+    })
+  } catch (error) {
+    const serviceError = toServiceError(error)
+    redirect(`/teacher/students/${studentUserId}?tab=behavior&behaviorError=${encodeURIComponent(serviceError.message)}`)
+  }
+
+  revalidatePath('/teacher')
+  revalidatePath('/teacher/students')
+  revalidatePath(`/teacher/students/${studentUserId}`)
+  redirect(
+    `/teacher/students/${studentUserId}?tab=behavior&behaviorReportId=${encodeURIComponent(result.id)}&behaviorMessage=${encodeURIComponent(
+      `行为分析已生成：${result.periodStart} 至 ${result.periodEnd}`,
+    )}`,
+  )
+}
+
+export async function deleteStudentBehaviorAnalysisAction(formData: FormData) {
+  const session = await auth()
+  const studentUserId = String(formData.get('studentUserId') ?? '').trim()
+  const reportId = String(formData.get('reportId') ?? '').trim()
+  const currentReportId = String(formData.get('currentReportId') ?? '').trim()
+  if (!studentUserId || !reportId) throw new Error('Student id and report id are required')
+
+  try {
+    await deleteBehaviorAnalysisForTeacherStudent({
+      teacherUserId: session?.user?.id,
+      studentUserId,
+      reportId,
+    })
+  } catch (error) {
+    const serviceError = toServiceError(error)
+    redirect(`/teacher/students/${studentUserId}?tab=behavior&behaviorError=${encodeURIComponent(serviceError.message)}`)
+  }
+
+  revalidatePath('/teacher')
+  revalidatePath('/teacher/students')
+  revalidatePath(`/teacher/students/${studentUserId}`)
+  const nextSelectedReport = currentReportId && currentReportId !== reportId ? `&behaviorReportId=${encodeURIComponent(currentReportId)}` : ''
+  redirect(
+    `/teacher/students/${studentUserId}?tab=behavior${nextSelectedReport}&behaviorMessage=${encodeURIComponent('行为分析报告已删除。')}`,
+  )
 }
 
 export async function resetStudentParentInviteAction(formData: FormData) {

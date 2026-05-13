@@ -4,13 +4,23 @@ import {
   createGrowthReportWithDeliveries,
   getGrowthReportAnalysisInput,
   getGrowthReportByTokenHash,
+  listGrowthReportDetailsForStudent,
   listGrowthReportsForStudent,
+  type GrowthReportAnalysisInput,
 } from '@/lib/repositories/growth-report-repository'
 import { canUseSystemSettingsStore, getSystemSetting } from '@/lib/repositories/system-settings-repository'
 import { ServiceError } from '@/lib/services/errors'
-import { buildGrowthReportDraft } from '@/lib/services/growth-report-analyzer'
+import {
+  buildGrowthReportDraft,
+  buildGrowthReportPromptPayload,
+  buildLocalGrowthReportSections,
+  normalizeGrowthReportSections,
+  type GrowthReportDraft,
+} from '@/lib/services/growth-report-analyzer'
+import { generateMiniMaxJsonText } from '@/lib/services/minimax-code-help-client'
 import { requireTeacherCanAccessStudent, requireTeacherManagesStudent } from '@/lib/services/teacher-service'
 import { requireFeatureAccess } from '@/lib/services/entitlement-service'
+import { getLocalDateRangeEndingToday } from '@/lib/student-date'
 
 const DEFAULT_TOKEN_DAYS = 30
 const GROWTH_REPORT_SETTING_KEY = 'growth_report'
@@ -41,7 +51,7 @@ export async function generateGrowthReportForTeacherStudent(input: {
     periodStart: period.periodStart,
     periodEnd: period.periodEnd,
   })
-  const draft = buildGrowthReportDraft(analysis)
+  const draft = await buildGrowthReportDraftWithOptionalMiniMax(analysis)
   const token = randomBytes(32).toString('base64url')
   const tokenHash = hashToken(token)
   const tokenExpiresAt = new Date(Date.now() + settings.tokenTtlDays * 86_400_000).toISOString()
@@ -77,6 +87,18 @@ export async function getTeacherStudentGrowthReports(input: {
   return listGrowthReportsForStudent(input.studentUserId, input.limit)
 }
 
+export async function getTeacherStudentGrowthReportDetails(input: {
+  teacherUserId?: string | null
+  studentUserId: string
+  limit?: number
+}): Promise<GrowthReportDetail[]> {
+  await requireTeacherCanAccessStudent({
+    teacherUserId: input.teacherUserId,
+    studentUserId: input.studentUserId,
+  })
+  return listGrowthReportDetailsForStudent(input.studentUserId, input.limit)
+}
+
 export async function getPublicGrowthReportByToken(token: string): Promise<GrowthReportDetail | null> {
   const normalized = token.trim()
   if (!TOKEN_PATTERN.test(normalized)) return null
@@ -92,7 +114,7 @@ export function getDefaultGrowthReportSettings(): GrowthReportSettings {
     enabled: true,
     triggerMode: 'manual',
     frequency: 'weekly',
-    periodDays: 7,
+    periodDays: 14,
     tokenTtlDays: DEFAULT_TOKEN_DAYS,
     channels: ['email', 'sms'],
   }
@@ -110,7 +132,66 @@ export async function getGrowthReportSettings(): Promise<GrowthReportSettings> {
   }
 }
 
-function normalizePeriod(periodStart?: string | null, periodEnd?: string | null, periodDays = 7) {
+async function buildGrowthReportDraftWithOptionalMiniMax(input: GrowthReportAnalysisInput): Promise<GrowthReportDraft> {
+  const localSections = buildLocalGrowthReportSections(input)
+
+  try {
+    const generated = await generateMiniMaxJsonText(buildGrowthReportPrompts(input))
+    const parsed = tryParseJsonObject(generated.content)
+    const aiSections = normalizeGrowthReportSections(parsed, localSections)
+    if (aiSections) {
+      return buildGrowthReportDraft(input, {
+        sections: aiSections,
+        generationProvider: 'minimax',
+        generationModel: generated.model,
+      })
+    }
+  } catch {
+    // Parent reports must still be generated when MiniMax is unavailable or unsafe.
+  }
+
+  return buildGrowthReportDraft(input, {
+    sections: localSections,
+    generationProvider: 'local',
+  })
+}
+
+function buildGrowthReportPrompts(input: GrowthReportAnalysisInput): { systemPrompt: string; userPrompt: string } {
+  return {
+    systemPrompt: [
+      '你是 SPCG 的家长学习报告撰写助手。',
+      '你只能基于输入 JSON 中已经计算好的聚合指标组织表达，不要自行编造数字、题目、结论或诊断。',
+      '报告面向家长，必须温和、清楚、可执行；少用 AC/WA/CE 等术语，如需表达请使用“通过、答案错误、编译错误”等中文说法。',
+      '当 totalVisibleMinutes 为 0 但 submissionCount 或 IDE 行为大于 0 时，必须写“页面可见时长数据不足”，禁止写成“学习 0 分钟”。',
+      '样本较少或置信度 low 时，只能给温和提醒，不能强判断能力。',
+      '不要推断智力、性格、心理健康、家庭背景、性别、收入等敏感画像。',
+      '不要输出源码、手机号、邮箱、身份证、隐藏测试点、原始错误详情、stdout、stderr 或 Markdown 代码块。',
+      '只输出一个合法 JSON 对象，不要 Markdown 代码块，不要额外说明。',
+      'JSON 字段必须是：headline:string, overview:string[], mastery:string[], practiceHabits:string[], debugging:string[], parentActions:string[], dataNotes:string[], confidence:string, confidenceReason:string。',
+      'parentActions 输出 3 条以内；每个数组条目都要是短句。',
+    ].join('\n'),
+    userPrompt: [
+      '请基于以下预计算指标生成家长学习报告 JSON。',
+      '',
+      JSON.stringify(buildGrowthReportPromptPayload(input), null, 2),
+    ].join('\n'),
+  }
+}
+
+function tryParseJsonObject(content: string): Record<string, unknown> | null {
+  const candidate = content.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/^```(?:json)?\s*|\s*```$/gi, '').trim()
+  const start = candidate.indexOf('{')
+  const end = candidate.lastIndexOf('}')
+  if (start < 0 || end <= start) return null
+  try {
+    const parsed = JSON.parse(candidate.slice(start, end + 1)) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
+function normalizePeriod(periodStart?: string | null, periodEnd?: string | null, periodDays = 14) {
   if (periodStart || periodEnd) {
     const start = normalizeDate(periodStart, 'periodStart')
     const end = normalizeDate(periodEnd, 'periodEnd')
@@ -119,11 +200,10 @@ function normalizePeriod(periodStart?: string | null, periodEnd?: string | null,
   }
 
   const end = new Date()
-  const start = new Date(end)
-  start.setUTCDate(end.getUTCDate() - Math.max(1, Math.min(periodDays, 31)) + 1)
+  const period = getLocalDateRangeEndingToday(Math.max(1, Math.min(periodDays, 31)), end)
   return {
-    periodStart: toDateOnly(start),
-    periodEnd: toDateOnly(end),
+    periodStart: period.periodStart,
+    periodEnd: period.periodEnd,
   }
 }
 
@@ -133,10 +213,6 @@ function normalizeDate(value: string | null | undefined, label: string) {
     throw new ServiceError('bad_request', `${label} must be YYYY-MM-DD.`, 400)
   }
   return text
-}
-
-function toDateOnly(date: Date) {
-  return date.toISOString().slice(0, 10)
 }
 
 function hashToken(token: string) {
@@ -152,7 +228,7 @@ function normalizeGrowthReportSettings(
     : fallback.channels
   return {
     enabled: typeof value.enabled === 'boolean' ? value.enabled : fallback.enabled,
-    triggerMode: value.triggerMode === 'scheduled' ? 'scheduled' : fallback.triggerMode,
+    triggerMode: 'manual',
     frequency: value.frequency === 'monthly' ? 'monthly' : fallback.frequency,
     periodDays: normalizePositiveInt(value.periodDays, fallback.periodDays, 1, 31),
     tokenTtlDays: normalizePositiveInt(value.tokenTtlDays, fallback.tokenTtlDays, 1, 365),

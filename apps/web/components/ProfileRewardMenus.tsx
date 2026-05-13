@@ -25,6 +25,26 @@ const fallbackMessages = getStudentUiMessages('zh-CN')
 export function ProfileRewardMenus({ inventory, titles, rewards, assessmentHistory, messages = fallbackMessages }: ProfileRewardMenusProps) {
   const [openMenu, setOpenMenu] = useState<'inventory' | 'titles' | 'assessments' | 'rewards' | null>('inventory')
   const completedAssessmentCount = assessmentHistory.filter((item) => item.status === 'completed' || item.status === 'expired').length
+  const inventoryGroups = [
+    {
+      key: 'rank',
+      icon: '/assets/art/ui/rewards/rank.svg',
+      title: '排名物品',
+      entries: inventory.filter((entry) => entry.item.category === 'rank'),
+    },
+    {
+      key: 'knowledge',
+      icon: '/assets/art/ui/rewards/knowledge.svg',
+      title: '知识点物品',
+      entries: inventory.filter((entry) => entry.item.category === 'knowledge'),
+    },
+    {
+      key: 'reward',
+      icon: '/assets/art/ui/rewards/inventory.svg',
+      title: '奖励物品',
+      entries: inventory.filter((entry) => entry.item.category === 'reward'),
+    },
+  ].filter((group) => group.entries.length > 0)
 
   return (
     <section className="profile-menu-list" aria-label={messages.profile.rewards}>
@@ -37,19 +57,28 @@ export function ProfileRewardMenus({ inventory, titles, rewards, assessmentHisto
         onToggle={() => setOpenMenu((value) => (value === 'inventory' ? null : 'inventory'))}
       >
         <div className="profile-menu-items">
-          {inventory.map((entry) => (
-            <article className="profile-inventory-row" key={entry.item.id}>
-              {entry.item.icon ? <img src={entry.item.icon} alt="" /> : null}
-              <div>
-                <strong>{entry.item.name}</strong>
-                <span>{entry.item.description}</span>
+          {inventoryGroups.map((group) => (
+            <section className="profile-inventory-group" key={group.key} aria-label={group.title}>
+              <div className="profile-inventory-group-title">
+                <img src={group.icon} alt="" />
+                <strong>{group.title}</strong>
+                <em>{group.entries.length} 件</em>
               </div>
-              <em>
-                {entry.item.rarity} · x{entry.quantity}
-              </em>
-            </article>
+              {group.entries.map((entry) => (
+                <article className="profile-inventory-row" key={`${group.key}-${entry.item.id}`}>
+                  {entry.item.icon ? <img src={entry.item.icon} alt="" /> : null}
+                  <div>
+                    <strong>{entry.item.name}</strong>
+                    <span>{entry.item.description}</span>
+                  </div>
+                  <em>
+                    {entry.item.rarity} · x{entry.quantity}
+                  </em>
+                </article>
+              ))}
+            </section>
           ))}
-          {inventory.length === 0 ? <p className="profile-empty">还没有装备，首次 AC 会带来第一件收藏。</p> : null}
+          {inventory.length === 0 ? <p className="profile-empty">还没有背包物品，获得知识点或进入排行榜会带来第一件收藏。</p> : null}
         </div>
       </ProfileMenu>
 
@@ -197,6 +226,8 @@ function formatRewardSource(source: string): string {
     hidden_garlic_drop: '隐藏蒜粒',
     assessment_complete: '段位赛完成',
     assessment_rank_bonus: '段位加成',
+    daily_review_complete: '今日任务',
+    leaderboard_rank_award: '排行榜荣誉',
     admin_adjustment: '管理员调整',
   }
   return labels[source] ?? source

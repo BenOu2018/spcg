@@ -56,7 +56,7 @@ type AssessmentAttemptItemRow = {
   level_id: string
   position: number
   display_mode: string
-  source: 'lesson' | 'exam-only'
+  source: AssessmentAttemptItem['source']
   max_score: number
   latest_realtime_submission_id: string | null
   final_submission_id: string | null
@@ -107,16 +107,6 @@ type PublicExamLevelRow = {
   story: string | null
   pass_out_problem_id: string | null
 } & Record<string, unknown>
-
-const FALLBACK_SOURCE = {
-  type: 'original' as const,
-  name: 'SPCG 原创',
-  url: null,
-  author: 'Stephen',
-  license: null,
-  attribution: null,
-  notes: 'ranked assessment',
-}
 
 export async function getAssessmentSession(sessionId: string): Promise<AssessmentSession | null> {
   const row = await queryOne<AssessmentSessionRow>(
@@ -847,6 +837,21 @@ export async function refreshAssessmentAttemptScore(input: {
   })
 }
 
+export async function setAssessmentAttemptReward(input: {
+  userId: string
+  attemptId: string
+  reward: RewardGrantResult
+}): Promise<void> {
+  await query(
+    `
+    UPDATE assessment_attempts
+    SET reward = $3::jsonb, updated_at = NOW()
+    WHERE id = $1 AND user_id = $2
+    `,
+    [input.attemptId, input.userId, JSON.stringify(input.reward)],
+  )
+}
+
 async function syncCompletedFinalSubmissionsToAttemptItems(client: PoolClient, attemptId: string): Promise<void> {
   await client.query(
     `
@@ -938,7 +943,7 @@ function mapAttemptItemRow(row: AssessmentAttemptItemRow): AssessmentAttemptItem
     levelId: row.level_id,
     position: row.position,
     displayMode: row.display_mode,
-    source: row.source ?? FALLBACK_SOURCE,
+    source: row.source ?? 'lesson',
     maxScore: row.max_score,
     latestRealtimeSubmissionId: row.latest_realtime_submission_id,
     finalSubmissionId: row.final_submission_id,

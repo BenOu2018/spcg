@@ -65,8 +65,18 @@ export default async function TeacherStudentsPage({ searchParams }: TeacherStude
         <TeacherStatCard label="待修错" value={students.reduce((sum, student) => sum + student.pendingRepairCount, 0)} />
       </section>
 
-      <TeacherPanel title="筛选" meta="Search and filters">
-        <form className="teacher-filter-bar" action="/teacher/students">
+      <TeacherPanel
+        action={
+          <div className="teacher-panel-summary">
+            <strong>学生列表</strong>
+            <span>{visibleStudents.length} 条当前筛选 · 每页 {PAGE_SIZE} 条</span>
+          </div>
+        }
+        className="teacher-filter-panel"
+        title="筛选"
+        meta="Search and filters"
+      >
+        <form className="teacher-filter-bar teacher-filter-bar-dense teacher-student-filter-bar" action="/teacher/students">
           <label>
             <span>搜索</span>
             <input name="q" defaultValue={filters.q} placeholder="姓名、用户名或 ID" />
@@ -96,7 +106,7 @@ export default async function TeacherStudentsPage({ searchParams }: TeacherStude
         </form>
       </TeacherPanel>
 
-      <TeacherPanel title="学生列表" meta={`每页 ${PAGE_SIZE} 条`}>
+      <TeacherPanel className="teacher-list-panel" title="学生列表" hideHeader>
         <div className="teacher-data-table">
           <div className="teacher-data-head teacher-student-table-grid">
             <span>学生</span>
@@ -113,7 +123,7 @@ export default async function TeacherStudentsPage({ searchParams }: TeacherStude
                 <Link className="teacher-title-link" href={`/teacher/students/${student.id}`}>
                   {student.displayName ?? student.username ?? student.id}
                 </Link>
-                <small>@{student.username} · {student.accountStatus}</small>
+                <small>{student.username} · {student.accountStatus}</small>
               </span>
               <span>
                 <TeacherStatusBadge tone={student.accessLevel === 'owner' ? 'success' : 'info'}>

@@ -48,7 +48,7 @@ export default async function AdminUserDetailPage({ params, searchParams }: Admi
         }
         description={
           <>
-            @{user.username} · {user.userRole} · {user.lastSignInAt ? `last sign in ${new Date(user.lastSignInAt).toLocaleString()}` : 'no sign-in record'}
+            {user.username} · {user.userRole} · {user.lastSignInAt ? `last sign in ${new Date(user.lastSignInAt).toLocaleString()}` : 'no sign-in record'}
           </>
         }
         eyebrow="User Detail"
@@ -111,7 +111,7 @@ export default async function AdminUserDetailPage({ params, searchParams }: Admi
               <dt>User ID</dt>
               <dd>{user.id}</dd>
               <dt>Username</dt>
-              <dd>@{user.username}</dd>
+              <dd>{user.username}</dd>
               <dt>Email</dt>
               <dd>{user.email ?? '-'}</dd>
               <dt>Phone</dt>

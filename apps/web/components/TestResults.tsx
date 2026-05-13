@@ -50,15 +50,15 @@ export function TestResults({
 
   if (!verdict) {
     return (
-      <div className="result-list">
+      <div className="result-list result-idle">
         <div className="result-title">
-          <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-check.svg" alt="" />
-          {messages.results.title}
+          <span className="result-pending-mark" aria-hidden="true" />
+          {messages.results.notStarted}
           <TitleAction action={action} />
         </div>
         <div className="case muted-case">
-          <span />
-          <span>{messages.results.ready}</span>
+          <span className="result-pending-mark small" aria-hidden="true" />
+          <span>{messages.results.title}</span>
           <span>{messages.results.submitWhenDone}</span>
         </div>
         <DebugInfo items={debugInfo} />

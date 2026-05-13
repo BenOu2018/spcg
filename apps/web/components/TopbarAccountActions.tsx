@@ -1,37 +1,47 @@
 'use client'
 
 import Link from 'next/link'
+import type { UiLocale } from '@spcg/shared/types'
 import type { Session } from 'next-auth'
-import { signOut as clientSignOut } from 'next-auth/react'
-import { type CSSProperties, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { LogOut, Map, Settings } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Map, Newspaper } from 'lucide-react'
+import { TodayNewsModal } from '@/components/TodayNewsModal'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
+import type { TodayNewsArticleCard } from '@/lib/services/today-news-service'
 
 type TopbarAccountActionsProps = {
   session: Session | null
   mapHref?: string
   showMapButton?: boolean
+  showTodayNews?: boolean
+  todayNewsArticles?: TodayNewsArticleCard[]
+  uiLocale?: UiLocale
   messages?: StudentUiMessages
 }
 
 const fallbackMessages = getStudentUiMessages('zh-CN')
+const emptyTodayNewsArticles: TodayNewsArticleCard[] = []
 
 export function TopbarAccountActions({
   session,
   mapHref = '/map',
   showMapButton = false,
+  showTodayNews = false,
+  todayNewsArticles = emptyTodayNewsArticles,
+  uiLocale = 'zh-CN',
   messages = fallbackMessages,
 }: TopbarAccountActionsProps) {
   const [currentSession, setCurrentSession] = useState<Session | null>(session)
-  const [open, setOpen] = useState(false)
-  const [popoverStyle, setPopoverStyle] = useState<CSSProperties>({})
-  const menuRef = useRef<HTMLDivElement | null>(null)
-  const buttonRef = useRef<HTMLButtonElement | null>(null)
-  const popoverRef = useRef<HTMLDivElement | null>(null)
+  const [isTodayNewsOpen, setIsTodayNewsOpen] = useState(false)
+  const [newsArticles, setNewsArticles] = useState<TodayNewsArticleCard[]>(todayNewsArticles)
   const user = currentSession?.user
   const displayName = user?.name || user?.username || user?.email || user?.id || 'SPCG'
   const avatarUrl = user?.avatarUrl || user?.image || null
+  const todayNewsLabel = uiLocale === 'en-US' ? 'SPCG Weekly' : 'SPCG 每周资讯'
+
+  useEffect(() => {
+    setNewsArticles(todayNewsArticles)
+  }, [todayNewsArticles])
 
   useEffect(() => {
     let cancelled = false
@@ -63,99 +73,61 @@ export function TopbarAccountActions({
     }
   }, [session])
 
-  useEffect(() => {
-    if (!open) return
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target
-      if (!(target instanceof Node)) return
-      if (menuRef.current?.contains(target)) return
-      if (popoverRef.current?.contains(target)) return
-      setOpen(false)
-    }
-
-    window.addEventListener('pointerdown', handlePointerDown)
-    return () => window.removeEventListener('pointerdown', handlePointerDown)
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-
-    const updatePopoverPosition = () => {
-      const rect = buttonRef.current?.getBoundingClientRect()
-      if (!rect) return
-      setPopoverStyle({
-        position: 'fixed',
-        top: `${Math.round(rect.bottom + 8)}px`,
-        right: `${Math.max(8, Math.round(window.innerWidth - rect.right))}px`,
-      })
-    }
-
-    updatePopoverPosition()
-    window.addEventListener('resize', updatePopoverPosition)
-    window.addEventListener('scroll', updatePopoverPosition, true)
-
-    return () => {
-      window.removeEventListener('resize', updatePopoverPosition)
-      window.removeEventListener('scroll', updatePopoverPosition, true)
-    }
-  }, [open])
-
-  const accountPopover = open ? (
-    <div
-      className="topbar-account-popover topbar-account-popover-floating"
-      ref={popoverRef}
-      role="menu"
-      style={popoverStyle}
-    >
-      <strong>{displayName}</strong>
-      <Link href="/settings" role="menuitem" onClick={() => setOpen(false)}>
-        <Settings size={14} />
-        {messages.common.settings}
-      </Link>
-      <button type="button" role="menuitem" onClick={handleSignOut}>
-        <LogOut size={14} />
-        {messages.common.signOut}
-      </button>
-    </div>
-  ) : null
-
-  async function handleSignOut() {
-    setOpen(false)
-    setCurrentSession(null)
-    await clientSignOut({ callbackUrl: '/auth/sign-in', redirect: true })
-  }
-
   return (
-    <>
-      <nav className="topbar-account-actions" aria-label={messages.common.settings}>
-        {showMapButton ? (
-          <Link className="topbar-action-button" href={mapHref} aria-label={messages.common.backToMap} title={messages.common.backToMap}>
-            <Map size={14} strokeWidth={2.4} />
-          </Link>
-        ) : null}
-        <Link className="topbar-action-button" href="/me" aria-label={messages.common.progress} title={messages.common.progress}>
-          <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-star.svg" alt="" />
+    <nav className="topbar-account-actions" aria-label={messages.common.settings}>
+      {showMapButton ? (
+        <Link className="topbar-action-button" href={mapHref} aria-label={messages.common.backToMap} title={messages.common.backToMap}>
+          <Map size={14} strokeWidth={2.4} />
         </Link>
-        <div className="topbar-account-menu" ref={menuRef}>
+      ) : null}
+      <Link className="topbar-action-button" href="/me" aria-label={messages.common.progress} title={messages.common.progress}>
+        <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-star.svg" alt="" />
+      </Link>
+      {showTodayNews ? (
+        <>
           <button
-            className="topbar-avatar-button topbar-user-button"
-            ref={buttonRef}
+            className="topbar-action-button"
             type="button"
-            aria-label={`${messages.common.settings}: ${displayName}`}
-            aria-expanded={open}
-            aria-haspopup="menu"
-            title={displayName}
-            onClick={() => setOpen((value) => !value)}
+            aria-label={todayNewsLabel}
+            title={todayNewsLabel}
+            onClick={() => setIsTodayNewsOpen(true)}
           >
-            <span className="topbar-user-avatar" aria-hidden="true">
-              {avatarUrl ? <img src={avatarUrl} alt="" /> : displayName.slice(0, 1).toUpperCase()}
-            </span>
-            <span className="topbar-user-name">{displayName}</span>
+            <Newspaper size={14} strokeWidth={2.4} />
           </button>
-        </div>
-      </nav>
-      {accountPopover && typeof document !== 'undefined' ? createPortal(accountPopover, document.body) : null}
-    </>
+          {isTodayNewsOpen ? (
+            <TodayNewsModal
+              articles={newsArticles}
+              uiLocale={uiLocale}
+              onReactionChange={(reaction) => {
+                setNewsArticles((current) =>
+                  current.map((article) =>
+                    article.slug === reaction.slug
+                      ? {
+                          ...article,
+                          likeCount: reaction.likeCount,
+                          viewerLiked: reaction.liked,
+                          viewerBookmarked: reaction.bookmarked,
+                        }
+                      : article,
+                  ),
+                )
+              }}
+              onClose={() => setIsTodayNewsOpen(false)}
+            />
+          ) : null}
+        </>
+      ) : null}
+      <Link
+        className="topbar-avatar-button topbar-user-button"
+        href="/settings?tab=profile"
+        aria-label={`${messages.common.settings}: ${displayName}`}
+        title={displayName}
+      >
+        <span className="topbar-user-avatar" aria-hidden="true">
+          {avatarUrl ? <img src={avatarUrl} alt="" /> : displayName.slice(0, 1).toUpperCase()}
+        </span>
+        <span className="topbar-user-name">{displayName}</span>
+      </Link>
+    </nav>
   )
 }

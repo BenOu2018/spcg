@@ -18,6 +18,8 @@ const navItems: AdminNavItem[] = [
   { href: '/admin/knowledge-points', label: 'Knowledge', hint: '知识点图谱' },
   { href: '/admin/problem-sets', label: 'Problem Sets', hint: '题单与教案' },
   { href: '/admin/submissions', label: 'Submissions', hint: '判题和源码检索' },
+  { href: '/admin/behavior-analyses', label: 'Behavior', hint: '用户行为分析' },
+  { href: '/admin/today-news', label: 'Weekly', hint: 'SPCG 每周资讯与互动' },
   { href: '/admin/system-bugs', label: 'Bugs', hint: '用户反馈' },
   { href: '/admin/imports', label: 'Imports', hint: '题库导入批次' },
   { href: '/admin/settings', label: 'Settings', hint: '系统配置' },

@@ -1,9 +1,17 @@
-import { getDifficultyCoefficient, getLevelCoinReward, getLevelLabel } from '../shared/difficulty.js'
+import {
+  RANKED_ASSESSMENT_AK_COIN_BONUS,
+  getDailyReviewCoinReward,
+  getDifficultyCoefficient,
+  getLevelCoinReward,
+  getLevelLabel,
+  getRankedAssessmentQuestionCoinReward,
+} from '../shared/difficulty.js'
 import {
   EARNED_TITLE_CATALOG,
   getEarnedTitlePoolKeyForRank,
   pickEarnedTitleFromPool,
 } from '../shared/earned-titles.js'
+import { getLeaderboardRankAwards } from '../shared/leaderboard-rank-awards.js'
 import { generateTitle, getRankForCoins, getRankLabel } from '../shared/reward-ranks.js'
 
 const checks: Array<[string, () => void]> = [
@@ -23,6 +31,57 @@ const checks: Array<[string, () => void]> = [
     'SPCG 10级 5层 rewards 50 coins',
     () => {
       assertDifficulty({ spcgLevel: 10, stars: 5 }, 50, 'SPCG 10级')
+    },
+  ],
+  [
+    'daily review rewards 2 coins per accepted problem',
+    () => {
+      const reward = getDailyReviewCoinReward(2)
+      if (reward !== 4) throw new Error(`expected 4 daily review coins, got ${reward}`)
+    },
+  ],
+  [
+    'ranked assessment partial score rewards proportional difficulty coins',
+    () => {
+      const reward = getRankedAssessmentQuestionCoinReward({
+        spcgLevel: 3,
+        stars: 4,
+        score: 30,
+        maxScore: 60,
+      })
+      if (reward !== 6) throw new Error(`expected 6 ranked assessment coins, got ${reward}`)
+    },
+  ],
+  [
+    'ranked assessment AK bonus rewards 10 coins',
+    () => {
+      if (RANKED_ASSESSMENT_AK_COIN_BONUS !== 10) {
+        throw new Error(`expected AK bonus 10, got ${RANKED_ASSESSMENT_AK_COIN_BONUS}`)
+      }
+    },
+  ],
+  [
+    'leaderboard rank 7 grants no rank inventory',
+    () => {
+      assertLeaderboardRankAwards(7, [])
+    },
+  ],
+  [
+    'leaderboard rank 6 grants top-six inventory',
+    () => {
+      assertLeaderboardRankAwards(6, ['leaderboard-top-six'])
+    },
+  ],
+  [
+    'leaderboard rank 3 grants top-six and top-three inventory',
+    () => {
+      assertLeaderboardRankAwards(3, ['leaderboard-top-six', 'leaderboard-top-three'])
+    },
+  ],
+  [
+    'leaderboard rank 1 grants all rank inventory',
+    () => {
+      assertLeaderboardRankAwards(1, ['leaderboard-top-six', 'leaderboard-top-three', 'leaderboard-champion'])
     },
   ],
   [
@@ -132,4 +191,11 @@ function assertTitlePool(
 ) {
   const pool = getEarnedTitlePoolKeyForRank(rank)
   if (pool !== expectedPool) throw new Error(`expected ${rank} to use ${expectedPool}, got ${pool}`)
+}
+
+function assertLeaderboardRankAwards(rank: number, expectedItemIds: string[]) {
+  const itemIds = getLeaderboardRankAwards(rank).map((award) => award.itemId)
+  if (itemIds.join(',') !== expectedItemIds.join(',')) {
+    throw new Error(`expected rank ${rank} to grant ${expectedItemIds.join(',') || 'nothing'}, got ${itemIds.join(',') || 'nothing'}`)
+  }
 }

@@ -11,14 +11,18 @@ import {
   getTeacherStudentSubmissions,
 } from '@/lib/services/teacher-service'
 import { getParentsForTeacherStudent } from '@/lib/services/parent-service'
-import { getTeacherStudentGrowthReports } from '@/lib/services/growth-report-service'
+import { getTeacherStudentBehaviorAnalyses } from '@/lib/services/behavior-analytics-service'
+import { getTeacherStudentGrowthReportDetails } from '@/lib/services/growth-report-service'
 import { requireUserInventory } from '@/lib/services/inventory-service'
 import { listRankedAssessmentHistoryForUser } from '@/lib/services/assessment-service'
 import { requireWalletSummary } from '@/lib/services/wallet-service'
 import { getUserEntitlement, STUDENT_USER_TYPE_OPTIONS } from '@/lib/services/entitlement-service'
+import { getLocalDateRangeEndingToday } from '@/lib/student-date'
 import {
   bindParentToStudentAction,
   createParentForStudentAction,
+  deleteStudentBehaviorAnalysisAction,
+  generateStudentBehaviorAnalysisAction,
   generateStudentGrowthReportAction,
   removeParentStudentBindingAction,
   removeTeacherStudentAction,
@@ -29,6 +33,9 @@ import {
   shareTeacherStudentAction,
   updateTeacherStudentProfileAction,
 } from '../../actions'
+import { StatementMarkdown } from '@/components/StatementMarkdown'
+import { BehaviorAnalysisGenerateButton } from './BehaviorAnalysisGenerateButton'
+import { GrowthReportGenerateButton } from './GrowthReportGenerateButton'
 import {
   TeacherDrawer,
   TeacherEmpty,
@@ -44,7 +51,7 @@ type TeacherStudentDetailPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>
 }
 
-type StudentDetailTab = 'overview' | 'progress' | 'submissions' | 'assessments' | 'rewards' | 'parents' | 'settings'
+type StudentDetailTab = 'overview' | 'progress' | 'submissions' | 'assessments' | 'rewards' | 'parents' | 'behavior' | 'settings'
 
 export default async function TeacherStudentDetailPage({ params, searchParams }: TeacherStudentDetailPageProps) {
   const { id } = await params
@@ -52,6 +59,12 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
   const activeTab = normalizeTab(readParam(query.tab))
   const drawer = readParam(query.drawer)
   const parentInviteCode = readParam(query.parentInviteCode)
+  const behaviorError = readParam(query.behaviorError)
+  const behaviorMessage = readParam(query.behaviorMessage)
+  const behaviorReportId = readParam(query.behaviorReportId)
+  const growthReportError = readParam(query.growthReportError)
+  const growthReportMessage = readParam(query.growthReportMessage)
+  const growthReportId = readParam(query.growthReportId)
   const session = await requireTeacherSession(`/teacher/students/${id}`)
   const [
     students,
@@ -65,6 +78,7 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
     sharedTeachers,
     parents,
     growthReports,
+    behaviorAnalyses,
     entitlement,
   ] = await Promise.all([
     getTeacherStudents(session.user.id),
@@ -77,7 +91,8 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
     listRankedAssessmentHistoryForUser({ userId: id, limit: 8 }).catch(() => []),
     getTeacherStudentSharedTeachers({ teacherUserId: session.user.id, studentUserId: id }).catch(() => []),
     getParentsForTeacherStudent({ teacherUserId: session.user.id, studentUserId: id }).catch(() => []),
-    getTeacherStudentGrowthReports({ teacherUserId: session.user.id, studentUserId: id, limit: 8 }).catch(() => []),
+    getTeacherStudentGrowthReportDetails({ teacherUserId: session.user.id, studentUserId: id, limit: 8 }).catch(() => []),
+    getTeacherStudentBehaviorAnalyses({ teacherUserId: session.user.id, studentUserId: id, limit: 8 }).catch(() => []),
     getUserEntitlement(id).catch(() => null),
   ])
   const student = students.find((item) => item.id === id)
@@ -90,13 +105,19 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
   const recentErrorTypes = summarizeRecentErrors(submissions)
   const canManage = student.accessLevel === 'owner'
   const baseHref = `/teacher/students/${student.id}?tab=${activeTab}`
+  const selectedBehaviorAnalysis = behaviorReportId
+    ? behaviorAnalyses.find((analysis) => analysis.id === behaviorReportId) ?? null
+    : null
+  const selectedGrowthReport = growthReportId
+    ? growthReports.find((report) => report.id === growthReportId) ?? null
+    : null
 
   return (
     <section className="teacher-page">
       <TeacherPageHeader
         eyebrow="Student"
         title={student.displayName ?? student.username ?? student.id}
-        description={`@${student.username} · ${student.accessLevel === 'owner' ? '主老师管理' : '共享查看'}`}
+        description={`${student.username} · ${student.accessLevel === 'owner' ? '主老师管理' : '共享查看'}`}
         actions={
           <>
             <Link className="teacher-button secondary" href="/teacher/students">
@@ -151,6 +172,7 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
           { href: `/teacher/students/${student.id}?tab=assessments`, label: '考试记录', count: assessmentHistory.length, active: activeTab === 'assessments' },
           { href: `/teacher/students/${student.id}?tab=rewards`, label: '奖励成长', active: activeTab === 'rewards' },
           { href: `/teacher/students/${student.id}?tab=parents`, label: '家长与报告', count: parents.length, active: activeTab === 'parents' },
+          { href: `/teacher/students/${student.id}?tab=behavior`, label: '行为分析', count: behaviorAnalyses.length, active: activeTab === 'behavior' },
           { href: `/teacher/students/${student.id}?tab=settings`, label: '设置', active: activeTab === 'settings' },
         ]}
       />
@@ -164,6 +186,7 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
               <SummaryRow label="提交总数" value={student.submissionCount} />
               <SummaryRow label="家长绑定" value={`${parents.length} 位`} />
               <SummaryRow label="成长报告" value={`${growthReports.length} 份`} />
+              <SummaryRow label="行为分析" value={`${behaviorAnalyses.length} 份`} />
             </div>
           </TeacherPanel>
           <TeacherPanel title="近期提交" meta="Latest 8" action={<Link href={`/teacher/students/${student.id}?tab=submissions`}>查看全部</Link>}>
@@ -290,7 +313,7 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
       ) : null}
 
       {activeTab === 'parents' ? (
-        <section className="teacher-dashboard-grid">
+        <section className="teacher-dashboard-grid teacher-parent-report-grid">
           <TeacherPanel
             title="家长绑定"
             meta={`${parents.length} active`}
@@ -310,7 +333,7 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
                   <div>
                     <strong>{binding.parent.displayName ?? binding.parent.username}</strong>
                     <span>
-                      @{binding.parent.username}
+                      {binding.parent.username}
                       {binding.parent.phoneNumberMasked ? ` · ${binding.parent.phoneNumberMasked}` : ''}
                     </span>
                   </div>
@@ -331,18 +354,132 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
             meta={`${growthReports.length} recent`}
             action={canManage ? <Link className="teacher-small-button" href={`${baseHref}&drawer=growth-report`}>生成报告</Link> : null}
           >
+            {growthReportMessage ? <p className="teacher-inline-success">{growthReportMessage}</p> : null}
             <div className="teacher-compact-list">
               {growthReports.map((report) => (
-                <div className="teacher-compact-row" key={report.id}>
-                  <div>
+                <Link
+                  className={`teacher-compact-row growth-report-list-row${report.id === growthReportId ? ' active' : ''}`}
+                  href={`/teacher/students/${student.id}?tab=parents&growthReportId=${report.id}`}
+                  key={report.id}
+                >
+                  <div className="growth-report-list-main">
                     <strong>{report.title}</strong>
                     <span>{report.periodStart} 至 {report.periodEnd}</span>
                   </div>
                   <TeacherStatusBadge>{report.status}</TeacherStatusBadge>
-                </div>
+                </Link>
               ))}
               {growthReports.length === 0 ? <TeacherEmpty>暂无成长报告。</TeacherEmpty> : null}
             </div>
+          </TeacherPanel>
+          <TeacherPanel
+            className="growth-report-detail-panel"
+            title="报告内容"
+            meta={selectedGrowthReport ? `${selectedGrowthReport.periodStart} 至 ${selectedGrowthReport.periodEnd}` : 'Select report'}
+          >
+            {selectedGrowthReport ? (
+              <article className="behavior-analysis-card growth-report-detail-card">
+                <header>
+                  <div>
+                    <strong>{selectedGrowthReport.title}</strong>
+                    <span>{selectedGrowthReport.periodStart} 至 {selectedGrowthReport.periodEnd}</span>
+                  </div>
+                  <TeacherStatusBadge>{selectedGrowthReport.status}</TeacherStatusBadge>
+                </header>
+                <StatementMarkdown markdown={selectedGrowthReport.markdown} assets={[]} hideImages />
+              </article>
+            ) : (
+              <TeacherEmpty>请选择左侧一份家长报告查看完整内容。</TeacherEmpty>
+            )}
+          </TeacherPanel>
+        </section>
+      ) : null}
+
+      {activeTab === 'behavior' ? (
+        <section className="teacher-behavior-analysis-layout">
+          <div className="behavior-analysis-sidebar">
+            <TeacherPanel
+              title="生成行为分析"
+              meta={canManage ? 'Manual AI analysis' : '共享老师只读'}
+            >
+              {behaviorError ? <p className="teacher-inline-warning">{behaviorError}</p> : null}
+              {behaviorMessage ? <p className="teacher-inline-success">{behaviorMessage}</p> : null}
+              {canManage ? (
+                <form className="teacher-filter-bar teacher-filter-bar-dense behavior-analysis-filter-form" action={generateStudentBehaviorAnalysisAction}>
+                  <input name="studentUserId" type="hidden" value={student.id} />
+                  <label>
+                    <span>快捷周期</span>
+                    <select name="periodDays" defaultValue="7">
+                      <option value="7">最近 7 天</option>
+                      <option value="30">最近 30 天</option>
+                      <option value="90">最近 90 天</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>开始日期</span>
+                    <input name="periodStart" type="date" />
+                  </label>
+                  <label>
+                    <span>结束日期</span>
+                    <input name="periodEnd" type="date" />
+                  </label>
+                  <BehaviorAnalysisGenerateButton />
+                </form>
+              ) : (
+                <TeacherEmpty>共享老师可以查看行为分析，但不能生成新的分析。</TeacherEmpty>
+              )}
+            </TeacherPanel>
+
+            <TeacherPanel title="行为分析报告列表" meta={`${behaviorAnalyses.length} recent`}>
+              <div className="teacher-compact-list">
+                {behaviorAnalyses.map((analysis) => (
+                  <div className={`teacher-compact-row behavior-report-list-row${analysis.id === behaviorReportId ? ' active' : ''}`} key={analysis.id}>
+                    <Link className="behavior-report-list-link" href={`/teacher/students/${student.id}?tab=behavior&behaviorReportId=${analysis.id}`}>
+                      <div>
+                        <strong>{analysis.periodStart} 至 {analysis.periodEnd}</strong>
+                        <span>{new Date(analysis.createdAt).toLocaleString()} · {analysis.provider}/{analysis.model}</span>
+                      </div>
+                      <TeacherStatusBadge>{analysis.analysis.confidence}</TeacherStatusBadge>
+                    </Link>
+                    {canManage ? (
+                      <form action={deleteStudentBehaviorAnalysisAction} className="behavior-report-delete-form">
+                        <input name="studentUserId" type="hidden" value={student.id} />
+                        <input name="reportId" type="hidden" value={analysis.id} />
+                        <input name="currentReportId" type="hidden" value={behaviorReportId ?? ''} />
+                        <button className="teacher-small-button subtle behavior-report-delete-button" type="submit">
+                          删除
+                        </button>
+                      </form>
+                    ) : null}
+                  </div>
+                ))}
+                {behaviorAnalyses.length === 0 ? <TeacherEmpty>暂无行为分析。生成后会在这里显示。</TeacherEmpty> : null}
+              </div>
+            </TeacherPanel>
+          </div>
+
+          <TeacherPanel
+            className="behavior-analysis-detail-panel"
+            title="报告详细内容"
+            meta={selectedBehaviorAnalysis ? `${selectedBehaviorAnalysis.periodStart} 至 ${selectedBehaviorAnalysis.periodEnd}` : 'Select report'}
+          >
+            {selectedBehaviorAnalysis ? (
+              <article className="behavior-analysis-card behavior-analysis-detail-card">
+                <header>
+                  <div>
+                    <strong>{selectedBehaviorAnalysis.periodStart} 至 {selectedBehaviorAnalysis.periodEnd}</strong>
+                    <span>
+                      {new Date(selectedBehaviorAnalysis.createdAt).toLocaleString()} · {selectedBehaviorAnalysis.provider}/{selectedBehaviorAnalysis.model}
+                    </span>
+                  </div>
+                  <TeacherStatusBadge>{selectedBehaviorAnalysis.analysis.confidence}</TeacherStatusBadge>
+                </header>
+                {selectedBehaviorAnalysis.errorMessage ? <p className="teacher-inline-warning">{selectedBehaviorAnalysis.errorMessage}</p> : null}
+                <StatementMarkdown markdown={selectedBehaviorAnalysis.markdown} assets={[]} hideImages />
+              </article>
+            ) : (
+              <TeacherEmpty>请先从报告列表中选择一份报告查看详细内容。</TeacherEmpty>
+            )}
           </TeacherPanel>
         </section>
       ) : null}
@@ -377,7 +514,7 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
                 <div className="teacher-compact-row" key={teacher.teacherUserId}>
                   <div>
                     <strong>{teacher.displayName ?? teacher.username}</strong>
-                    <span>@{teacher.username} · {teacher.sharedAt ? new Date(teacher.sharedAt).toLocaleString() : 'shared'}</span>
+                    <span>{teacher.username} · {teacher.sharedAt ? new Date(teacher.sharedAt).toLocaleString() : 'shared'}</span>
                   </div>
                   {canManage ? (
                     <form action={revokeTeacherStudentShareAction}>
@@ -402,6 +539,7 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
         levelOptions: stageMenus,
         currentLevelId: currentStudyLevel?.levelId ?? stageMenus[0]?.items[0]?.levelId ?? '',
         userType: entitlement?.userType ?? 'experience',
+        growthReportError,
       })}
     </section>
   )
@@ -430,6 +568,7 @@ function renderDrawer(input: {
   }>
   currentLevelId: string
   userType: string
+  growthReportError: string | null
 }) {
   if (!input.drawer) return null
   if (input.drawer === 'edit-profile') {
@@ -549,13 +688,16 @@ function renderDrawer(input: {
     )
   }
   if (input.drawer === 'growth-report') {
+    const defaultPeriod = getLocalDateRangeEndingToday(14)
     return (
       <TeacherDrawer title="生成成长报告" closeHref={input.closeHref}>
         <form action={generateStudentGrowthReportAction} className="teacher-form-grid">
           <input name="studentUserId" type="hidden" value={input.studentId} />
-          <label><span>开始日期</span><input name="periodStart" type="date" /></label>
-          <label><span>结束日期</span><input name="periodEnd" type="date" /></label>
-          <button className="teacher-button" type="submit">生成报告</button>
+          {input.growthReportError ? <p className="teacher-inline-warning">{input.growthReportError}</p> : null}
+          <label><span>开始日期</span><input name="periodStart" type="date" defaultValue={defaultPeriod.periodStart} /></label>
+          <label><span>结束日期</span><input name="periodEnd" type="date" defaultValue={defaultPeriod.periodEnd} /></label>
+          <p className="teacher-form-note">默认生成最近 14 天的家长学习报告，包含今天；生成完成后会回到家长报告列表并选中新报告。</p>
+          <GrowthReportGenerateButton />
         </form>
       </TeacherDrawer>
     )
@@ -586,6 +728,7 @@ function normalizeTab(value: string | null): StudentDetailTab {
     value === 'assessments' ||
     value === 'rewards' ||
     value === 'parents' ||
+    value === 'behavior' ||
     value === 'settings'
   ) {
     return value

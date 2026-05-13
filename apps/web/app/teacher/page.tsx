@@ -80,7 +80,7 @@ export default async function TeacherPage() {
             <Link className="teacher-data-row teacher-recent-student-grid" href={`/teacher/students/${student.id}`} key={student.id}>
               <span>
                 <strong>{student.displayName ?? student.username ?? student.id}</strong>
-                <small>@{student.username}</small>
+                <small>{student.username}</small>
               </span>
               <span>{student.accessLevel === 'owner' ? '主老师' : '共享'}</span>
               <span>{student.passedCount}</span>

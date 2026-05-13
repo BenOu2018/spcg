@@ -3,6 +3,7 @@ import { CheckCircle2, LoaderCircle, Maximize2, Minimize2, XCircle } from 'lucid
 import type { Level, SisterProblem } from '@spcg/shared/types'
 import { getDifficultyCoefficient } from '@spcg/shared/difficulty'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
+import { emitBehaviorEvent } from '@/components/behavior-events'
 import { StatementMarkdown } from './StatementMarkdown'
 import type { SampleRunResultMap, SampleRunStatus } from './sample-run'
 
@@ -151,12 +152,33 @@ export function TaskCard({
         </section>
 
         <section className="task-foldouts">
-          <details>
+          <details
+            onToggle={(event) => {
+              if (event.currentTarget.open) {
+                emitBehaviorEvent({
+                  type: 'hint',
+                  levelId: level.id,
+                  metadata: { action: 'open_hint_section' },
+                })
+              }
+            }}
+          >
             <summary>{messages.task.hints}</summary>
             {canViewHints ? (
               <div className="hint-list">
                 {level.hints.map((hint) => (
-                  <details key={hint.step}>
+                  <details
+                    key={hint.step}
+                    onToggle={(event) => {
+                      if (event.currentTarget.open) {
+                        emitBehaviorEvent({
+                          type: 'hint',
+                          levelId: level.id,
+                          metadata: { action: 'open_hint', step: hint.step, title: hint.title },
+                        })
+                      }
+                    }}
+                  >
                     <summary>
                       {hint.step}. {hint.title}
                     </summary>

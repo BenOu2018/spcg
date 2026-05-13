@@ -28,6 +28,7 @@ import {
   submitCodeAction,
 } from '@/app/level/actions'
 import { AlgorithmWhiteboardButton, AlgorithmWhiteboardModal } from '@/components/AlgorithmWhiteboard'
+import { emitBehaviorEvent } from '@/components/behavior-events'
 import { TestResults } from '@/components/TestResults'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 import type { SampleRunResultMap } from '@/components/sample-run'
@@ -46,6 +47,15 @@ type SubmissionAnalysisState =
   | { status: 'done'; analysis: CodeErrorAnalysis; error?: string; cached?: boolean }
   | { status: 'error'; analysis?: CodeErrorAnalysis; error: string; cached?: boolean }
 
+type IdeEditSummary = {
+  changeCount: number
+  insertedChars: number
+  deletedChars: number
+  pasteCount: number
+  firstAt: number | null
+  lastAt: number | null
+}
+
 type CodeWorkspaceProps = {
   level: Level
   userId: string
@@ -60,6 +70,7 @@ type CodeWorkspaceProps = {
   assessmentNextQuestionTitle?: string | null
   onAssessmentNextQuestion?: () => void
   onAssessmentSubmissionSettled?: () => void | Promise<void>
+  storageScope?: string
   messages?: StudentUiMessages
 }
 
@@ -115,6 +126,17 @@ declare global {
   }
 }
 
+function createEmptyEditSummary(): IdeEditSummary {
+  return {
+    changeCount: 0,
+    insertedChars: 0,
+    deletedChars: 0,
+    pasteCount: 0,
+    firstAt: null,
+    lastAt: null,
+  }
+}
+
 export function CodeWorkspace({
   level,
   userId,
@@ -129,14 +151,16 @@ export function CodeWorkspace({
   assessmentNextQuestionTitle = null,
   onAssessmentNextQuestion,
   onAssessmentSubmissionSettled,
+  storageScope,
   messages = fallbackMessages,
 }: CodeWorkspaceProps) {
-  const [languageMode, setLanguageMode] = useState<LanguageMode>(() => readCachedLanguageMode(userId, level.id))
+  const draftLevelId = storageScope ? `${storageScope}:${level.id}` : level.id
+  const [languageMode, setLanguageMode] = useState<LanguageMode>(() => readCachedLanguageMode(userId, draftLevelId))
   const [editorThemeMode, setEditorThemeMode] = useState<EditorThemeMode>(() => readCachedEditorThemeMode())
   const [editorFontSize, setEditorFontSize] = useState(() => readCachedEditorFontSize())
   const [code, setCode] = useState(() => {
-    const cachedLanguage = readCachedLanguageMode(userId, level.id)
-    return readCachedCode(userId, level.id, cachedLanguage) ?? getStarterCodeForLanguage(level, cachedLanguage)
+    const cachedLanguage = readCachedLanguageMode(userId, draftLevelId)
+    return readCachedCode(userId, draftLevelId, cachedLanguage) ?? getStarterCodeForLanguage(level, cachedLanguage)
   })
   const [lastRunCode, setLastRunCode] = useState(level.starterCode)
   const [expanded, setExpanded] = useState(false)
@@ -175,6 +199,8 @@ export function CodeWorkspace({
   const lastRunRequestRef = useRef<{ key: string; at: number } | null>(null)
   const submitInFlightRef = useRef(false)
   const editorDisposablesRef = useRef<Array<{ dispose: () => void }>>([])
+  const editSummaryRef = useRef<IdeEditSummary>(createEmptyEditSummary())
+  const editSummaryTimerRef = useRef<number | null>(null)
   const selectedHistory = historyItems.find((item) => item.id === selectedHistoryId) ?? null
   const selectedHistorySource = selectedHistory?.canViewCode && selectedHistory.code ? selectedHistory : null
   const resolvedLanguage = useMemo(() => resolveLanguageMode(languageMode, code), [languageMode, code])
@@ -189,8 +215,38 @@ export function CodeWorkspace({
   }, [status])
 
   useEffect(() => {
-    const cachedLanguage = readCachedLanguageMode(userId, level.id)
-    const cachedCode = readCachedCode(userId, level.id, cachedLanguage)
+    const startedAt = Date.now()
+    emitBehaviorEvent({
+      type: 'ide_session',
+      levelId: level.id,
+      assessmentAttemptId,
+      metadata: {
+        phase: 'start',
+        language: languageMode,
+        storageScope: storageScope ?? null,
+      },
+    })
+
+    return () => {
+      flushEditSummary()
+      emitBehaviorEvent({
+        type: 'ide_session',
+        levelId: level.id,
+        assessmentAttemptId,
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          phase: 'end',
+          language: languageMode,
+          storageScope: storageScope ?? null,
+        },
+      })
+      clearEditSummaryTimer()
+    }
+  }, [level.id, assessmentAttemptId, storageScope])
+
+  useEffect(() => {
+    const cachedLanguage = readCachedLanguageMode(userId, draftLevelId)
+    const cachedCode = readCachedCode(userId, draftLevelId, cachedLanguage)
     const restoredCode = cachedCode ?? getStarterCodeForLanguage(level, cachedLanguage)
     const completedProgress = initialProgress?.passed ? initialProgress : null
     const completedVerdict = completedProgress ? buildCompletedProgressVerdict(level, completedProgress) : null
@@ -218,7 +274,7 @@ export function CodeWorkspace({
     setHistoryError('')
     setSelectedHistoryId(null)
     clearCompileErrorMarker()
-  }, [userId, level.id, initialProgress?.passed, initialProgress?.bestRuntimeMs, initialProgress?.attemptCount, initialProgress?.lastSubmittedAt])
+  }, [userId, level.id, draftLevelId, initialProgress?.passed, initialProgress?.bestRuntimeMs, initialProgress?.attemptCount, initialProgress?.lastSubmittedAt])
 
   useEffect(() => {
     if (!initialProgress?.passed || assessmentAttemptId) return
@@ -492,7 +548,7 @@ export function CodeWorkspace({
     monacoRef.current = monaco
     syncCompileErrorMarker(compileErrorMarker)
     disposeEditorListeners(editorDisposablesRef.current)
-    editorDisposablesRef.current = [
+    const nextDisposables: Array<{ dispose: () => void }> = [
       editor.onDidFocusEditorText(() => {
         setOutputExpanded(false)
       }),
@@ -500,18 +556,27 @@ export function CodeWorkspace({
         setOutputExpanded(false)
       }),
     ]
+    const editorWithPaste = editor as MonacoEditor.IStandaloneCodeEditor & {
+      onDidPaste?: (listener: () => void) => { dispose: () => void }
+    }
+    const pasteDisposable = editorWithPaste.onDidPaste?.(() => {
+      markPasteEdit()
+    })
+    if (pasteDisposable) nextDisposables.push(pasteDisposable)
+    editorDisposablesRef.current = nextDisposables
   }
 
   function updateCode(nextCode: string) {
     if (compileErrorMarker) clearCompileErrorMarker()
+    trackCodeEdit(code, nextCode)
     setCode(nextCode)
-    writeCachedCode(userId, level.id, languageMode, nextCode)
+    writeCachedCode(userId, draftLevelId, languageMode, nextCode)
   }
 
   function updateLanguageMode(nextValue: string) {
     const nextLanguageMode = normalizeLanguageMode(nextValue)
-    const nextCode = readCachedCode(userId, level.id, nextLanguageMode) ?? getStarterCodeForLanguage(level, nextLanguageMode)
-    writeCachedLanguageMode(userId, level.id, nextLanguageMode)
+    const nextCode = readCachedCode(userId, draftLevelId, nextLanguageMode) ?? getStarterCodeForLanguage(level, nextLanguageMode)
+    writeCachedLanguageMode(userId, draftLevelId, nextLanguageMode)
     setLanguageMode(nextLanguageMode)
     setCode(nextCode)
     setLastRunCode(nextCode)
@@ -538,6 +603,58 @@ export function CodeWorkspace({
     setEditorFontSize(nextFontSize)
     writeCachedEditorFontSize(nextFontSize)
     window.requestAnimationFrame(() => editorRef.current?.layout())
+  }
+
+  function trackCodeEdit(previousCode: string, nextCode: string) {
+    if (previousCode === nextCode) return
+    const delta = nextCode.length - previousCode.length
+    const summary = editSummaryRef.current
+    summary.changeCount += 1
+    summary.insertedChars += Math.max(0, delta)
+    summary.deletedChars += Math.max(0, -delta)
+    if (Math.abs(delta) >= 24) summary.pasteCount += delta > 0 ? 1 : 0
+    const now = Date.now()
+    summary.firstAt = summary.firstAt ?? now
+    summary.lastAt = now
+    scheduleEditSummaryFlush()
+  }
+
+  function markPasteEdit() {
+    editSummaryRef.current.pasteCount += 1
+    scheduleEditSummaryFlush()
+  }
+
+  function scheduleEditSummaryFlush() {
+    clearEditSummaryTimer()
+    editSummaryTimerRef.current = window.setTimeout(() => {
+      flushEditSummary()
+    }, 15_000)
+  }
+
+  function clearEditSummaryTimer() {
+    if (editSummaryTimerRef.current === null) return
+    window.clearTimeout(editSummaryTimerRef.current)
+    editSummaryTimerRef.current = null
+  }
+
+  function flushEditSummary() {
+    const summary = editSummaryRef.current
+    if (summary.changeCount <= 0) return
+    clearEditSummaryTimer()
+    emitBehaviorEvent({
+      type: 'ide_edit_summary',
+      levelId: level.id,
+      assessmentAttemptId,
+      durationMs: summary.firstAt && summary.lastAt ? Math.max(0, summary.lastAt - summary.firstAt) : null,
+      count: summary.changeCount,
+      metadata: {
+        language: resolvedLanguage,
+        insertedChars: summary.insertedChars,
+        deletedChars: summary.deletedChars,
+        pasteCount: summary.pasteCount,
+      },
+    })
+    editSummaryRef.current = createEmptyEditSummary()
   }
 
   function syncCompileErrorMarkerFromVerdict(nextVerdict: Verdict) {
@@ -684,6 +801,8 @@ export function CodeWorkspace({
     if (runInFlightRef.current || (lastRunRequest?.key === requestKey && now - lastRunRequest.at < 5000)) {
       return
     }
+    flushEditSummary()
+    const runStartedAt = Date.now()
     runInFlightRef.current = true
     lastRunRequestRef.current = { key: requestKey, at: now }
     clearCompileErrorMarker()
@@ -699,6 +818,16 @@ export function CodeWorkspace({
     setDebugInfo([`Action: Run`, `Language: ${getLanguageLabel(resolvedLanguage)}`, 'Status: running'])
     setLastRunCode(code)
     onRunStart?.()
+    emitBehaviorEvent({
+      type: 'ide_run',
+      levelId: level.id,
+      assessmentAttemptId,
+      metadata: {
+        phase: 'start',
+        language: resolvedLanguage,
+        stdinMode: usesConsole ? 'custom' : 'none',
+      },
+    })
 
     try {
       const [runResult, sampleResult] = await Promise.all([
@@ -724,6 +853,30 @@ export function CodeWorkspace({
       setVerdict(nextVerdict)
       syncCompileErrorMarkerFromVerdict(nextVerdict)
       setStatus('done')
+      emitBehaviorEvent({
+        type: 'ide_run',
+        levelId: level.id,
+        assessmentAttemptId,
+        durationMs: Date.now() - runStartedAt,
+        result: nextVerdict.result,
+        metadata: {
+          phase: 'finish',
+          language: runResult.resolvedLanguage,
+          engine: runResult.engine,
+        },
+      })
+      if (nextVerdict.result !== 'AC') {
+        emitBehaviorEvent({
+          type: 'ide_error',
+          levelId: level.id,
+          assessmentAttemptId,
+          result: nextVerdict.result,
+          metadata: {
+            source: 'run',
+            language: runResult.resolvedLanguage,
+          },
+        })
+      }
       onRunComplete?.(sampleResult.samples)
     } catch (error) {
       const message = error instanceof Error ? error.message : '运行失败。'
@@ -734,6 +887,28 @@ export function CodeWorkspace({
       setVerdict(nextVerdict)
       syncCompileErrorMarkerFromVerdict(nextVerdict)
       setStatus('done')
+      emitBehaviorEvent({
+        type: 'ide_run',
+        levelId: level.id,
+        assessmentAttemptId,
+        durationMs: Date.now() - runStartedAt,
+        result: 'Judge Error',
+        metadata: {
+          phase: 'finish',
+          language: resolvedLanguage,
+          engine: 'error',
+        },
+      })
+      emitBehaviorEvent({
+        type: 'ide_error',
+        levelId: level.id,
+        assessmentAttemptId,
+        result: 'Judge Error',
+        metadata: {
+          source: 'run',
+          language: resolvedLanguage,
+        },
+      })
     } finally {
       runInFlightRef.current = false
     }
@@ -775,6 +950,8 @@ export function CodeWorkspace({
 
   async function submitCode() {
     if (submitInFlightRef.current) return
+    flushEditSummary()
+    const submitStartedAt = Date.now()
     submitInFlightRef.current = true
     clearCompileErrorMarker()
     setStatus('judging')
@@ -789,6 +966,16 @@ export function CodeWorkspace({
     setDebugInfo([`Action: Submit`, `Language: ${getLanguageLabel(resolvedLanguage)}`, 'Status: submitting'])
     setLearningFeedback(null)
     onRunStart?.()
+    emitBehaviorEvent({
+      type: 'ide_submit',
+      levelId: level.id,
+      assessmentAttemptId,
+      metadata: {
+        phase: 'start',
+        language: resolvedLanguage,
+        judgeMode: assessmentAttemptId ? 'fast' : 'full',
+      },
+    })
 
     try {
       const remoteSubmission = await submitCodeAction({
@@ -827,6 +1014,21 @@ export function CodeWorkspace({
         syncCompileErrorMarkerFromVerdict(nextVerdict)
         updateLearningFeedback(nextVerdict)
         setStatus('done')
+        emitBehaviorEvent({
+          type: 'ide_submit',
+          levelId: level.id,
+          submissionId: remoteSubmission.submissionId,
+          assessmentAttemptId,
+          durationMs: Date.now() - submitStartedAt,
+          result: nextVerdict.result,
+          metadata: {
+            phase: 'finish',
+            language: result.resolvedLanguage ?? remoteSubmission.resolvedLanguage,
+            status: result.status,
+            score: result.score,
+            maxScore: result.maxScore,
+          },
+        })
         onRunComplete?.(buildPublicSampleResultsFromVerdict(level, nextVerdict))
         if (assessmentAttemptId) void onAssessmentSubmissionSettled?.()
         if (nextVerdict.result === 'AC') void onAccepted?.()
@@ -842,6 +1044,19 @@ export function CodeWorkspace({
       syncCompileErrorMarkerFromVerdict(nextVerdict)
       updateLearningFeedback(nextVerdict)
       setStatus('done')
+      emitBehaviorEvent({
+        type: 'ide_submit',
+        levelId: level.id,
+        assessmentAttemptId,
+        durationMs: Date.now() - submitStartedAt,
+        result: 'Judge Error',
+        metadata: {
+          phase: 'finish',
+          language: resolvedLanguage,
+          status: 'rejected',
+          reasonCode: remoteSubmission.code,
+        },
+      })
       void refreshHistory(false)
       return
     } catch (error) {
@@ -854,6 +1069,18 @@ export function CodeWorkspace({
       syncCompileErrorMarkerFromVerdict(nextVerdict)
       updateLearningFeedback(nextVerdict)
       setStatus('done')
+      emitBehaviorEvent({
+        type: 'ide_submit',
+        levelId: level.id,
+        assessmentAttemptId,
+        durationMs: Date.now() - submitStartedAt,
+        result: 'Judge Error',
+        metadata: {
+          phase: 'finish',
+          language: resolvedLanguage,
+          status: 'error',
+        },
+      })
       void refreshHistory(false)
       return
     } finally {
@@ -863,6 +1090,18 @@ export function CodeWorkspace({
 
   function updateLearningFeedback(nextVerdict: Verdict) {
     if (nextVerdict.result === 'AC') {
+      if (repairAttemptCount > 0) {
+        emitBehaviorEvent({
+          type: 'repair_success',
+          levelId: level.id,
+          assessmentAttemptId,
+          result: 'AC',
+          count: repairAttemptCount,
+          metadata: {
+            attemptsBeforeAccepted: repairAttemptCount,
+          },
+        })
+      }
       setRepairAttemptCount(0)
       setLearningFeedback(
         assessmentAttemptId
@@ -874,6 +1113,17 @@ export function CodeWorkspace({
 
     const nextRepairAttemptCount = repairAttemptCount + 1
     setRepairAttemptCount(nextRepairAttemptCount)
+    emitBehaviorEvent({
+      type: 'ide_error',
+      levelId: level.id,
+      assessmentAttemptId,
+      result: nextVerdict.result,
+      count: nextRepairAttemptCount,
+      metadata: {
+        source: 'submit',
+        attemptsInCurrentRepairLoop: nextRepairAttemptCount,
+      },
+    })
     setLearningFeedback(buildRepairLearningFeedback(nextVerdict.result, nextRepairAttemptCount))
   }
 
@@ -904,13 +1154,24 @@ export function CodeWorkspace({
 
   function loadHistoryCode(item: SubmissionHistoryItem) {
     if (!item.canViewCode || !item.code) return
+    flushEditSummary()
     const nextLanguageMode = normalizeLanguageMode(item.language)
-    writeCachedLanguageMode(userId, level.id, nextLanguageMode)
+    writeCachedLanguageMode(userId, draftLevelId, nextLanguageMode)
     setLanguageMode(nextLanguageMode)
     setCode(item.code)
-    writeCachedCode(userId, level.id, nextLanguageMode, item.code)
+    writeCachedCode(userId, draftLevelId, nextLanguageMode, item.code)
     setLastRunCode(item.code)
     setHistoryOpen(false)
+    emitBehaviorEvent({
+      type: 'history_load',
+      levelId: level.id,
+      submissionId: item.id,
+      assessmentAttemptId,
+      result: item.verdict?.result ?? item.status,
+      metadata: {
+        language: nextLanguageMode,
+      },
+    })
   }
 
   function formatCurrentCode() {
@@ -929,6 +1190,15 @@ export function CodeWorkspace({
 
   async function explainSubmissionError(submissionId: string) {
     const previous = analysisBySubmissionId[submissionId]
+    emitBehaviorEvent({
+      type: 'ai_error_analysis',
+      levelId: level.id,
+      submissionId,
+      assessmentAttemptId,
+      metadata: {
+        phase: 'start',
+      },
+    })
     setAnalysisBySubmissionId((current) => ({
       ...current,
       [submissionId]: { status: 'loading', analysis: previous?.analysis, cached: previous?.cached },
@@ -945,6 +1215,17 @@ export function CodeWorkspace({
             cached: result.cached,
           },
         }))
+        emitBehaviorEvent({
+          type: 'ai_error_analysis',
+          levelId: level.id,
+          submissionId,
+          assessmentAttemptId,
+          metadata: {
+            phase: 'finish',
+            cached: result.cached,
+            ok: true,
+          },
+        })
         void refreshHistory(false)
         return
       }
@@ -958,6 +1239,16 @@ export function CodeWorkspace({
           cached: previous?.cached,
         },
       }))
+      emitBehaviorEvent({
+        type: 'ai_error_analysis',
+        levelId: level.id,
+        submissionId,
+        assessmentAttemptId,
+        metadata: {
+          phase: 'finish',
+          ok: false,
+        },
+      })
     } catch (error) {
       setAnalysisBySubmissionId((current) => ({
         ...current,
@@ -968,6 +1259,16 @@ export function CodeWorkspace({
           cached: previous?.cached,
         },
       }))
+      emitBehaviorEvent({
+        type: 'ai_error_analysis',
+        levelId: level.id,
+        submissionId,
+        assessmentAttemptId,
+        metadata: {
+          phase: 'finish',
+          ok: false,
+        },
+      })
     }
   }
 
@@ -1012,7 +1313,18 @@ export function CodeWorkspace({
       <button type="button" aria-label={messages.ide.formatCode} title={messages.ide.formatCode} data-tooltip={messages.ide.formatCode} onClick={formatCurrentCode}>
         <AlignLeft size={18} strokeWidth={2.4} />
       </button>
-      <AlgorithmWhiteboardButton label={messages.ide.whiteboard} onOpen={() => setWhiteboardOpen(true)} />
+      <AlgorithmWhiteboardButton
+        label={messages.ide.whiteboard}
+        onOpen={() => {
+          emitBehaviorEvent({
+            type: 'whiteboard',
+            levelId: level.id,
+            assessmentAttemptId,
+            metadata: { action: 'open' },
+          })
+          setWhiteboardOpen(true)
+        }}
+      />
       <button
         type="button"
         aria-label={expanded ? messages.ide.collapseEditor : messages.ide.expandEditor}
@@ -1596,15 +1908,22 @@ function buildRunVerdict(
   execution: Awaited<ReturnType<typeof runCodeAction>>['execution'],
   childMessage: (result: Verdict['result']) => string,
 ): Verdict {
+  const normalizedStdin = normalizeOutput(stdin)
   const matchingCase =
-    level.publicCases.find((sample) => normalizeOutput(sample.input) === normalizeOutput(stdin)) ??
-    (normalizeOutput(stdin).length === 0 ? level.publicCases.find((sample) => normalizeOutput(sample.input).length === 0) : undefined)
+    level.publicCases.find((sample) => normalizeOutput(sample.input) === normalizedStdin) ??
+    (normalizedStdin.length === 0 ? level.publicCases.find((sample) => normalizeOutput(sample.input).length === 0) : undefined)
   const result =
     execution.result !== 'AC'
       ? execution.result
       : matchingCase && normalizeOutput(execution.stdout) !== normalizeOutput(matchingCase.expectedOutput)
         ? 'WA'
-        : 'AC'
+        : matchingCase
+          ? 'AC'
+          : 'WA'
+  const childFriendlyMessage =
+    execution.result === 'AC' && !matchingCase
+      ? '这次输入不是公开样例，Run 只展示程序输出，不会判定为通过；请复制公开样例输入，或点击 Submit 运行完整测试。'
+      : childMessage(result)
 
   return {
     result,
@@ -1612,7 +1931,7 @@ function buildRunVerdict(
     totalCases: 1,
     maxRuntimeMs: execution.maxRuntimeMs,
     failedCaseIndex: result === 'AC' ? null : 0,
-    childFriendlyMessage: childMessage(result),
+    childFriendlyMessage,
     caseResults: [
       {
         index: 1,

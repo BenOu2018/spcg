@@ -203,9 +203,14 @@ export type KnowledgeProgress = {
   lastPracticedAt: string | null
 }
 
+export type KnowledgeTreeLinkKind = 'tree' | 'prerequisite' | 'related'
+
 export type KnowledgeTreeLink = {
   fromTagId: string
   toTagId: string
+  kind: KnowledgeTreeLinkKind
+  strength: number
+  label: string
 }
 
 export type KnowledgeTreePayload = {
@@ -460,9 +465,12 @@ export type RewardSource =
   | 'repair_ac'
   | 'assessment_complete'
   | 'assessment_rank_bonus'
+  | 'daily_review_complete'
+  | 'leaderboard_rank_award'
   | 'admin_adjustment'
 
 export type InventoryRarity = 'common' | 'rare' | 'epic' | 'legendary'
+export type InventoryCategory = 'knowledge' | 'rank' | 'reward'
 
 export type WalletSummary = {
   userId: string
@@ -496,6 +504,7 @@ export type InventoryItem = {
   name: string
   description: string
   algorithmTag: string
+  category: InventoryCategory
   rarity: InventoryRarity
   icon: string | null
   stackable: boolean
@@ -544,6 +553,7 @@ export type LevelLeaderboardEntry = {
   avatarUrl: string | null
   title: string
   coinTotal: number
+  rankScore: number
   passedCount: number
   firstScoredAt: string
   lastScoredAt: string
@@ -572,13 +582,23 @@ export type GrowthReportDeliveryStatus = 'pending' | 'sent' | 'failed' | 'skippe
 export type GrowthReportStructuredSummary = {
   periodStart: string
   periodEnd: string
+  reportVersion?: string
+  headline?: string
+  confidence?: 'high' | 'medium' | 'low'
+  confidenceReason?: string
   submissionCount: number
   acceptedCount: number
   passedProblemCount: number
   pendingRepairCount: number
+  activeDays?: number
+  practiceHabitSummary?: string[]
+  repairSummary?: string[]
+  dataQualityNotes?: string[]
   weakVerdicts: string[]
   knowledgePoints: string[]
   nextActions: string[]
+  generationProvider?: 'local' | 'minimax'
+  generationModel?: string
 }
 
 export type GrowthReportSummary = {
@@ -617,7 +637,62 @@ export type GrowthReportSettings = {
   channels: GrowthReportDeliveryChannel[]
 }
 
-export type AssessmentType = 'exam' | 'contest'
+export type BehaviorEventType =
+  | 'page_view_start'
+  | 'page_view_end'
+  | 'click'
+  | 'ide_session'
+  | 'ide_edit_summary'
+  | 'ide_run'
+  | 'ide_submit'
+  | 'ide_error'
+  | 'repair_success'
+  | 'history_load'
+  | 'ai_error_analysis'
+  | 'whiteboard'
+  | 'hint'
+  | 'solution_video'
+
+export type BehaviorAnalysisProvider = 'minimax' | 'local'
+export type BehaviorAnalysisStatus = 'generated' | 'failed'
+export type BehaviorFocusLevel = 'high' | 'medium' | 'low' | 'unknown'
+
+export type BehaviorFocusOnCoding = {
+  level: BehaviorFocusLevel
+  summary: string
+  evidence: string[]
+  risks: string[]
+}
+
+export type BehaviorAnalysisResult = {
+  overview: string
+  learningRhythm: string
+  routeFindings: string[]
+  ideHabits: string[]
+  focusOnCoding: BehaviorFocusOnCoding
+  debuggingPattern: string
+  repairProgress: string
+  stuckRisks: string[]
+  nextActions: string[]
+  confidence: string
+}
+
+export type BehaviorAnalysisReportSummary = {
+  id: string
+  studentUserId: string
+  periodStart: string
+  periodEnd: string
+  provider: BehaviorAnalysisProvider
+  model: string
+  status: BehaviorAnalysisStatus
+  analysis: BehaviorAnalysisResult
+  markdown: string
+  generatedBy: string | null
+  errorMessage: string | null
+  createdAt: string
+}
+
+export type AssessmentType = 'exam' | 'contest' | 'daily_review'
 export type AssessmentAttemptStatus = 'in_progress' | 'scoring' | 'completed' | 'expired' | 'abandoned'
 
 export type AssessmentSession = {
@@ -650,7 +725,7 @@ export type AssessmentAttemptItem = {
   levelId: string
   position: number
   displayMode: string
-  source: 'lesson' | 'exam-only'
+  source: 'lesson' | 'exam-only' | 'daily-review'
   maxScore: number
   latestRealtimeSubmissionId: string | null
   finalSubmissionId: string | null

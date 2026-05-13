@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto'
-export { getDifficultyCoefficient, getLevelCoinReward, getLevelLabel } from '@spcg/shared/difficulty'
+export {
+  DAILY_REVIEW_COIN_PER_ACCEPTED,
+  RANKED_ASSESSMENT_AK_COIN_BONUS,
+  getDailyReviewCoinReward,
+  getDifficultyCoefficient,
+  getLevelCoinReward,
+  getLevelLabel,
+  getRankedAssessmentQuestionCoinReward,
+} from '@spcg/shared/difficulty'
 export {
   EARNED_TITLE_CATALOG,
   EARNED_TITLE_POOLS,

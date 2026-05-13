@@ -133,7 +133,7 @@ export default async function AdminUsersPage({ searchParams }: AdminUsersPagePro
               <Link className="admin-title-link" href={`/admin/users/${user.id}`}>
                 {user.displayName ?? user.username ?? user.id}
               </Link>
-              <small>@{user.username}</small>
+              <small>{user.username}</small>
               {user.phoneVerifiedAt ? <small>手机号已认证</small> : null}
             </div>
             <div className="admin-status-stack">

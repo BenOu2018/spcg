@@ -8,6 +8,7 @@ import { runJudge0 } from '../shared/judge0-client.js'
 import { getDifficultyCoefficient, getLevelCoinReward } from '../shared/difficulty.js'
 import { normalizeLanguageMode, resolveLanguageMode } from '../shared/language-config.js'
 import { getEarnedTitlePoolKeyForRank, pickEarnedTitleFromPool } from '../shared/earned-titles.js'
+import { getLeaderboardRankAwards } from '../shared/leaderboard-rank-awards.js'
 import { generateTitle, getRankForCoins } from '../shared/reward-ranks.js'
 
 type Args = {
@@ -44,6 +45,79 @@ type KnowledgeUsageItem = {
   domain: string
   bandOrLevel: string
 }
+
+type LeaderboardRankAwardRow = {
+  rank: string | number
+  coin_total: string | number
+  rank_score: string | number
+}
+
+const rankedLeaderboardCte = `
+WITH source_entries AS (
+  SELECT
+    rl.user_id,
+    rl.source,
+    rl.source_ref,
+    rl.coin_delta,
+    rl.created_at,
+    CASE
+      WHEN rl.metadata->>'leaderboardQuestionCount' ~ '^[0-9]+$' THEN (rl.metadata->>'leaderboardQuestionCount')::int
+      WHEN rl.source = 'assessment_rank_bonus' THEN 0
+      WHEN rl.source = 'daily_review_complete' AND rl.metadata->>'acceptedCount' ~ '^[0-9]+$' THEN (rl.metadata->>'acceptedCount')::int
+      ELSE 1
+    END AS question_count
+  FROM reward_ledger rl
+  JOIN users u ON u.id = rl.user_id
+  LEFT JOIN user_roles ur ON ur.user_id = u.id
+  LEFT JOIN user_admin_states uas ON uas.user_id = u.id
+  WHERE rl.source IN ('level_first_ac', 'daily_review_complete', 'assessment_complete', 'assessment_rank_bonus')
+    AND rl.coin_delta > 0
+    AND rl.metadata->>'spcgLevel' = $1::text
+    AND COALESCE(ur.role, 'student') = 'student'
+    AND COALESCE(uas.account_status, 'active') = 'active'
+),
+scored AS (
+  SELECT
+    user_id,
+    COALESCE(SUM(coin_delta), 0)::int AS coin_total,
+    COALESCE(SUM(question_count), 0)::int AS passed_count,
+    MIN(rl.created_at) AS first_scored_at,
+    MAX(rl.created_at) AS last_scored_at
+  FROM source_entries rl
+  GROUP BY user_id
+),
+activity AS (
+  SELECT
+    scored.*,
+    GREATEST(0, EXTRACT(EPOCH FROM (NOW() - last_scored_at)) / 86400.0) AS inactive_days
+  FROM scored
+),
+decayed_base AS (
+  SELECT
+    activity.*,
+    CASE
+      WHEN inactive_days <= 15 THEN 1.0
+      ELSE GREATEST(0.2, 1.0 - CEIL((inactive_days - 15) / 7.0) * 0.1)
+    END AS decay_multiplier
+  FROM activity
+),
+decayed AS (
+  SELECT
+    decayed_base.*,
+    ROUND((coin_total * decay_multiplier)::numeric, 1) AS rank_score
+  FROM decayed_base
+),
+ranked AS (
+  SELECT
+    ROW_NUMBER() OVER (
+      ORDER BY rank_score DESC, coin_total DESC, passed_count DESC, first_scored_at ASC, user_id ASC
+    ) AS rank,
+    user_id,
+    coin_total,
+    rank_score
+  FROM decayed
+)
+`
 
 const { Pool } = pg
 
@@ -592,11 +666,73 @@ async function grantAcceptedSubmissionReward(client: pg.PoolClient, submission: 
     if (hiddenLedgerId) ledgerIds.push(hiddenLedgerId)
   }
 
+  ledgerIds.push(
+    ...(await awardLeaderboardRankItems(client, {
+      userId: submission.user_id,
+      spcgLevel: difficulty.spcgLevel,
+      levelId: submission.level_id,
+      submissionId: submission.id,
+    })),
+  )
+
   await refreshWallet(client, submission.user_id, {
     firstAcLevelId: submission.level_id,
     firstAcSubmissionId: submission.id,
     ledgerIds,
   })
+}
+
+async function awardLeaderboardRankItems(
+  client: pg.PoolClient,
+  input: {
+    userId: string
+    spcgLevel: number
+    levelId: string
+    submissionId: string
+  },
+): Promise<string[]> {
+  const result = await client.query<LeaderboardRankAwardRow>(
+    `
+    ${rankedLeaderboardCte}
+    SELECT rank, coin_total, rank_score
+    FROM ranked
+    WHERE user_id = $2
+    `,
+    [input.spcgLevel, input.userId],
+  )
+  const row = result.rows[0]
+  if (!row) return []
+
+  const rank = toNumber(row.rank)
+  const ledgerIds: string[] = []
+  for (const award of getLeaderboardRankAwards(rank)) {
+    const ledgerId = await insertRewardLedger(client, {
+      userId: input.userId,
+      source: 'leaderboard_rank_award',
+      sourceRef: `leaderboard:${input.spcgLevel}:${award.itemId}`,
+      coinDelta: 0,
+      garlicDelta: 0,
+      itemId: award.itemId,
+      itemQuantity: 1,
+      metadata: {
+        spcgLevel: input.spcgLevel,
+        rank,
+        rankScore: toNumber(row.rank_score),
+        coinTotal: toNumber(row.coin_total),
+        threshold: award.threshold,
+        triggerSource: 'level_first_ac',
+        triggerSourceRef: input.levelId,
+        levelId: input.levelId,
+        submissionId: input.submissionId,
+        reason: 'leaderboard_rank_entered',
+      },
+    })
+    if (!ledgerId) continue
+    ledgerIds.push(ledgerId)
+    await addInventoryItem(client, input.userId, award.itemId, 1)
+  }
+
+  return ledgerIds
 }
 
 async function recordKnowledgeUsageForFirstAc(

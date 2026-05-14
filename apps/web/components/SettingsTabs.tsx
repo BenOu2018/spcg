@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import type { MouseEvent } from 'react'
 import { useEffect, useState } from 'react'
 
@@ -19,7 +19,6 @@ type SettingsTabsProps = {
 }
 
 export function SettingsTabs({ activeTab, label, replaceTabNavigation, tabs }: SettingsTabsProps) {
-  const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
   const [optimisticTab, setOptimisticTab] = useState(activeTab)
@@ -29,13 +28,13 @@ export function SettingsTabs({ activeTab, label, replaceTabNavigation, tabs }: S
   }, [activeTab])
 
   useEffect(() => {
-    tabs.forEach((tab) => router.prefetch(buildTabHref(pathname, searchParams, tab.value)))
-  }, [pathname, router, searchParams, tabs])
+    tabs.forEach((tab) => router.prefetch(buildSettingsTabHref(searchParams, tab.value)))
+  }, [router, searchParams, tabs])
 
   return (
     <nav className="settings-tabs" aria-label={label}>
       {tabs.map((tab) => {
-        const href = buildTabHref(pathname, searchParams, tab.value)
+        const href = buildSettingsTabHref(searchParams, tab.value)
         const active = tab.value === optimisticTab
         return (
           <Link
@@ -46,7 +45,16 @@ export function SettingsTabs({ activeTab, label, replaceTabNavigation, tabs }: S
             prefetch
             replace={replaceTabNavigation}
             scroll={false}
-            onClick={(event) => handleTabClick(event, tab.value, setOptimisticTab)}
+            onClick={(event) => {
+              if (!shouldHandleTabClick(event)) return
+              event.preventDefault()
+              setOptimisticTab(tab.value)
+              if (replaceTabNavigation) {
+                router.replace(href, { scroll: false })
+              } else {
+                router.push(href, { scroll: false })
+              }
+            }}
             onMouseEnter={() => router.prefetch(href)}
           >
             <strong>{tab.label}</strong>
@@ -58,12 +66,11 @@ export function SettingsTabs({ activeTab, label, replaceTabNavigation, tabs }: S
   )
 }
 
-function handleTabClick(event: MouseEvent<HTMLAnchorElement>, tab: string, setOptimisticTab: (tab: string) => void) {
-  if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return
-  setOptimisticTab(tab)
+function shouldHandleTabClick(event: MouseEvent<HTMLAnchorElement>) {
+  return !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && event.button === 0
 }
 
-function buildTabHref(pathname: string, searchParams: { toString(): string }, tab: string) {
+function buildSettingsTabHref(searchParams: { toString(): string }, tab: string) {
   const params = new URLSearchParams(searchParams.toString())
   params.set('tab', tab)
   params.delete('profile')
@@ -72,5 +79,5 @@ function buildTabHref(pathname: string, searchParams: { toString(): string }, ta
   params.delete('phoneNumber')
   params.delete('devCode')
   params.delete('language')
-  return `${pathname}?${params.toString()}`
+  return `/settings?${params.toString()}`
 }

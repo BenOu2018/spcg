@@ -8,7 +8,8 @@ import {
   updateUiLocaleAction,
   verifyPhoneCodeAction,
 } from '@/app/settings/actions'
-import { SettingsTabs, type SettingsTabItem } from '@/components/SettingsTabs'
+import { SettingsTabFrame } from '@/components/SettingsTabFrame'
+import type { SettingsTabItem } from '@/components/SettingsTabs'
 import { requireUser } from '@/lib/auth-guard'
 import { getAccountSettings, getPhoneVerificationSummary } from '@/lib/services/account-settings-service'
 import { getMyParentInviteSummary } from '@/lib/services/student-parent-invite-service'
@@ -33,7 +34,7 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
   const [account, locale, parentInvite] = await Promise.all([
     getAccountSettings(session.user.id),
     getRequestUiLocale(session.user.id),
-    activeTab === 'parentBinding' ? getMyParentInviteSummary(session.user.id).catch(() => null) : Promise.resolve(null),
+    getMyParentInviteSummary(session.user.id).catch(() => null),
   ])
   const messages = getStudentUiMessages(locale)
   const displayName = account?.displayName ?? session.user.name ?? 'SPCG 学员'
@@ -81,15 +82,13 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
           </div>
         </header>
 
-        <SettingsTabs
-          activeTab={activeTab}
+        <SettingsTabFrame
+          initialTab={activeTab}
           label={messages.settings.title}
           replaceTabNavigation={replaceTabNavigation}
           tabs={tabs}
-        />
-
-        <section className={activeTab === 'security' ? 'settings-tab-content settings-tab-content-security' : 'settings-tab-content'}>
-          {activeTab === 'profile' ? (
+        >
+          <div className="settings-tab-panel" data-settings-tab-panel="profile">
             <form className="settings-panel" action={updateAccountProfileAction}>
               <div>
                 <h2>{messages.settings.profileTitle}</h2>
@@ -110,9 +109,9 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
                 {messages.settings.saveProfile}
               </button>
             </form>
-          ) : null}
+          </div>
 
-          {activeTab === 'language' ? (
+          <div className="settings-tab-panel" data-settings-tab-panel="language">
             <form className="settings-panel" action={updateUiLocaleAction}>
               <div>
                 <h2>{messages.settings.languageTitle}</h2>
@@ -133,9 +132,9 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
                 {messages.settings.saveLanguage}
               </button>
             </form>
-          ) : null}
+          </div>
 
-          {activeTab === 'phone' ? (
+          <div className="settings-tab-panel" data-settings-tab-panel="phone">
             <section className="settings-panel">
               <div>
                 <h2>{messages.settings.phoneTitle}</h2>
@@ -178,9 +177,9 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
                 <strong>{phone.phoneNumberMasked ?? messages.settings.phoneUnbound}</strong>
               </div>
             </section>
-          ) : null}
+          </div>
 
-          {activeTab === 'parentBinding' ? (
+          <div className="settings-tab-panel" data-settings-tab-panel="parentBinding">
             <section className="settings-panel">
               <div>
                 <h2>{messages.settings.parentBindingTitle}</h2>
@@ -210,9 +209,9 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
                 <strong>{parentInvite?.boundParentCount ?? 0}</strong>
               </div>
             </section>
-          ) : null}
+          </div>
 
-          {activeTab === 'security' ? (
+          <div className="settings-tab-panel" data-settings-tab-panel="security">
             <div className="settings-security-grid">
               <form className="settings-panel" action={updatePasswordAction}>
                 <div>
@@ -255,8 +254,8 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
                 </form>
               </section>
             </div>
-          ) : null}
-        </section>
+          </div>
+        </SettingsTabFrame>
       </section>
     </>
   )

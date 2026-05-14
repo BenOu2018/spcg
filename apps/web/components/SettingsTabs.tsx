@@ -14,22 +14,25 @@ export type SettingsTabItem = {
 type SettingsTabsProps = {
   activeTab: string
   label: string
-  replaceTabNavigation: boolean
+  navigationMode?: 'link' | 'state'
+  onTabChange?: (tab: string) => void
   tabs: SettingsTabItem[]
 }
 
-export function SettingsTabs({ activeTab, label, replaceTabNavigation, tabs }: SettingsTabsProps) {
+export function SettingsTabs({ activeTab, label, navigationMode = 'link', onTabChange, tabs }: SettingsTabsProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [optimisticTab, setOptimisticTab] = useState(activeTab)
+  const shouldNavigate = navigationMode === 'link'
 
   useEffect(() => {
     setOptimisticTab(activeTab)
   }, [activeTab])
 
   useEffect(() => {
+    if (!shouldNavigate) return
     tabs.forEach((tab) => router.prefetch(buildSettingsTabHref(searchParams, tab.value)))
-  }, [router, searchParams, tabs])
+  }, [router, searchParams, shouldNavigate, tabs])
 
   return (
     <nav className="settings-tabs" aria-label={label}>
@@ -43,19 +46,21 @@ export function SettingsTabs({ activeTab, label, replaceTabNavigation, tabs }: S
             href={href}
             key={tab.value}
             prefetch
-            replace={replaceTabNavigation}
             scroll={false}
             onClick={(event) => {
               if (!shouldHandleTabClick(event)) return
               event.preventDefault()
               setOptimisticTab(tab.value)
-              if (replaceTabNavigation) {
-                router.replace(href, { scroll: false })
-              } else {
-                router.push(href, { scroll: false })
+              onTabChange?.(tab.value)
+              if (!shouldNavigate) {
+                window.history.replaceState(window.history.state, '', href)
+                return
               }
+              router.push(href, { scroll: false })
             }}
-            onMouseEnter={() => router.prefetch(href)}
+            onMouseEnter={() => {
+              if (shouldNavigate) router.prefetch(href)
+            }}
           >
             <strong>{tab.label}</strong>
             <span>{tab.body}</span>

@@ -6522,6 +6522,24 @@ pre {
   -webkit-line-clamp: 1;
 }
 
+.settings-tab-frame {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+
+.settings-tab-panel {
+  display: none;
+}
+
+.settings-tab-frame[data-active-tab='profile'] .settings-tab-panel[data-settings-tab-panel='profile'],
+.settings-tab-frame[data-active-tab='language'] .settings-tab-panel[data-settings-tab-panel='language'],
+.settings-tab-frame[data-active-tab='phone'] .settings-tab-panel[data-settings-tab-panel='phone'],
+.settings-tab-frame[data-active-tab='parentBinding'] .settings-tab-panel[data-settings-tab-panel='parentBinding'],
+.settings-tab-frame[data-active-tab='security'] .settings-tab-panel[data-settings-tab-panel='security'] {
+  display: block;
+}
+
 .settings-tab-content {
   display: grid;
   gap: 10px;

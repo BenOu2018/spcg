@@ -60,6 +60,10 @@ type CodeWorkspaceProps = {
   userId: string
   initialProgress?: Progress | null
   layoutVersion?: number
+  className?: string
+  completionNextHref?: string | null
+  completionNextLabel?: string
+  completionNextVisible?: boolean
   onRunStart?: () => void
   onRunComplete?: (sampleResults: SampleRunResultMap) => void
   onAccepted?: () => void | Promise<void>
@@ -141,6 +145,10 @@ export function CodeWorkspace({
   userId,
   initialProgress = null,
   layoutVersion = 0,
+  className,
+  completionNextHref = null,
+  completionNextLabel = '下一题',
+  completionNextVisible = false,
   onRunStart,
   onRunComplete,
   onAccepted,
@@ -1297,6 +1305,7 @@ export function CodeWorkspace({
         resultsMaximized ? 'results-maximized' : '',
         historyOpen ? 'history-open' : '',
         selectedHistorySource ? 'history-has-source' : '',
+        className ?? '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -1375,6 +1384,11 @@ export function CodeWorkspace({
           }}
         />
         <div className="judge-actions editor-actions">
+          {completionNextVisible && completionNextHref ? (
+            <Link className="completion-next-button" href={completionNextHref} prefetch={false}>
+              {completionNextLabel}
+            </Link>
+          ) : null}
           <button className="asset-button run" type="button" onClick={runCode} disabled={status === 'judging'}>
             <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-play.svg" alt="" />
             {messages.ide.run}

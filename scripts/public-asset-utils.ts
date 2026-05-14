@@ -37,6 +37,7 @@ export const runtimeAssetGlobs = [
   'assets/art/backgrounds/ch8-shadow-network-hub/main-map-v1.webp',
   'assets/art/characters/dog-tiger-protagonist/cute.svg',
   'assets/art/ui/buttons/*.svg',
+  'assets/art/ui/effects/*.webp',
   'assets/art/ui/exam-proctors/*.webp',
   'assets/art/ui/icons/*.svg',
   'assets/art/ui/knowledge-tree/knowledge-tree-grass-base-v1.webp',

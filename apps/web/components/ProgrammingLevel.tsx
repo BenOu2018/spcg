@@ -30,7 +30,20 @@ type ProgrammingLevelProps = {
   messages?: StudentUiMessages
 }
 
+type CompletionAnimationPhase = 'idle' | 'slide-out' | 'ko-show' | 'impact' | 'next-ready'
+
+type RecommendedNextLevel = {
+  href: string
+  label: string
+}
+
 const fallbackMessages = getStudentUiMessages('zh-CN')
+const KO_ASSET_URL = '/assets/art/ui/effects/ko-clear-v1.webp'
+const COMPLETION_TIMING = {
+  slideMs: 820,
+  koShowMs: 1000,
+  impactMs: 760,
+}
 
 export function ProgrammingLevel({
   level,
@@ -45,14 +58,19 @@ export function ProgrammingLevel({
   const [sampleResults, setSampleResults] = useState<SampleRunResultMap>({})
   const [videoOpen, setVideoOpen] = useState(false)
   const [taskExpanded, setTaskExpanded] = useState(false)
+  const [completionPhase, setCompletionPhase] = useState<CompletionAnimationPhase>('idle')
   const [localPassedIds, setLocalPassedIds] = useState<Set<string>>(
     () => new Set(progressRecords.filter((progress) => progress.passed).map((progress) => progress.levelId)),
   )
+  const completionTimersRef = useRef<number[]>([])
   const layoutVersion = useProgrammingLayoutRefresh()
   const videoUrl = activeLevel.solutionVideoUrl ?? null
   const activeProgress = progressRecords.find((progress) => progress.levelId === activeLevel.id) ?? null
+  const recommendedNext = getRecommendedNextLevel(activeLevel.id, stageMenu, localPassedIds)
+  const showKoOverlay = completionPhase === 'slide-out' || completionPhase === 'ko-show' || completionPhase === 'impact'
 
   useEffect(() => {
+    resetCompletionAnimation()
     setActiveLevel(level)
     setSampleResults({})
     setVideoOpen(false)
@@ -67,6 +85,45 @@ export function ProgrammingLevel({
     const frame = window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
     return () => window.cancelAnimationFrame(frame)
   }, [taskExpanded])
+
+  useEffect(() => {
+    return () => clearCompletionTimers()
+  }, [])
+
+  function clearCompletionTimers() {
+    for (const timer of completionTimersRef.current) window.clearTimeout(timer)
+    completionTimersRef.current = []
+  }
+
+  function resetCompletionAnimation() {
+    clearCompletionTimers()
+    setCompletionPhase('idle')
+  }
+
+  function startCompletionAnimation() {
+    clearCompletionTimers()
+    setCompletionPhase('slide-out')
+
+    const showTimer = window.setTimeout(() => {
+      setCompletionPhase('ko-show')
+    }, COMPLETION_TIMING.slideMs)
+
+    const impactTimer = window.setTimeout(() => {
+      setCompletionPhase('impact')
+    }, COMPLETION_TIMING.slideMs + COMPLETION_TIMING.koShowMs)
+
+    const doneTimer = window.setTimeout(() => {
+      setCompletionPhase('next-ready')
+      window.dispatchEvent(new Event('resize'))
+    }, COMPLETION_TIMING.slideMs + COMPLETION_TIMING.koShowMs + COMPLETION_TIMING.impactMs)
+
+    completionTimersRef.current = [showTimer, impactTimer, doneTimer]
+  }
+
+  async function handleAccepted() {
+    startCompletionAnimation()
+    await refreshSolutionUnlock()
+  }
 
   async function refreshSolutionUnlock() {
     setLocalPassedIds((current) => {
@@ -91,10 +148,20 @@ export function ProgrammingLevel({
   }
 
   return (
-    <div className={taskExpanded ? 'programming-layout task-expanded' : 'programming-layout'}>
+    <div
+      className={[
+        'programming-layout',
+        taskExpanded ? 'task-expanded' : '',
+        completionPhase !== 'idle' ? 'completion-animation' : '',
+        completionPhase !== 'idle' ? `completion-${completionPhase}` : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
       <TaskCard
         level={activeLevel}
         sampleResults={sampleResults}
+        className="completion-task-panel"
         expanded={taskExpanded}
         onToggleExpanded={() => setTaskExpanded((value) => !value)}
         onPlayVideo={
@@ -118,9 +185,13 @@ export function ProgrammingLevel({
         userId={userId}
         initialProgress={activeProgress}
         layoutVersion={layoutVersion + (taskExpanded ? 1 : 0)}
+        className="completion-workbench-panel"
+        completionNextHref={recommendedNext?.href ?? null}
+        completionNextLabel={recommendedNext?.label ?? '下一题'}
+        completionNextVisible={completionPhase === 'next-ready' && Boolean(recommendedNext)}
         onRunStart={() => setSampleResults(buildJudgingSamples(activeLevel))}
         onRunComplete={setSampleResults}
-        onAccepted={refreshSolutionUnlock}
+        onAccepted={handleAccepted}
         messages={messages}
         stagePath={
           stageMenu
@@ -141,8 +212,32 @@ export function ProgrammingLevel({
           onClose={() => setVideoOpen(false)}
         />
       ) : null}
+      {showKoOverlay ? (
+        <div className={`completion-ko-overlay completion-ko-${completionPhase}`} aria-hidden="true">
+          <img src={KO_ASSET_URL} alt="" />
+        </div>
+      ) : null}
     </div>
   )
+}
+
+function getRecommendedNextLevel(
+  levelId: string,
+  stageMenu: StagePathMenu,
+  passedLevelIds: Set<string>,
+): RecommendedNextLevel | null {
+  if (!stageMenu) return null
+  const passedIds = new Set(passedLevelIds)
+  passedIds.add(levelId)
+  const current = stageMenu.items.find((item) => item.levelId === levelId)
+  const nextMainline = stageMenu.items.find((item) => item.position <= 3 && !passedIds.has(item.levelId))
+  const nextUnpassed = stageMenu.items.find((item) => item.position > (current?.position ?? 0) && !passedIds.has(item.levelId))
+  const recommended = nextMainline ?? nextUnpassed
+  if (!recommended) return null
+  return {
+    href: `/level/${recommended.levelId}`,
+    label: '下一题',
+  }
 }
 
 function useProgrammingLayoutRefresh() {

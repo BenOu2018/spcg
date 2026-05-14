@@ -2989,6 +2989,193 @@ button.topbar-avatar-button {
   grid-template-columns: minmax(360px, 46%) minmax(0, 1fr);
 }
 
+.programming-layout.completion-animation {
+  position: relative;
+}
+
+.programming-layout.completion-animation .completion-task-panel,
+.programming-layout.completion-animation .completion-workbench-panel {
+  will-change: transform;
+  transition: transform 820ms cubic-bezier(0.72, 0.02, 0.2, 1);
+}
+
+.programming-layout.completion-slide-out .completion-task-panel,
+.programming-layout.completion-ko-show .completion-task-panel {
+  transform: translateX(-110vw);
+  pointer-events: none;
+}
+
+.programming-layout.completion-slide-out .completion-workbench-panel,
+.programming-layout.completion-ko-show .completion-workbench-panel {
+  transform: translateX(110vw);
+  pointer-events: none;
+}
+
+.programming-layout.completion-impact .completion-task-panel,
+.programming-layout.completion-next-ready .completion-task-panel,
+.programming-layout.completion-impact .completion-workbench-panel,
+.programming-layout.completion-next-ready .completion-workbench-panel {
+  transform: translateX(0);
+}
+
+.programming-layout.completion-impact {
+  animation: none;
+}
+
+body:has(.programming-layout.completion-impact) .programming-scene {
+  animation: completionPageImpact 760ms cubic-bezier(0.18, 1, 0.34, 1) both;
+}
+
+.programming-layout.completion-impact .completion-task-panel,
+.programming-layout.completion-impact .completion-workbench-panel {
+  pointer-events: none;
+}
+
+.programming-layout.completion-impact .completion-task-panel {
+  animation: completionPanelImpactLeft 760ms linear both;
+}
+
+.programming-layout.completion-impact .completion-workbench-panel {
+  animation: completionPanelImpactRight 760ms linear both;
+}
+
+.completion-ko-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.completion-ko-overlay img {
+  width: min(42vw, 360px);
+  max-width: 78vw;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 18px 26px rgba(0, 0, 0, 0.42));
+  transform: translate(-50%, -50%) scale(0.72);
+  transform-origin: center;
+  opacity: 0;
+  position: fixed;
+  left: 50%;
+  top: 50%;
+}
+
+.completion-ko-slide-out img {
+  opacity: 0;
+}
+
+.completion-ko-show img {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+  transition:
+    opacity 180ms ease,
+    transform 1000ms cubic-bezier(0.18, 1.3, 0.28, 1);
+}
+
+.completion-ko-impact img {
+  opacity: 0;
+  transform: translate(calc(50vw - 28px), -50%) scale(0.14);
+  transition:
+    opacity 420ms ease,
+    transform 520ms cubic-bezier(0.66, 0.02, 0.32, 1);
+}
+
+@keyframes completionPanelImpactLeft {
+  0% {
+    transform: translateX(-110vw);
+  }
+  20% {
+    transform: translateX(-78vw);
+  }
+  38% {
+    transform: translateX(-30vw);
+  }
+  55% {
+    transform: translateX(16px);
+    animation-timing-function: cubic-bezier(0.18, 0.98, 0.22, 1);
+  }
+  68% {
+    transform: translateX(-38px);
+    animation-timing-function: cubic-bezier(0.2, 0, 0.28, 1);
+  }
+  84% {
+    transform: translateX(8px);
+    animation-timing-function: cubic-bezier(0.18, 0.98, 0.22, 1);
+  }
+  93% {
+    transform: translateX(-10px);
+    animation-timing-function: cubic-bezier(0.2, 0, 0.28, 1);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes completionPanelImpactRight {
+  0% {
+    transform: translateX(110vw);
+  }
+  20% {
+    transform: translateX(78vw);
+  }
+  38% {
+    transform: translateX(30vw);
+  }
+  55% {
+    transform: translateX(-16px);
+    animation-timing-function: cubic-bezier(0.18, 0.98, 0.22, 1);
+  }
+  68% {
+    transform: translateX(38px);
+    animation-timing-function: cubic-bezier(0.2, 0, 0.28, 1);
+  }
+  84% {
+    transform: translateX(-8px);
+    animation-timing-function: cubic-bezier(0.18, 0.98, 0.22, 1);
+  }
+  93% {
+    transform: translateX(10px);
+    animation-timing-function: cubic-bezier(0.2, 0, 0.28, 1);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes completionPageImpact {
+  0%,
+  48%,
+  100% {
+    transform: translate(0, 0);
+  }
+  55% {
+    transform: translate(-7px, 1px);
+  }
+  58% {
+    transform: translate(8px, -1px);
+  }
+  61% {
+    transform: translate(-5px, 1px);
+  }
+  64% {
+    transform: translate(3px, 0);
+  }
+  68% {
+    transform: translate(0, 0);
+  }
+  84% {
+    transform: translate(-4px, 1px);
+  }
+  87% {
+    transform: translate(4px, 0);
+  }
+  90% {
+    transform: translate(-2px, 0);
+  }
+}
+
 .task {
   min-height: 0;
   height: 100%;
@@ -5832,6 +6019,47 @@ pre {
 
 .asset-button.submit {
   background: linear-gradient(140deg, #f5ce65, #c88c35);
+}
+
+.completion-next-button {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 20px);
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: min(100%, 170px);
+  min-height: 42px;
+  padding: 8px 14px;
+  border: 2px solid rgba(235, 255, 205, 0.72);
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(140deg, #76d94f, #218a32);
+  box-shadow: 0 14px 30px rgba(20, 90, 35, 0.36);
+  font-size: clamp(15px, 2vh, 17px);
+  font-weight: 900;
+  text-decoration: none;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  animation: completionNextPop 260ms cubic-bezier(0.18, 1.24, 0.3, 1) both;
+}
+
+.completion-next-button:hover,
+.completion-next-button:focus-visible {
+  background: linear-gradient(140deg, #8fe96a, #2d9d3f);
+  box-shadow: 0 16px 34px rgba(20, 90, 35, 0.44);
+}
+
+@keyframes completionNextPop {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
 }
 
 .submission-history-panel {
@@ -11425,6 +11653,34 @@ body :where(*:not(button):not(button *)) {
     right: 12px;
     bottom: 12px;
     z-index: 8;
+  }
+
+  .completion-ko-overlay img {
+    width: min(72vw, 300px);
+  }
+
+  .completion-next-button {
+    width: min(136px, 100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .programming-layout.completion-animation .completion-task-panel,
+  .programming-layout.completion-animation .completion-workbench-panel,
+  .completion-ko-overlay img {
+    transition-duration: 1ms;
+  }
+
+  .completion-next-button {
+    animation-duration: 1ms;
+  }
+
+  body:has(.programming-layout.completion-impact) .programming-scene,
+  .programming-layout.completion-impact,
+  .programming-layout.completion-impact .completion-task-panel,
+  .programming-layout.completion-impact .completion-workbench-panel {
+    animation-delay: 0ms;
+    animation-duration: 1ms;
   }
 }
 

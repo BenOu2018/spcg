@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import type { MouseEvent } from 'react'
 import { useEffect, useState } from 'react'
+import { buildSettingsTabHref } from '@/lib/settings-url'
 
 export type SettingsTabItem = {
   value: string
@@ -53,7 +54,7 @@ export function SettingsTabs({ activeTab, label, navigationMode = 'link', onTabC
               setOptimisticTab(tab.value)
               onTabChange?.(tab.value)
               if (!shouldNavigate) {
-                window.history.replaceState(window.history.state, '', href)
+                router.replace(href, { scroll: false })
                 return
               }
               router.push(href, { scroll: false })
@@ -73,16 +74,4 @@ export function SettingsTabs({ activeTab, label, navigationMode = 'link', onTabC
 
 function shouldHandleTabClick(event: MouseEvent<HTMLAnchorElement>) {
   return !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && event.button === 0
-}
-
-function buildSettingsTabHref(searchParams: { toString(): string }, tab: string) {
-  const params = new URLSearchParams(searchParams.toString())
-  params.set('tab', tab)
-  params.delete('profile')
-  params.delete('password')
-  params.delete('phone')
-  params.delete('phoneNumber')
-  params.delete('devCode')
-  params.delete('language')
-  return `/settings?${params.toString()}`
 }

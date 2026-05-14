@@ -1,13 +1,21 @@
 import Link from 'next/link'
+import type { ReactNode } from 'react'
 import { ArrowLeft, LogOut, ShieldCheck } from 'lucide-react'
 import { signOutAction } from '@/app/auth/actions'
 import {
   requestPhoneVerificationAction,
+  requestPhoneVerificationResultAction,
   updateAccountProfileAction,
+  updateAccountProfileResultAction,
   updatePasswordAction,
+  updatePasswordResultAction,
   updateUiLocaleAction,
+  updateUiLocaleResultAction,
   verifyPhoneCodeAction,
+  verifyPhoneCodeResultAction,
 } from '@/app/settings/actions'
+import { SettingsActionForm, SettingsActionMessage, SettingsActionSubmitButton } from '@/app/settings/SettingsActionForm'
+import { SettingsAvatarPreview, SettingsCurrentAvatarInput } from '@/app/settings/SettingsAvatarPreview'
 import { SettingsTabFrame } from '@/components/SettingsTabFrame'
 import type { SettingsTabItem } from '@/components/SettingsTabs'
 import { requireUser } from '@/lib/auth-guard'
@@ -15,6 +23,7 @@ import { getAccountSettings, getPhoneVerificationSummary } from '@/lib/services/
 import { getMyParentInviteSummary } from '@/lib/services/student-parent-invite-service'
 import { getStudentUiMessages, SUPPORTED_UI_LOCALES } from '@/lib/student-ui'
 import { getRequestUiLocale } from '@/lib/student-ui-server'
+import type { SettingsActionResult } from '@/lib/settings-url'
 
 export type SettingsSearchParams = Partial<
   Record<'tab' | 'profile' | 'password' | 'phone' | 'phoneNumber' | 'devCode' | 'language', string | string[]>
@@ -69,9 +78,7 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
 
       <section className={layoutClassName}>
         <header className="settings-hero">
-          <div className="settings-avatar-preview" aria-label="当前头像">
-            {avatarUrl ? <img src={avatarUrl} alt="" /> : <span>{displayName.slice(0, 1).toUpperCase()}</span>}
-          </div>
+          <SettingsAvatarPreview avatarUrl={avatarUrl} displayName={displayName} />
           <div>
             <span className="eyebrow">{messages.settings.eyebrow}</span>
             <h1>{messages.settings.title}</h1>
@@ -89,35 +96,55 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
           tabs={tabs}
         >
           <div className="settings-tab-panel" data-settings-tab-panel="profile">
-            <form className="settings-panel" action={updateAccountProfileAction}>
+            <SettingsForm
+              mode={mode}
+              className="settings-panel"
+              fallbackAction={updateAccountProfileAction}
+              resultAction={updateAccountProfileResultAction}
+            >
               <div>
                 <h2>{messages.settings.profileTitle}</h2>
                 <p>{messages.settings.profileBody}</p>
               </div>
-              {profileMessage(params.profile, messages)}
-              <input name="currentAvatarUrl" type="hidden" value={avatarUrl} />
+              <SettingsActionMessage
+                code={params.profile}
+                fallbackMessage={messages.settings.profileFailed}
+                messages={profileMessageMap()}
+                statusKey="profile"
+              />
+              <SettingsCurrentAvatarInput avatarUrl={avatarUrl} />
               <label>
                 <span>{messages.settings.displayName}</span>
                 <input name="displayName" defaultValue={displayName} minLength={2} maxLength={24} required />
               </label>
               <label className="settings-file-field">
                 <span>{messages.settings.avatarFile}</span>
-                <input name="avatarFile" type="file" accept="image/png,image/jpeg,image/gif" />
+                <input name="avatarFile" type="file" accept="image/png,image/jpeg,image/gif,image/webp" />
                 <small>{messages.settings.avatarHelp}</small>
               </label>
-              <button className="game-start-button" type="submit">
+              <SettingsActionSubmitButton className="game-start-button" pendingLabel="上传中..." type="submit">
                 {messages.settings.saveProfile}
-              </button>
-            </form>
+              </SettingsActionSubmitButton>
+            </SettingsForm>
           </div>
 
           <div className="settings-tab-panel" data-settings-tab-panel="language">
-            <form className="settings-panel" action={updateUiLocaleAction}>
+            <SettingsForm
+              mode={mode}
+              className="settings-panel"
+              fallbackAction={updateUiLocaleAction}
+              resultAction={updateUiLocaleResultAction}
+            >
               <div>
                 <h2>{messages.settings.languageTitle}</h2>
                 <p>{messages.settings.languageBody}</p>
               </div>
-              {languageMessage(params.language, messages)}
+              <SettingsActionMessage
+                code={params.language}
+                fallbackMessage={messages.settings.languageFailed}
+                messages={languageMessageMap(messages)}
+                statusKey="language"
+              />
               <label>
                 <span>{messages.settings.languageLabel}</span>
                 <select name="uiLocale" defaultValue={account?.uiLocale ?? locale}>
@@ -131,7 +158,7 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
               <button className="game-start-button" type="submit">
                 {messages.settings.saveLanguage}
               </button>
-            </form>
+            </SettingsForm>
           </div>
 
           <div className="settings-tab-panel" data-settings-tab-panel="phone">
@@ -140,13 +167,25 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
                 <h2>{messages.settings.phoneTitle}</h2>
                 <p>{messages.settings.phoneBody}</p>
               </div>
-              {phoneMessage(params.phone, messages)}
               {params.devCode ? (
                 <p className="settings-dev-code">
                   开发验证码：<strong>{params.devCode}</strong>
                 </p>
               ) : null}
-              <form className="settings-inline-form" action={requestPhoneVerificationAction}>
+              <SettingsForm
+                mode={mode}
+                className="settings-inline-form"
+                fallbackAction={requestPhoneVerificationAction}
+                resultAction={requestPhoneVerificationResultAction}
+              >
+                <SettingsActionMessage
+                  code={params.phone}
+                  fallbackMessage={messages.settings.phoneFailed}
+                  messages={phoneMessageMap()}
+                  statusKey="phone"
+                  successCodes={['sent']}
+                  visibleCodes={['sent', 'invalid-phone', 'phone-taken']}
+                />
                 <label>
                   <span>{messages.settings.phoneNumber}</span>
                   <input name="phoneNumber" defaultValue={pendingPhoneNumber} placeholder="13800138000" required />
@@ -154,9 +193,23 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
                 <button className="game-start-button" type="submit">
                   {messages.settings.sendCode}
                 </button>
-              </form>
-              <form className="settings-inline-form" action={verifyPhoneCodeAction}>
+              </SettingsForm>
+              <SettingsForm
+                mode={mode}
+                className="settings-inline-form"
+                fallbackAction={verifyPhoneCodeAction}
+                resultAction={verifyPhoneCodeResultAction}
+              >
+                <SettingsActionMessage
+                  code={params.phone}
+                  fallbackMessage={messages.settings.phoneFailed}
+                  messages={phoneMessageMap()}
+                  statusKey="phone"
+                  successCodes={['verified']}
+                  visibleCodes={['verified', 'code-missing', 'code-expired', 'code-invalid', 'too-many-attempts']}
+                />
                 <input name="phoneNumber" type="hidden" value={pendingPhoneNumber} />
+                {params.devCode ? <input name="devCode" type="hidden" value={params.devCode} /> : null}
                 <label>
                   <span>{messages.settings.code}</span>
                   <input name="code" inputMode="numeric" minLength={6} maxLength={6} placeholder="6位数字" required />
@@ -164,7 +217,7 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
                 <button className="game-start-button" type="submit">
                   {messages.settings.verifyPhone}
                 </button>
-              </form>
+              </SettingsForm>
               <div className="settings-session-card">
                 <ShieldCheck size={22} />
                 <span>
@@ -213,12 +266,22 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
 
           <div className="settings-tab-panel" data-settings-tab-panel="security">
             <div className="settings-security-grid">
-              <form className="settings-panel" action={updatePasswordAction}>
+              <SettingsForm
+                mode={mode}
+                className="settings-panel"
+                fallbackAction={updatePasswordAction}
+                resultAction={updatePasswordResultAction}
+              >
                 <div>
                   <h2>{messages.settings.passwordTitle}</h2>
                   <p>{messages.settings.passwordBody}</p>
                 </div>
-                {passwordMessage(params.password, messages)}
+                <SettingsActionMessage
+                  code={params.password}
+                  fallbackMessage={messages.settings.passwordFailed}
+                  messages={passwordMessageMap()}
+                  statusKey="password"
+                />
                 <label>
                   <span>{messages.settings.currentPassword}</span>
                   <input name="currentPassword" type="password" autoComplete="current-password" required />
@@ -234,7 +297,7 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
                 <button className="game-start-button" type="submit">
                   {messages.settings.updatePassword}
                 </button>
-              </form>
+              </SettingsForm>
 
               <section className="settings-panel settings-session-panel">
                 <div>
@@ -282,6 +345,34 @@ function normalizeSettingsTab(value: string | undefined): SettingsTab {
   return 'profile'
 }
 
+function SettingsForm({
+  children,
+  className,
+  fallbackAction,
+  mode,
+  resultAction,
+}: {
+  children: ReactNode
+  className: string
+  fallbackAction: (formData: FormData) => Promise<void> | void
+  mode: AccountSettingsContentProps['mode']
+  resultAction: (formData: FormData) => Promise<SettingsActionResult>
+}) {
+  if (mode === 'modal') {
+    return (
+      <SettingsActionForm action={resultAction} fallbackAction={fallbackAction} className={className}>
+        {children}
+      </SettingsActionForm>
+    )
+  }
+
+  return (
+    <form className={className} action={fallbackAction}>
+      {children}
+    </form>
+  )
+}
+
 function inviteStatusText(
   invite: Awaited<ReturnType<typeof getMyParentInviteSummary>>,
   messages: ReturnType<typeof getStudentUiMessages>,
@@ -293,34 +384,29 @@ function inviteStatusText(
   return messages.settings.inviteMissing
 }
 
-function profileMessage(code: string | undefined, messages: ReturnType<typeof getStudentUiMessages>) {
-  if (!code) return null
-  const messageMap: Record<string, string> = {
-    saved: '资料已保存。',
+function profileMessageMap() {
+  return {
+    saved: '保存成功。',
     'invalid-name': '显示昵称需要 2-24 个字符。',
     'invalid-avatar': '头像路径异常，请重新上传图片。',
-    'avatar-type': '头像只支持 PNG、JPG 或 GIF。',
+    'avatar-type': '头像只支持 PNG、JPG、GIF 或 WebP。',
     'avatar-compress-failed': '头像压缩失败，请换一张图片再试。',
     'avatar-save-failed': '头像保存失败，请稍后再试。',
   }
-  return <p className={code === 'saved' ? 'settings-message' : 'settings-error'}>{messageMap[code] ?? messages.settings.profileFailed}</p>
 }
 
-function passwordMessage(code: string | undefined, messages: ReturnType<typeof getStudentUiMessages>) {
-  if (!code) return null
-  const messageMap: Record<string, string> = {
+function passwordMessageMap() {
+  return {
     saved: '密码已更新。',
     'too-short': '新密码至少需要 8 位。',
     mismatch: '两次输入的新密码不一致。',
     'wrong-current': '当前密码不正确。',
   }
-  return <p className={code === 'saved' ? 'settings-message' : 'settings-error'}>{messageMap[code] ?? messages.settings.passwordFailed}</p>
 }
 
-function phoneMessage(code: string | undefined, messages: ReturnType<typeof getStudentUiMessages>) {
-  if (!code) return null
-  const messageMap: Record<string, string> = {
-    sent: '验证码已生成，请使用下方开发验证码完成验证。',
+function phoneMessageMap() {
+  return {
+    sent: '验证码已发送。',
     verified: '手机号已验证。',
     'invalid-phone': '手机号格式不正确。',
     'phone-taken': '这个手机号已经绑定到其他账号。',
@@ -329,15 +415,10 @@ function phoneMessage(code: string | undefined, messages: ReturnType<typeof getS
     'code-invalid': '验证码不正确。',
     'too-many-attempts': '错误次数太多，请重新发送验证码。',
   }
-  return (
-    <p className={code === 'sent' || code === 'verified' ? 'settings-message' : 'settings-error'}>
-      {messageMap[code] ?? messages.settings.phoneFailed}
-    </p>
-  )
 }
 
-function languageMessage(code: string | undefined, messages: ReturnType<typeof getStudentUiMessages>) {
-  if (!code) return null
-  const text = code === 'saved' ? messages.settings.saved : messages.settings.languageFailed
-  return <p className={code === 'saved' ? 'settings-message' : 'settings-error'}>{text}</p>
+function languageMessageMap(messages: ReturnType<typeof getStudentUiMessages>) {
+  return {
+    saved: messages.settings.saved,
+  }
 }

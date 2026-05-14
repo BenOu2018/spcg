@@ -1,6 +1,7 @@
 import { API_BASE_URL } from '../config'
 
 const TOKEN_STORAGE_KEY = 'spcg_parent_mobile_token'
+const REQUEST_TIMEOUT_MS = 20_000
 
 type HttpMethod = 'GET' | 'POST'
 
@@ -171,6 +172,7 @@ function request<T>(options: {
       url: `${API_BASE_URL}${options.path}`,
       method: options.method ?? 'GET',
       data: options.data,
+      timeout: REQUEST_TIMEOUT_MS,
       header: {
         'Content-Type': 'application/json',
         ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
@@ -190,8 +192,13 @@ function request<T>(options: {
           ),
         )
       },
-      fail() {
-        reject(new ApiRequestError('网络连接失败，请检查 API 地址。'))
+      fail(error) {
+        const errMsg = typeof error.errMsg === 'string' ? error.errMsg : ''
+        if (/timeout/i.test(errMsg)) {
+          reject(new ApiRequestError('请求超时，请检查网络后重试。', 'timeout'))
+          return
+        }
+        reject(new ApiRequestError('网络连接失败，请检查 API 地址和微信 request 合法域名。', 'network_failed'))
       },
     })
   })

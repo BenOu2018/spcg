@@ -11,6 +11,7 @@ type TaskCardProps = {
   level: Level
   sampleResults: SampleRunResultMap
   expanded?: boolean
+  className?: string
   onToggleExpanded?: () => void
   onPlayVideo?: () => void
   canViewHints?: boolean
@@ -24,6 +25,7 @@ export function TaskCard({
   level,
   sampleResults,
   expanded = false,
+  className,
   onToggleExpanded,
   onPlayVideo,
   canViewHints = true,
@@ -40,7 +42,7 @@ export function TaskCard({
   })
 
   return (
-    <aside className={expanded ? 'task expanded' : 'task'}>
+    <aside className={['task', expanded ? 'expanded' : '', className ?? ''].filter(Boolean).join(' ')}>
       <div className="task-scroll">
         <div className="task-top">
           <div className="section-label">

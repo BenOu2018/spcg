@@ -32,6 +32,7 @@ pnpm-debug.log*
 *.webp
 !assets/art/ui/today-news/spcg-online-launch-thumb.webp
 !assets/art/ui/exam-proctors/*.webp
+!assets/art/ui/effects/*.webp
 *.gif
 *.mp4
 *.mov

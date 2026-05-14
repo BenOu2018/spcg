@@ -39,7 +39,8 @@ type RunCodeInput = {
 
 type SampleRunStatus = Verdict['result'] | 'judging'
 type SampleRunResultMap = Record<string, { status: SampleRunStatus; passed: boolean }>
-const IDE_JUDGE_RATE_LIMIT_SECONDS = 60
+const IDE_ACTION_RATE_LIMIT_SECONDS = 60
+const IDE_ACTION_RATE_LIMIT_MAX_HITS = 2
 
 export type RunCodeActionResult = {
   execution: MockExecutionResult
@@ -103,7 +104,7 @@ export async function runCodeAction(input: RunCodeInput): Promise<RunCodeActionR
     }
   }
 
-  const rateLimit = await consumeIdeJudgeRateLimit(session?.user?.id)
+  const rateLimit = await consumeIdeRunRateLimit(session?.user?.id)
   if (!rateLimit.allowed) {
     return {
       engine: 'error',
@@ -136,7 +137,7 @@ export async function runCodeAction(input: RunCodeInput): Promise<RunCodeActionR
       resolvedLanguage,
       execution,
       samples,
-      retryAfterSeconds: IDE_JUDGE_RATE_LIMIT_SECONDS,
+      retryAfterSeconds: IDE_ACTION_RATE_LIMIT_SECONDS,
     }
   } catch (error) {
     return {
@@ -144,7 +145,7 @@ export async function runCodeAction(input: RunCodeInput): Promise<RunCodeActionR
       resolvedLanguage,
       samples: {},
       execution: buildRunError(error instanceof Error ? error.message : 'Judge0 运行失败。'),
-      retryAfterSeconds: IDE_JUDGE_RATE_LIMIT_SECONDS,
+      retryAfterSeconds: IDE_ACTION_RATE_LIMIT_SECONDS,
     }
   }
 }
@@ -179,7 +180,7 @@ export async function runPublicSamplesAction(input: SubmitCodeInput): Promise<Ru
     }
   }
 
-  const rateLimit = await consumeIdeJudgeRateLimit(session?.user?.id)
+  const rateLimit = await consumeIdeRunRateLimit(session?.user?.id)
   if (!rateLimit.allowed) {
     return {
       engine: 'error',
@@ -313,7 +314,7 @@ async function runVisiblePublicSamplesForLevel(input: {
   return Object.fromEntries(entries)
 }
 
-async function consumeIdeJudgeRateLimit(userId: string | null | undefined) {
+async function consumeIdeRunRateLimit(userId: string | null | undefined) {
   if (!userId) {
     return {
       allowed: true as const,
@@ -324,8 +325,9 @@ async function consumeIdeJudgeRateLimit(userId: string | null | undefined) {
 
   return consumeUserRateLimit({
     userId,
-    actionKey: RATE_LIMIT_ACTIONS.ideJudge,
-    windowSeconds: IDE_JUDGE_RATE_LIMIT_SECONDS,
+    actionKey: RATE_LIMIT_ACTIONS.ideRun,
+    windowSeconds: IDE_ACTION_RATE_LIMIT_SECONDS,
+    maxHits: IDE_ACTION_RATE_LIMIT_MAX_HITS,
   })
 }
 

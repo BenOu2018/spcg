@@ -75,6 +75,7 @@ export type UserRecentSubmissionsResult = {
 }
 
 const DEFAULT_SUBMISSION_RATE_LIMIT_SECONDS = 60
+const DEFAULT_SUBMISSION_RATE_LIMIT_MAX_HITS = 2
 
 export async function createUserSubmission(input: {
   userId?: string | null
@@ -126,8 +127,9 @@ export async function createUserSubmission(input: {
   if (rateLimitSeconds > 0) {
     const rateLimit = await consumeUserRateLimit({
       userId: input.userId,
-      actionKey: RATE_LIMIT_ACTIONS.ideJudge,
+      actionKey: RATE_LIMIT_ACTIONS.ideSubmit,
       windowSeconds: rateLimitSeconds,
+      maxHits: DEFAULT_SUBMISSION_RATE_LIMIT_MAX_HITS,
     })
     if (!rateLimit.allowed) {
       return {

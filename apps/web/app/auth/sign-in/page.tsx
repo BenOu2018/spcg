@@ -20,8 +20,8 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
         {params?.created === '1' ? <p className="login-message">{messages.auth.created}</p> : null}
         {params?.reset === '1' ? <p className="login-message">{messages.auth.passwordResetDone}</p> : null}
         {params?.error ? <p className="login-error">{params.error}</p> : null}
-        <input name="identifier" type="text" placeholder={messages.auth.signInIdentifier} autoComplete="username" required />
-        <input name="password" type="password" placeholder={messages.auth.password} required />
+        <input name="identifier" type="text" placeholder={messages.auth.signInIdentifier} autoComplete="username" enterKeyHint="go" required />
+        <input name="password" type="password" placeholder={messages.auth.password} autoComplete="current-password" enterKeyHint="go" required />
         <input name="next" type="hidden" value={next} />
         <button className="game-start-button" type="submit">
           {messages.auth.signIn}

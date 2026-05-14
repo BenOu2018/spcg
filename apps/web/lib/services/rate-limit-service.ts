@@ -16,7 +16,8 @@ export type UserRateLimitResult =
 
 export const RATE_LIMIT_ACTIONS = {
   bugSubmit: 'system_bug.submit',
-  ideJudge: 'ide.judge',
+  ideRun: 'ide.run',
+  ideSubmit: 'ide.submit',
   aiErrorAnalysisGenerate: 'ai_error_analysis.generate',
 } as const
 
@@ -26,6 +27,7 @@ export async function consumeUserRateLimit(input: {
   userId: string
   actionKey: string
   windowSeconds: number
+  maxHits?: number
   scopeKey?: string | null
 }): Promise<UserRateLimitResult> {
   if (!input.userId || input.windowSeconds <= 0 || !isDatabaseConfigured()) {
@@ -37,9 +39,10 @@ export async function consumeUserRateLimit(input: {
     actionKey: input.actionKey,
     scopeKey: normalizeScopeKey(input.scopeKey),
     windowSeconds: input.windowSeconds,
+    maxHits: input.maxHits,
   }).catch((error) => {
-    if (isUndefinedTableError(error)) {
-      throw new ServiceError('db_unconfigured', '限流数据表尚未创建，请先执行数据库迁移 npm run db:migrate。', 503)
+    if (isMissingRateLimitSchemaError(error)) {
+      throw new ServiceError('db_unconfigured', '限流数据表尚未更新，请先执行数据库迁移 npm run db:migrate。', 503)
     }
     throw error
   })
@@ -60,6 +63,7 @@ export async function requireUserRateLimit(input: {
   userId: string
   actionKey: string
   windowSeconds: number
+  maxHits?: number
   scopeKey?: string | null
 }): Promise<void> {
   const result = await consumeUserRateLimit(input)
@@ -72,6 +76,8 @@ function normalizeScopeKey(value: string | null | undefined): string {
   return normalized || DEFAULT_SCOPE_KEY
 }
 
-function isUndefinedTableError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === '42P01'
+function isMissingRateLimitSchemaError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const code = (error as { code?: unknown }).code
+  return code === '42P01' || code === '42703'
 }

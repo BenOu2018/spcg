@@ -103,7 +103,7 @@ export function isAvatarUploadFile(value: FormDataEntryValue | null): value is F
   return typeof File !== 'undefined' && value instanceof File && value.size > 0
 }
 
-function getAvatarUploadDir(): string {
+export function getAvatarUploadDir(): string {
   const cwd = process.cwd()
   const publicDir = cwd.endsWith(path.join('apps', 'web')) ? path.join(cwd, 'public') : path.join(cwd, 'apps', 'web', 'public')
   return path.join(publicDir, 'uploads', 'avatars')

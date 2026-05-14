@@ -14,7 +14,14 @@ export async function POST(_request: Request, context: TeacherSubmissionAnalysis
       teacherUserId: session?.user?.id,
       submissionId: id,
     })
-    if (!result.ok) throw new ServiceError('bad_request', result.error, 400)
+    if (!result.ok) {
+      throw new ServiceError(
+        result.code === 'rate_limited' ? 'rate_limited' : 'bad_request',
+        result.error,
+        result.code === 'rate_limited' ? 429 : 400,
+        result.retryAfterSeconds,
+      )
+    }
     return jsonOk(result)
   } catch (error) {
     return jsonError(error)

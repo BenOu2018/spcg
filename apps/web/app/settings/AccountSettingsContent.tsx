@@ -8,6 +8,7 @@ import {
   updateUiLocaleAction,
   verifyPhoneCodeAction,
 } from '@/app/settings/actions'
+import { SettingsTabs, type SettingsTabItem } from '@/components/SettingsTabs'
 import { requireUser } from '@/lib/auth-guard'
 import { getAccountSettings, getPhoneVerificationSummary } from '@/lib/services/account-settings-service'
 import { getMyParentInviteSummary } from '@/lib/services/student-parent-invite-service'
@@ -40,7 +41,7 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
   const phone = getPhoneVerificationSummary(account)
   const pendingPhoneNumber = params.phoneNumber ?? phone.phoneNumber ?? ''
   const identityLabel = account?.username ?? session.user.username ?? session.user.email ?? session.user.id
-  const tabs: Array<{ value: SettingsTab; label: string; body: string }> = [
+  const tabs: Array<SettingsTabItem & { value: SettingsTab }> = [
     { value: 'profile', label: messages.settings.tabProfile, body: messages.settings.profileBody },
     { value: 'language', label: messages.settings.tabLanguage, body: messages.settings.languageBody },
     { value: 'phone', label: messages.settings.tabPhone, body: messages.settings.phoneBody },
@@ -80,22 +81,14 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
           </div>
         </header>
 
-        <nav className="settings-tabs" aria-label={messages.settings.title}>
-          {tabs.map((tab) => (
-            <Link
-              aria-current={tab.value === activeTab ? 'page' : undefined}
-              className={tab.value === activeTab ? 'active' : undefined}
-              href={`/settings?tab=${tab.value}`}
-              key={tab.value}
-              replace={replaceTabNavigation}
-            >
-              <strong>{tab.label}</strong>
-              <span>{tab.body}</span>
-            </Link>
-          ))}
-        </nav>
+        <SettingsTabs
+          activeTab={activeTab}
+          label={messages.settings.title}
+          replaceTabNavigation={replaceTabNavigation}
+          tabs={tabs}
+        />
 
-        <section className="settings-tab-content">
+        <section className={activeTab === 'security' ? 'settings-tab-content settings-tab-content-security' : 'settings-tab-content'}>
           {activeTab === 'profile' ? (
             <form className="settings-panel" action={updateAccountProfileAction}>
               <div>
@@ -193,32 +186,16 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
                 <h2>{messages.settings.parentBindingTitle}</h2>
                 <p>{messages.settings.parentBindingBody}</p>
               </div>
-              <div className="settings-copy-card">
-                <span>{messages.settings.studentId}</span>
-                <input readOnly value={parentInvite?.studentUserId ?? session.user.id} />
-                <small>{messages.settings.copyHint}</small>
-              </div>
-              <div className="settings-session-card">
-                <ShieldCheck size={22} />
-                <span>{messages.settings.studentPhone}</span>
-                <strong>
-                  {parentInvite?.studentPhoneNumberMasked ?? phone.phoneNumberMasked ?? messages.settings.phoneUnbound}
-                  {parentInvite?.studentPhoneVerified || phone.phoneVerified ? ` · ${messages.settings.phoneVerified}` : ''}
-                </strong>
-              </div>
-              {!parentInvite?.studentPhoneNumberMasked && !phone.phoneNumberMasked ? (
-                <Link className="settings-inline-link" href="/settings?tab=phone" replace={replaceTabNavigation}>
-                  {messages.settings.phoneBody}
-                </Link>
-              ) : null}
               <div className="settings-invite-card">
                 <div>
                   <span>{messages.settings.parentInvite}</span>
-                  <strong>{inviteStatusText(parentInvite?.inviteStatus ?? 'missing', messages)}</strong>
+                  <strong>{inviteStatusText(parentInvite, messages)}</strong>
                 </div>
-                {parentInvite?.codePreview ? (
+                {(parentInvite?.boundParentCount ?? 0) > 0 ? (
+                  <p>{messages.settings.inviteBoundBody}</p>
+                ) : parentInvite?.inviteCode ? (
                   <p>
-                    {messages.settings.invitePreview}：<b>{parentInvite.codePreview}</b>
+                    {messages.settings.invitePreview}：<b>{parentInvite.inviteCode}</b>
                   </p>
                 ) : (
                   <p>
@@ -236,7 +213,7 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
           ) : null}
 
           {activeTab === 'security' ? (
-            <>
+            <div className="settings-security-grid">
               <form className="settings-panel" action={updatePasswordAction}>
                 <div>
                   <h2>{messages.settings.passwordTitle}</h2>
@@ -277,7 +254,7 @@ export async function AccountSettingsContent({ mode = 'page', searchParams = {} 
                   </button>
                 </form>
               </section>
-            </>
+            </div>
           ) : null}
         </section>
       </section>
@@ -306,7 +283,12 @@ function normalizeSettingsTab(value: string | undefined): SettingsTab {
   return 'profile'
 }
 
-function inviteStatusText(status: 'active' | 'missing' | 'revoked', messages: ReturnType<typeof getStudentUiMessages>) {
+function inviteStatusText(
+  invite: Awaited<ReturnType<typeof getMyParentInviteSummary>>,
+  messages: ReturnType<typeof getStudentUiMessages>,
+) {
+  if ((invite?.boundParentCount ?? 0) > 0) return messages.settings.inviteBound
+  const status = invite?.inviteStatus ?? 'missing'
   if (status === 'active') return messages.settings.inviteActive
   if (status === 'revoked') return messages.settings.inviteRevoked
   return messages.settings.inviteMissing

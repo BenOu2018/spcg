@@ -36,9 +36,20 @@ export const LEADERBOARD_RANK_AWARDS = [
   },
 ] as const satisfies readonly LeaderboardRankAward[]
 
+export const LEADERBOARD_RANK_AWARD_MIN_PARTICIPANTS = 10
+
 export function getLeaderboardRankAwards(rank: number): LeaderboardRankAward[] {
   if (!Number.isInteger(rank) || rank <= 0) return []
   return LEADERBOARD_RANK_AWARDS.filter((award) => rank <= award.threshold)
+}
+
+export function canGrantLeaderboardRankAwards(totalParticipants: number): boolean {
+  return Number.isInteger(totalParticipants) && totalParticipants >= LEADERBOARD_RANK_AWARD_MIN_PARTICIPANTS
+}
+
+export function getEligibleLeaderboardRankAwards(rank: number, totalParticipants: number): LeaderboardRankAward[] {
+  if (!canGrantLeaderboardRankAwards(totalParticipants)) return []
+  return getLeaderboardRankAwards(rank)
 }
 
 export function isLeaderboardRankAwardItemId(itemId: string): boolean {

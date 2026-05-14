@@ -1,7 +1,6 @@
 import type { PoolClient } from 'pg'
+import type { TodayNewsArticleStatus } from '@spcg/shared/types'
 import { query, withTransaction } from '@/lib/db'
-
-export type TodayNewsArticleStatus = 'draft' | 'published' | 'archived'
 
 export type TodayNewsArticleRecord = {
   id: string

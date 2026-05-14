@@ -123,7 +123,7 @@ export default async function TeacherStudentsPage({ searchParams }: TeacherStude
                 <Link className="teacher-title-link" href={`/teacher/students/${student.id}`}>
                   {student.displayName ?? student.username ?? student.id}
                 </Link>
-                <small>{student.username} · {student.accountStatus}</small>
+                <small>{student.username} · {student.studentEnrollmentLabel} · {student.accountStatus}</small>
               </span>
               <span>
                 <TeacherStatusBadge tone={student.accessLevel === 'owner' ? 'success' : 'info'}>

@@ -1,6 +1,8 @@
 import { auth } from '@/auth'
+import { after } from 'next/server'
 import { jsonError, jsonOk } from '@/lib/services/api-response'
 import {
+  completeGrowthReportGeneration,
   generateGrowthReportForTeacherStudent,
   getTeacherStudentGrowthReports,
 } from '@/lib/services/growth-report-service'
@@ -42,6 +44,7 @@ export async function POST(request: Request, context: TeacherStudentGrowthReport
       periodStart: typeof body.periodStart === 'string' ? body.periodStart : null,
       periodEnd: typeof body.periodEnd === 'string' ? body.periodEnd : null,
     })
+    after(() => completeGrowthReportGeneration(result.report.id))
     return jsonOk(result, { status: 201 })
   } catch (error) {
     return jsonError(error)

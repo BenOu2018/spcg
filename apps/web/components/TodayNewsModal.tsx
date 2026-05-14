@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowLeft, Bookmark, Heart, X } from 'lucide-react'
-import type { UiLocale } from '@spcg/shared/types'
-import type { TodayNewsArticleCard } from '@/lib/services/today-news-service'
+import type { TodayNewsArticleCard, UiLocale } from '@spcg/shared/types'
 
 type TodayNewsModalProps = {
   articles: TodayNewsArticleCard[]

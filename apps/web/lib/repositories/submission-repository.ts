@@ -24,6 +24,10 @@ export type SubmissionHistoryItem = {
   code: string
   language: Language
   resolvedLanguage: ResolvedLanguage | null
+  assessmentAttemptId: string | null
+  assessmentPhase: 'realtime' | 'final' | null
+  score: number
+  maxScore: number | null
   errorAnalysis: SubmissionErrorAnalysis | null
   createdAt: string
   updatedAt: string
@@ -85,6 +89,10 @@ type SubmissionHistoryRow = {
   code: string
   language: Language
   resolved_language: ResolvedLanguage | null
+  assessment_attempt_id: string | null
+  assessment_phase: 'realtime' | 'final' | null
+  score: number | null
+  max_score: number | null
   error_analysis: SubmissionErrorAnalysis | null
   created_at: Date | string
   updated_at: Date | string
@@ -233,6 +241,10 @@ export async function listSubmissionHistoryForUser(input: {
       s.code,
       s.language,
       s.resolved_language,
+      s.assessment_attempt_id,
+      s.assessment_phase,
+      s.score,
+      s.max_score,
       latest_analysis.error_analysis,
       s.created_at,
       s.updated_at
@@ -268,6 +280,10 @@ export async function listSubmissionHistoryForUser(input: {
     code: row.code,
     language: row.language,
     resolvedLanguage: row.resolved_language,
+    assessmentAttemptId: row.assessment_attempt_id ?? null,
+    assessmentPhase: row.assessment_phase ?? null,
+    score: row.score ?? 0,
+    maxScore: row.max_score ?? null,
     errorAnalysis: row.error_analysis ? normalizeSubmissionErrorAnalysis(row.error_analysis) : null,
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at),
@@ -301,6 +317,10 @@ export async function listSubmissionHistoryForLevelViewer(input: {
       s.user_id = $1 AS can_view_code,
       s.language,
       s.resolved_language,
+      s.assessment_attempt_id,
+      s.assessment_phase,
+      s.score,
+      s.max_score,
       s.user_id,
       u.email AS user_email,
       COALESCE(p.display_name, u.display_name, u.username) AS user_display_name,
@@ -342,6 +362,10 @@ export async function listSubmissionHistoryForLevelViewer(input: {
     canViewCode: row.can_view_code,
     language: row.language,
     resolvedLanguage: row.resolved_language,
+    assessmentAttemptId: row.assessment_attempt_id ?? null,
+    assessmentPhase: row.assessment_phase ?? null,
+    score: row.score ?? 0,
+    maxScore: row.max_score ?? null,
     errorAnalysis: row.error_analysis ? normalizeSubmissionErrorAnalysis(row.error_analysis) : null,
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at),
@@ -381,6 +405,10 @@ export async function listAdminSubmissionHistory(input: {
       s.code,
       s.language,
       s.resolved_language,
+      s.assessment_attempt_id,
+      s.assessment_phase,
+      s.score,
+      s.max_score,
       s.user_id,
       u.email AS user_email,
       COALESCE(p.display_name, u.display_name, u.username) AS user_display_name,
@@ -426,6 +454,10 @@ export async function listAdminSubmissionHistory(input: {
     code: row.code,
     language: row.language,
     resolvedLanguage: row.resolved_language,
+    assessmentAttemptId: row.assessment_attempt_id ?? null,
+    assessmentPhase: row.assessment_phase ?? null,
+    score: row.score ?? 0,
+    maxScore: row.max_score ?? null,
     errorAnalysis: row.error_analysis ? normalizeSubmissionErrorAnalysis(row.error_analysis) : null,
     createdAt: toIsoString(row.created_at),
     updatedAt: toIsoString(row.updated_at),

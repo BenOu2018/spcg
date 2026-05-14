@@ -14,9 +14,10 @@ import {
   type SubmissionPollResult,
 } from '@/lib/services/submission-service'
 import { executeCode } from '@/lib/services/code-runner-service'
+import { RATE_LIMIT_ACTIONS, consumeUserRateLimit } from '@/lib/services/rate-limit-service'
 import { normalizeOutput, type MockExecutionResult } from '@spcg/shared/judge'
 import { normalizeLanguageMode, resolveLanguageMode, type LanguageMode, type ResolvedLanguage } from '@spcg/shared/language-config'
-import type { Verdict } from '@spcg/shared/types'
+import type { Level, Verdict } from '@spcg/shared/types'
 
 type SubmitCodeInput = {
   levelId: string
@@ -38,11 +39,15 @@ type RunCodeInput = {
 
 type SampleRunStatus = Verdict['result'] | 'judging'
 type SampleRunResultMap = Record<string, { status: SampleRunStatus; passed: boolean }>
+const IDE_JUDGE_RATE_LIMIT_SECONDS = 60
 
 export type RunCodeActionResult = {
   execution: MockExecutionResult
+  samples: SampleRunResultMap
   resolvedLanguage: ResolvedLanguage
   engine: 'judge0' | 'mock' | 'error'
+  code?: 'rate_limited'
+  retryAfterSeconds?: number
 }
 
 export type RunPublicSamplesActionResult = {
@@ -79,6 +84,7 @@ export async function runCodeAction(input: RunCodeInput): Promise<RunCodeActionR
     return {
       engine: 'error',
       resolvedLanguage,
+      samples: {},
       execution: buildRunError('题目不存在，无法运行代码。'),
     }
   }
@@ -92,27 +98,53 @@ export async function runCodeAction(input: RunCodeInput): Promise<RunCodeActionR
     return {
       engine: 'error',
       resolvedLanguage,
+      samples: {},
       execution: buildRunError(access.reason ?? '当前关卡尚未解锁，无法运行代码。'),
     }
   }
 
-  try {
+  const rateLimit = await consumeIdeJudgeRateLimit(session?.user?.id)
+  if (!rateLimit.allowed) {
     return {
-      engine: isJudge0Configured() ? 'judge0' : 'mock',
+      engine: 'error',
       resolvedLanguage,
-      execution: await executeCode({
+      samples: {},
+      execution: buildRunError(rateLimit.message),
+      code: 'rate_limited',
+      retryAfterSeconds: rateLimit.retryAfterSeconds,
+    }
+  }
+
+  try {
+    const [execution, samples] = await Promise.all([
+      executeCode({
         code: input.code,
         language: resolvedLanguage,
         stdin: input.stdin,
         timeLimitMs: level.timeLimitMs,
         memoryLimitMb: level.memoryLimitMb,
       }),
+      runVisiblePublicSamplesForLevel({
+        level,
+        code: input.code,
+        resolvedLanguage,
+      }),
+    ])
+
+    return {
+      engine: isJudge0Configured() ? 'judge0' : 'mock',
+      resolvedLanguage,
+      execution,
+      samples,
+      retryAfterSeconds: IDE_JUDGE_RATE_LIMIT_SECONDS,
     }
   } catch (error) {
     return {
       engine: 'error',
       resolvedLanguage,
+      samples: {},
       execution: buildRunError(error instanceof Error ? error.message : 'Judge0 运行失败。'),
+      retryAfterSeconds: IDE_JUDGE_RATE_LIMIT_SECONDS,
     }
   }
 }
@@ -147,29 +179,23 @@ export async function runPublicSamplesAction(input: SubmitCodeInput): Promise<Ru
     }
   }
 
-  const entries = await Promise.all(
-    level.publicCases.slice(0, 2).map(async (sample) => {
-      try {
-        const execution = await executeCode({
-          code: input.code,
-          language: resolvedLanguage,
-          stdin: sample.input,
-          timeLimitMs: level.timeLimitMs,
-          memoryLimitMb: level.memoryLimitMb,
-        })
-        const passed = execution.result === 'AC' && normalizeOutput(execution.stdout) === normalizeOutput(sample.expectedOutput)
-        const status: SampleRunStatus = execution.result === 'AC' ? (passed ? 'AC' : 'WA') : execution.result
-        return [sample.id, { status, passed }] as const
-      } catch {
-        return [sample.id, { status: 'Judge Error' as const, passed: false }] as const
-      }
-    }),
-  )
+  const rateLimit = await consumeIdeJudgeRateLimit(session?.user?.id)
+  if (!rateLimit.allowed) {
+    return {
+      engine: 'error',
+      resolvedLanguage,
+      samples: {},
+    }
+  }
 
   return {
     engine: isJudge0Configured() ? 'judge0' : 'mock',
     resolvedLanguage,
-    samples: Object.fromEntries(entries),
+    samples: await runVisiblePublicSamplesForLevel({
+      level,
+      code: input.code,
+      resolvedLanguage,
+    }),
   }
 }
 
@@ -258,6 +284,49 @@ function buildRunError(message: string): MockExecutionResult {
     maxRuntimeMs: 0,
     errorDetail: message,
   }
+}
+
+async function runVisiblePublicSamplesForLevel(input: {
+  level: Level
+  code: string
+  resolvedLanguage: ResolvedLanguage
+}): Promise<SampleRunResultMap> {
+  const entries = await Promise.all(
+    input.level.publicCases.slice(0, 2).map(async (sample) => {
+      try {
+        const execution = await executeCode({
+          code: input.code,
+          language: input.resolvedLanguage,
+          stdin: sample.input,
+          timeLimitMs: input.level.timeLimitMs,
+          memoryLimitMb: input.level.memoryLimitMb,
+        })
+        const passed = execution.result === 'AC' && normalizeOutput(execution.stdout) === normalizeOutput(sample.expectedOutput)
+        const status: SampleRunStatus = execution.result === 'AC' ? (passed ? 'AC' : 'WA') : execution.result
+        return [sample.id, { status, passed }] as const
+      } catch {
+        return [sample.id, { status: 'Judge Error' as const, passed: false }] as const
+      }
+    }),
+  )
+
+  return Object.fromEntries(entries)
+}
+
+async function consumeIdeJudgeRateLimit(userId: string | null | undefined) {
+  if (!userId) {
+    return {
+      allowed: true as const,
+      retryAfterSeconds: 0,
+      message: null,
+    }
+  }
+
+  return consumeUserRateLimit({
+    userId,
+    actionKey: RATE_LIMIT_ACTIONS.ideJudge,
+    windowSeconds: IDE_JUDGE_RATE_LIMIT_SECONDS,
+  })
 }
 
 function isJudge0Configured(): boolean {

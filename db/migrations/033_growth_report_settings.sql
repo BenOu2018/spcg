@@ -5,7 +5,7 @@ VALUES (
     'enabled', true,
     'triggerMode', 'manual',
     'frequency', 'weekly',
-    'periodDays', 7,
+    'periodDays', 14,
     'tokenTtlDays', 30,
     'channels', jsonb_build_array('email', 'sms')
   )

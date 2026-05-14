@@ -35,14 +35,14 @@ export const getAllLevelsForUser = cache(async (input: LevelServiceInput = {}): 
   })
 
   if (!input.userId || !isDatabaseConfigured() || progress.length === 0) {
-    return progress.length > 0 ? applySolutionUnlocks(levels, progress) : levels
+    return applySolutionVideoPolicy(progress.length > 0 ? applySolutionUnlocks(levels, progress) : levels)
   }
 
   try {
-    return applySolutionUnlocks(levels, progress, await getUnlockedSolutions(progress))
+    return applySolutionVideoPolicy(applySolutionUnlocks(levels, progress, await getUnlockedSolutions(progress)))
   } catch (error) {
     console.warn(`Failed to load unlocked solutions: ${error instanceof Error ? error.message : String(error)}`)
-    return applySolutionUnlocks(levels, progress)
+    return applySolutionVideoPolicy(applySolutionUnlocks(levels, progress))
   }
 })
 
@@ -70,12 +70,15 @@ export async function getLessonStageMenuForLevel(levelId: string) {
 
 export async function getLevelTestSummaries() {
   if (!isDatabaseConfigured()) return []
-  return listInternalLevelTestSummaries()
+  const summaries = await listInternalLevelTestSummaries()
+  if (isSolutionVideoEnabled()) return summaries
+  return summaries.map((summary) => ({ ...summary, hasSolutionVideo: false }))
 }
 
 export async function getLevelForTeacherTesting(id: string): Promise<Level | null> {
   if (!isDatabaseConfigured()) return null
-  return getInternalLevelForTesting(id)
+  const level = await getInternalLevelForTesting(id)
+  return level ? applySolutionVideoPolicyToLevel(level) : null
 }
 
 export async function getUnlockedLevelSolutionForUser(input: { userId?: string | null; levelId: string }) {
@@ -108,7 +111,7 @@ export async function getUnlockedLevelSolutionForUser(input: { userId?: string |
     solutionUnlocked: Boolean(unlocked),
     solution: unlocked?.solution ?? null,
     officialCode: unlocked?.official_code ?? null,
-    solutionVideoUrl: unlocked?.solution_video_url ?? null,
+    solutionVideoUrl: getEnabledSolutionVideoUrl(unlocked?.solution_video_url ?? null),
   }
 }
 
@@ -144,6 +147,23 @@ async function loadLevels(input: { allowMockFallback: boolean }): Promise<Level[
 
 function isStoryMainlineLevel(level: Level): boolean {
   return STORY_MAINLINE_LEVEL_IDS.has(level.id)
+}
+
+function isSolutionVideoEnabled(): boolean {
+  return process.env.SPCG_SOLUTION_VIDEO_ENABLED === 'true'
+}
+
+function getEnabledSolutionVideoUrl(url: string | null | undefined): string | null {
+  return isSolutionVideoEnabled() ? url ?? null : null
+}
+
+function applySolutionVideoPolicy(levels: Level[]): Level[] {
+  if (isSolutionVideoEnabled()) return levels
+  return levels.map(applySolutionVideoPolicyToLevel)
+}
+
+function applySolutionVideoPolicyToLevel(level: Level): Level {
+  return level.solutionVideoUrl ? { ...level, solutionVideoUrl: null } : level
 }
 
 function mergeMissingMockMainlineLevels(levels: Level[]): Level[] {

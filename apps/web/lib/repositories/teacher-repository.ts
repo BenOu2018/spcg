@@ -1,6 +1,7 @@
 import type {
   Language,
   ResolvedLanguage,
+  StudentEnrollmentType,
   SubmissionErrorAnalysis,
   UserRole,
   Verdict,
@@ -8,6 +9,7 @@ import type {
 import type { PoolClient } from 'pg'
 import { query, queryOne, withTransaction } from '@/lib/db'
 import { createDefaultStudentParentInvite } from '@/lib/repositories/student-parent-invite-repository'
+import { getStudentEnrollmentLabel } from '@/lib/student-enrollment'
 
 export type TeacherAccessLevel = 'owner' | 'viewer'
 
@@ -33,6 +35,8 @@ export type TeacherStudentSummary = {
   parentEmail: string | null
   phoneNumberMasked: string | null
   phoneVerified: boolean
+  studentEnrollmentType: StudentEnrollmentType
+  studentEnrollmentLabel: string
   role: UserRole
   accountStatus: string
   accessLevel: TeacherAccessLevel
@@ -55,6 +59,7 @@ export type TeacherStudentProfileInput = {
   realName: string | null
   idCardNumber: string | null
   parentEmail: string | null
+  studentEnrollmentType: StudentEnrollmentType | null
   teacherNote: string | null
 }
 
@@ -169,6 +174,7 @@ type TeacherStudentRow = {
   parent_email: string | null
   phone_number: string | null
   phone_verified_at: Date | string | null
+  student_enrollment_type: StudentEnrollmentType | null
   role: UserRole | null
   account_status: string | null
   access_level: TeacherAccessLevel
@@ -329,9 +335,13 @@ export async function addTeacherStudent(input: {
   const values = [input.teacherUserId, input.studentUserId, input.createdBy]
   if (input.client) {
     await input.client.query(sql, values)
+    await markStudentAsOffline(input.client, input.studentUserId)
     return
   }
-  await query(sql, values)
+  await withTransaction(async (client) => {
+    await client.query(sql, values)
+    await markStudentAsOffline(client, input.studentUserId)
+  })
 }
 
 export async function createStudentAccountForTeacher(input: {
@@ -342,6 +352,7 @@ export async function createStudentAccountForTeacher(input: {
   displayName: string
   parentEmail?: string | null
   age?: number | null
+  studentEnrollmentType?: StudentEnrollmentType
 }): Promise<string> {
   return withTransaction(async (client) => {
     const user = await client.query<{ id: string }>(
@@ -357,15 +368,16 @@ export async function createStudentAccountForTeacher(input: {
 
     await client.query(
       `
-      INSERT INTO profiles (user_id, display_name, parent_email, age)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO profiles (user_id, display_name, parent_email, age, student_enrollment_type)
+      VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (user_id)
       DO UPDATE SET
         display_name = EXCLUDED.display_name,
         parent_email = EXCLUDED.parent_email,
-        age = EXCLUDED.age
+        age = EXCLUDED.age,
+        student_enrollment_type = EXCLUDED.student_enrollment_type
       `,
-      [studentUserId, input.displayName, input.parentEmail ?? null, input.age ?? null],
+      [studentUserId, input.displayName, input.parentEmail ?? null, input.age ?? null, input.studentEnrollmentType ?? 'offline'],
     )
 
     await client.query(
@@ -412,15 +424,16 @@ export async function updateTeacherStudentProfile(input: {
     )
     await client.query(
       `
-      INSERT INTO profiles (user_id, display_name, parent_email, age, real_name, id_card_number)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO profiles (user_id, display_name, parent_email, age, real_name, id_card_number, student_enrollment_type)
+      VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'online'))
       ON CONFLICT (user_id)
       DO UPDATE SET
         display_name = EXCLUDED.display_name,
         parent_email = EXCLUDED.parent_email,
         age = EXCLUDED.age,
         real_name = EXCLUDED.real_name,
-        id_card_number = EXCLUDED.id_card_number
+        id_card_number = EXCLUDED.id_card_number,
+        student_enrollment_type = COALESCE($7, profiles.student_enrollment_type, 'online')
       `,
       [
         input.profile.studentUserId,
@@ -429,6 +442,7 @@ export async function updateTeacherStudentProfile(input: {
         input.profile.age,
         input.profile.realName,
         input.profile.idCardNumber,
+        input.profile.studentEnrollmentType,
       ],
     )
     await client.query(
@@ -440,6 +454,20 @@ export async function updateTeacherStudentProfile(input: {
       [input.teacherUserId, input.profile.studentUserId, input.profile.teacherNote],
     )
   })
+}
+
+async function markStudentAsOffline(client: PoolClient, studentUserId: string): Promise<void> {
+  await client.query(
+    `
+    INSERT INTO profiles (user_id, student_enrollment_type)
+    VALUES ($1, 'offline')
+    ON CONFLICT (user_id)
+    DO UPDATE SET
+      student_enrollment_type = 'offline',
+      updated_at = NOW()
+    `,
+    [studentUserId],
+  )
 }
 
 export async function removeTeacherStudent(input: { teacherUserId: string; studentUserId: string }): Promise<void> {
@@ -533,6 +561,7 @@ export async function listTeacherStudents(teacherUserId: string): Promise<Teache
       p.parent_email,
       p.phone_number,
       p.phone_verified_at,
+      COALESCE(p.student_enrollment_type, 'online') AS student_enrollment_type,
       COALESCE(ur.role, 'student') AS role,
       COALESCE(uas.account_status, 'active') AS account_status,
       ts.access_level,
@@ -929,6 +958,7 @@ export async function getTeacherOverviewStats(teacherUserId: string): Promise<Te
 }
 
 function mapTeacherStudentRow(row: TeacherStudentRow): TeacherStudentSummary {
+  const studentEnrollmentType = row.student_enrollment_type === 'offline' ? 'offline' : 'online'
   return {
     id: row.id,
     username: row.username,
@@ -941,6 +971,8 @@ function mapTeacherStudentRow(row: TeacherStudentRow): TeacherStudentSummary {
     parentEmail: row.parent_email,
     phoneNumberMasked: maskPhone(row.phone_number),
     phoneVerified: Boolean(row.phone_verified_at),
+    studentEnrollmentType,
+    studentEnrollmentLabel: getStudentEnrollmentLabel(studentEnrollmentType),
     role: row.role ?? 'student',
     accountStatus: row.account_status ?? 'active',
     accessLevel: row.access_level,

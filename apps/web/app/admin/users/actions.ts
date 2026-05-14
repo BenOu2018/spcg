@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import type { UserRole } from '@spcg/shared/types'
+import type { StudentEnrollmentType, UserRole } from '@spcg/shared/types'
 import type { PoolClient } from 'pg'
 import { requireAdmin, type AdminContext } from '@/lib/admin-auth'
 import type { UserAccountStatus } from '@/lib/admin-data'
@@ -10,6 +10,7 @@ import { isDbConfigured, withTransaction } from '@/lib/db'
 import { hashPassword } from '@/lib/password'
 import { isValidUsername, normalizeUsername } from '@/lib/user-identity'
 import { isStudentUserType, setStudentUserType } from '@/lib/services/entitlement-service'
+import { isStudentEnrollmentType } from '@/lib/student-enrollment'
 
 const validStatuses = new Set<UserAccountStatus>(['active', 'suspended', 'deleted'])
 const validAdminRoles = new Set(['owner', 'admin', 'editor', 'reviewer', 'support'])
@@ -27,10 +28,10 @@ export async function createAdminUser(formData: FormData) {
   const realName = readOptional(formData, 'realName')
   const idCardNumber = normalizeIdCardNumber(readOptional(formData, 'idCardNumber'))
   const status = readStatus(formData)
-  const isTestAccount = readBoolean(formData, 'isTestAccount')
   const notes = readOptional(formData, 'notes')
   const role = readRole(formData)
   const userRole = readUserRole(formData)
+  const studentEnrollmentType = userRole === 'student' ? readStudentEnrollmentType(formData, 'offline') : 'online'
   const adminActive = readBoolean(formData, 'adminActive')
 
   if (!isValidUsername(username) || (email && !isEmail(email)) || !displayName || password.length < 8) {
@@ -58,13 +59,13 @@ export async function createAdminUser(formData: FormData) {
     userId = user.rows[0]?.id ?? ''
     if (!userId) throw new Error('Failed to create user')
 
-    await upsertProfile(client, userId, displayName, parentEmail, age, realName, idCardNumber)
-    await upsertAdminState(client, userId, status, isTestAccount, notes, context.userId)
+    await upsertProfile(client, userId, displayName, parentEmail, age, realName, idCardNumber, studentEnrollmentType)
+    await upsertAdminState(client, userId, status, notes, context.userId)
     await upsertAdminRole(client, userId, role, adminActive, displayName, context.userId)
     await upsertUserRole(client, userId, userRole, context.userId)
 
     const after = await readUserAuditSnapshot(client, userId)
-    await writeAudit(client, context, 'user.create', userId, null, after, { username, email, isTestAccount, role, userRole })
+    await writeAudit(client, context, 'user.create', userId, null, after, { username, email, role, userRole, studentEnrollmentType })
   })
 
   revalidateUserPaths(userId)
@@ -82,10 +83,10 @@ export async function updateAdminUser(formData: FormData) {
   const realName = readOptional(formData, 'realName')
   const idCardNumber = normalizeIdCardNumber(readOptional(formData, 'idCardNumber'))
   const status = readStatus(formData)
-  const isTestAccount = readBoolean(formData, 'isTestAccount')
   const notes = readOptional(formData, 'notes')
   const role = readRole(formData)
   const userRole = readUserRole(formData)
+  const studentEnrollmentType = userRole === 'student' ? readStudentEnrollmentType(formData, 'online') : 'online'
   const adminActive = readBoolean(formData, 'adminActive')
 
   if (!userId || !isValidUsername(username) || (email && !isEmail(email)) || !displayName || (password && password.length < 8)) {
@@ -121,8 +122,8 @@ export async function updateAdminUser(formData: FormData) {
       `,
       [userId, username, email, displayName, passwordHash],
     )
-    await upsertProfile(client, userId, displayName, parentEmail, age, realName, idCardNumber)
-    await upsertAdminState(client, userId, status, isTestAccount, notes, context.userId)
+    await upsertProfile(client, userId, displayName, parentEmail, age, realName, idCardNumber, studentEnrollmentType)
+    await upsertAdminState(client, userId, status, notes, context.userId)
     await upsertAdminRole(client, userId, role, adminActive, displayName, context.userId)
     await upsertUserRole(client, userId, userRole, context.userId)
 
@@ -132,9 +133,9 @@ export async function updateAdminUser(formData: FormData) {
       email,
       displayName,
       status,
-      isTestAccount,
       role,
       userRole,
+      studentEnrollmentType,
       passwordChanged: Boolean(passwordHash),
     })
   })
@@ -215,46 +216,6 @@ export async function setUserStatus(formData: FormData) {
     )
     await writeUserAudit(client, context, 'user.set_status', userId, before.rows[0]?.data ?? null, {
       status,
-      note,
-    })
-  })
-
-  revalidateUserPaths(userId)
-}
-
-export async function setUserTestAccount(formData: FormData) {
-  const userId = String(formData.get('userId') ?? '')
-  const isTestAccount = String(formData.get('isTestAccount') ?? '') === 'true'
-  const note = String(formData.get('note') ?? '').trim() || null
-
-  if (!userId) {
-    throw new Error('Invalid user test-account request')
-  }
-
-  const context = await requireAdmin('admin')
-  if (context.preview || !isDbConfigured()) {
-    revalidateUserPaths(userId)
-    return
-  }
-
-  await withTransaction(async (client) => {
-    const before = await client.query('SELECT to_jsonb(s) AS data FROM user_admin_states s WHERE s.user_id = $1', [
-      userId,
-    ])
-    await client.query(
-      `
-      INSERT INTO user_admin_states (user_id, is_test_account, notes, updated_by)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (user_id)
-      DO UPDATE SET
-        is_test_account = EXCLUDED.is_test_account,
-        notes = COALESCE(EXCLUDED.notes, user_admin_states.notes),
-        updated_by = EXCLUDED.updated_by
-      `,
-      [userId, isTestAccount, note, context.userId],
-    )
-    await writeUserAudit(client, context, 'user.set_test_account', userId, before.rows[0]?.data ?? null, {
-      isTestAccount,
       note,
     })
   })
@@ -396,6 +357,12 @@ function readUserRole(formData: FormData): UserRole {
   return role
 }
 
+function readStudentEnrollmentType(formData: FormData, defaultValue: StudentEnrollmentType): StudentEnrollmentType {
+  const value = readRequired(formData, 'studentEnrollmentType') || defaultValue
+  if (!isStudentEnrollmentType(value)) throw new Error('Invalid student enrollment type')
+  return value
+}
+
 function isEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
@@ -415,20 +382,22 @@ async function upsertProfile(
   age: number | null,
   realName: string | null,
   idCardNumber: string | null,
+  studentEnrollmentType: StudentEnrollmentType,
 ) {
   await client.query(
     `
-    INSERT INTO profiles (user_id, display_name, parent_email, age, real_name, id_card_number)
-    VALUES ($1, $2, $3, $4, $5, $6)
+    INSERT INTO profiles (user_id, display_name, parent_email, age, real_name, id_card_number, student_enrollment_type)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
     ON CONFLICT (user_id)
     DO UPDATE SET
       display_name = EXCLUDED.display_name,
       parent_email = EXCLUDED.parent_email,
       age = EXCLUDED.age,
       real_name = EXCLUDED.real_name,
-      id_card_number = EXCLUDED.id_card_number
+      id_card_number = EXCLUDED.id_card_number,
+      student_enrollment_type = EXCLUDED.student_enrollment_type
     `,
-    [userId, displayName, parentEmail, age, realName, idCardNumber],
+    [userId, displayName, parentEmail, age, realName, idCardNumber, studentEnrollmentType],
   )
 }
 
@@ -436,22 +405,20 @@ async function upsertAdminState(
   client: PoolClient,
   userId: string,
   status: UserAccountStatus,
-  isTestAccount: boolean,
   notes: string | null,
   actorUserId: string,
 ) {
   await client.query(
     `
-    INSERT INTO user_admin_states (user_id, account_status, is_test_account, notes, updated_by)
-    VALUES ($1, $2, $3, $4, $5)
+    INSERT INTO user_admin_states (user_id, account_status, notes, updated_by)
+    VALUES ($1, $2, $3, $4)
     ON CONFLICT (user_id)
     DO UPDATE SET
       account_status = EXCLUDED.account_status,
-      is_test_account = EXCLUDED.is_test_account,
       notes = EXCLUDED.notes,
       updated_by = EXCLUDED.updated_by
     `,
-    [userId, status, isTestAccount, notes, actorUserId],
+    [userId, status, notes, actorUserId],
   )
 }
 

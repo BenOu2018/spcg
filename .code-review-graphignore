@@ -1,0 +1,40 @@
+# local/build/dependency noise
+node_modules/**
+.next/**
+dist/**
+build/**
+coverage/**
+apps/web/public/monaco/**
+
+# tracked media/static assets
+assets/art/**
+assets/video/**
+assets/problems/**
+*.svg
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.mp4
+*.mov
+
+# problem data and generated validation artifacts
+problem-cases/**
+problem-bank/**
+*.in
+*.ans
+*.out
+score.out
+
+# docs/content not needed for structural code review
+content/**
+gptdocs/**
+workstreams/**
+PROGRESS.md
+DOCS_INDEX.md
+plan.md
+idea.md
+
+# package lock is useful for dependency audit, but not graph structure
+package-lock.json

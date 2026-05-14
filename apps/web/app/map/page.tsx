@@ -2,6 +2,7 @@ import { GameVillage } from '@/components/GameVillage'
 import { requireUser } from '@/lib/auth-guard'
 import { getLessonStageMenu, getMapMainlineLevels, getProgressRecords } from '@/lib/level-data'
 import { getLevelNavigationForUser } from '@/lib/services/level-access-service'
+import { getCanShowPricingMenu } from '@/lib/services/account-menu-service'
 import { listPublishedTodayNewsArticles } from '@/lib/services/today-news-service'
 import { getStudentUiMessages } from '@/lib/student-ui'
 import { getRequestUiLocale } from '@/lib/student-ui-server'
@@ -15,7 +16,7 @@ export const dynamic = 'force-dynamic'
 export default async function MapPage({ searchParams }: MapPageProps) {
   const params = searchParams ? await searchParams : {}
   const session = await requireUser(params.chapter ? `/map?chapter=${encodeURIComponent(params.chapter)}` : '/map')
-  const [levels, progressRecords, navigation, todayNewsArticles, uiLocale] = await Promise.all([
+  const [levels, progressRecords, navigation, todayNewsArticles, uiLocale, canShowPricingMenu] = await Promise.all([
     getMapMainlineLevels(),
     getProgressRecords(),
     getLevelNavigationForUser(session.user.id),
@@ -24,6 +25,7 @@ export default async function MapPage({ searchParams }: MapPageProps) {
       limit: 6,
     }),
     getRequestUiLocale(session.user.id),
+    getCanShowPricingMenu(session.user.id),
   ])
   const messages = getStudentUiMessages(uiLocale)
   const stageMenus = await Promise.all(levels.map((level) => getLessonStageMenu(level.id)))
@@ -34,6 +36,7 @@ export default async function MapPage({ searchParams }: MapPageProps) {
       levels={levels}
       progress={progressRecords}
       activeChapterId={params.chapter}
+      userRole={navigation.role}
       allowFreeJump={navigation.canFreeJump}
       currentLevelIdOverride={navigation.currentMapLevelId}
       stageMenus={stageMenus.filter((menu): menu is NonNullable<typeof menu> => Boolean(menu))}
@@ -41,6 +44,7 @@ export default async function MapPage({ searchParams }: MapPageProps) {
       todayNewsArticles={todayNewsArticles}
       uiLocale={uiLocale}
       messages={messages}
+      canShowPricingMenu={canShowPricingMenu}
     />
   )
 }

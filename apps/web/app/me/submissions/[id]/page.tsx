@@ -10,9 +10,10 @@ import { getRequestUiLocale } from '@/lib/student-ui-server'
 
 type SubmissionDetailPageProps = {
   params: Promise<{ id: string }> | { id: string }
+  searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>
 }
 
-export default async function SubmissionDetailPage({ params }: SubmissionDetailPageProps) {
+export default async function SubmissionDetailPage({ params, searchParams }: SubmissionDetailPageProps) {
   const { id } = await params
   const session = await requireUser(`/me/submissions/${id}`)
   const messages = getStudentUiMessages(await getRequestUiLocale(session.user.id))
@@ -27,17 +28,27 @@ export default async function SubmissionDetailPage({ params }: SubmissionDetailP
   const verdict = submission.verdict
   const resultText = formatSubmissionResult(submission.status, verdict, messages)
   const scoreText = submission.maxScore !== null ? `${submission.score}/${submission.maxScore} ${messages.profile.points}` : null
+  const query = searchParams ? await searchParams : {}
+  const fromAssessment = readQueryValue(query.fromAssessment)
+  const fromLevelId = readQueryValue(query.levelId)
+  const assessmentBackHref =
+    fromAssessment && fromAssessment === submission.assessmentAttemptId
+      ? `/me/assessments/${fromAssessment}${fromLevelId ? `?levelId=${encodeURIComponent(fromLevelId)}` : ''}`
+      : null
+  const refreshHref = assessmentBackHref
+    ? `/me/submissions/${submission.id}?fromAssessment=${encodeURIComponent(fromAssessment ?? '')}${fromLevelId ? `&levelId=${encodeURIComponent(fromLevelId)}` : ''}`
+    : `/me/submissions/${submission.id}`
 
   return (
     <main className="page-shell">
       <section className="submission-detail-page">
         <div className="submission-detail-topline">
-          <Link className="profile-back-button" href="/me" aria-label="返回我的进度">
+          <Link className="profile-back-button" href={assessmentBackHref ?? '/me'} aria-label={assessmentBackHref ? '返回段位赛场次' : '返回我的进度'}>
             <ArrowLeft size={18} />
-            <span>{messages.profile.title}</span>
+            <span>{assessmentBackHref ? '返回场次' : messages.profile.title}</span>
           </Link>
           <div className="submission-detail-actions">
-            <Link className="icon-link" href={`/me/submissions/${submission.id}`} prefetch={false}>
+            <Link className="icon-link" href={refreshHref} prefetch={false}>
               <RefreshCw size={16} />
               {messages.common.refresh}
             </Link>
@@ -99,6 +110,11 @@ export default async function SubmissionDetailPage({ params }: SubmissionDetailP
       </section>
     </main>
   )
+}
+
+function readQueryValue(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) return value[0] ?? null
+  return value ?? null
 }
 
 function StatusRow({ label, value }: { label: string; value: string }) {

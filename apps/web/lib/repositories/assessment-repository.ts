@@ -1,6 +1,7 @@
 import type {
   AssessmentAttempt,
   AssessmentAttemptItem,
+  AssessmentAttemptMetadata,
   AssessmentAttemptStatus,
   AssessmentSession,
   Difficulty,
@@ -37,6 +38,7 @@ type AssessmentAttemptRow = {
   accepted_count: number
   total_count: number
   reward: RewardGrantResult | null
+  metadata?: AssessmentAttemptMetadata | null
 }
 
 export type RankedAssessmentHistoryItem = AssessmentAttempt & {
@@ -318,6 +320,7 @@ export async function createAssessmentAttempt(input: {
   sessionId: string
   totalCount: number
   durationSeconds?: number
+  videoMonitorEnabled?: boolean
   items?: AssessmentAttemptItem[]
 }): Promise<AssessmentAttempt> {
   return withTransaction(async (client) => {
@@ -336,7 +339,8 @@ export async function createAssessmentAttempt(input: {
         score,
         accepted_count,
         total_count,
-        reward
+        reward,
+        metadata
       `,
       [
         input.sessionId,
@@ -346,6 +350,15 @@ export async function createAssessmentAttempt(input: {
           selectedDurationSeconds: input.durationSeconds ?? null,
           judgeMode: 'realtime',
           futureGarlicCost: 0,
+          ...(input.videoMonitorEnabled
+            ? {
+                videoMonitor: {
+                  enabled: true,
+                  bonusCoins: 5,
+                  verifiedAt: new Date().toISOString(),
+                },
+              }
+            : {}),
         }),
       ],
     )
@@ -385,7 +398,8 @@ export async function getAssessmentAttemptForUser(input: {
       aa.score,
       aa.accepted_count,
       aa.total_count,
-      aa.reward
+      aa.reward,
+      aa.metadata
     FROM assessment_attempts aa
     JOIN assessment_sessions s ON s.id = aa.session_id
     WHERE aa.id = $1 AND aa.user_id = $2
@@ -413,7 +427,8 @@ export async function getLatestAssessmentAttemptForUserSession(input: {
       aa.score,
       aa.accepted_count,
       aa.total_count,
-      aa.reward
+      aa.reward,
+      aa.metadata
     FROM assessment_attempts aa
     JOIN assessment_sessions s ON s.id = aa.session_id
     WHERE aa.user_id = $1 AND aa.session_id = $2 AND aa.status <> 'abandoned'
@@ -443,7 +458,8 @@ export async function getLatestActiveAssessmentAttemptForUserSession(input: {
       aa.score,
       aa.accepted_count,
       aa.total_count,
-      aa.reward
+      aa.reward,
+      aa.metadata
     FROM assessment_attempts aa
     JOIN assessment_sessions s ON s.id = aa.session_id
     WHERE aa.user_id = $1 AND aa.session_id = $2 AND aa.status IN ('in_progress', 'scoring')
@@ -454,6 +470,38 @@ export async function getLatestActiveAssessmentAttemptForUserSession(input: {
   )
 
   return row ? mapAttemptRow(row) : null
+}
+
+export async function hasPriorCompletedAssessmentAttemptForSameSessionWithinDay(input: {
+  userId: string
+  attemptId: string
+  sessionId: string
+}): Promise<boolean> {
+  const row = await queryOne<{ ok: number }>(
+    `
+    WITH current_attempt AS (
+      SELECT
+        created_at,
+        COALESCE(finished_at, started_at) AS reference_at
+      FROM assessment_attempts
+      WHERE id = $1 AND user_id = $2
+    )
+    SELECT 1 AS ok
+    FROM assessment_attempts aa
+    CROSS JOIN current_attempt current
+    WHERE aa.user_id = $2
+      AND aa.session_id = $3
+      AND aa.id <> $1
+      AND aa.status IN ('completed', 'expired')
+      AND aa.created_at < current.created_at
+      AND COALESCE(aa.finished_at, aa.started_at) >= current.reference_at - INTERVAL '1 day'
+      AND COALESCE(aa.finished_at, aa.started_at) <= current.reference_at
+    LIMIT 1
+    `,
+    [input.attemptId, input.userId, input.sessionId],
+  )
+
+  return Boolean(row)
 }
 
 export async function listRankedAssessmentAttemptsForUser(input: {
@@ -490,6 +538,7 @@ export async function listRankedAssessmentAttemptsForUser(input: {
       aa.accepted_count,
       aa.total_count,
       aa.reward,
+      aa.metadata,
       s.title AS session_title,
       CASE
         WHEN s.metadata->>'spcgLevel' ~ '^[0-9]+$' THEN (s.metadata->>'spcgLevel')::int
@@ -621,7 +670,7 @@ export async function finishAssessmentAttempt(input: {
       total_count = CASE WHEN status = 'in_progress' THEN $6 ELSE total_count END,
       reward = CASE WHEN status = 'in_progress' THEN $7 ELSE reward END
     WHERE id = $1 AND user_id = $2
-    RETURNING id, session_id, user_id, status, started_at, finished_at, score, accepted_count, total_count, reward
+    RETURNING id, session_id, user_id, status, started_at, finished_at, score, accepted_count, total_count, reward, metadata
     `,
     [input.attemptId, input.userId, input.status, input.score, input.acceptedCount, input.totalCount, input.reward],
   )
@@ -638,7 +687,7 @@ export async function queueFinalAssessmentSubmissions(input: {
   return withTransaction(async (client) => {
     const attemptResult = await client.query<AssessmentAttemptRow>(
       `
-      SELECT id, session_id, user_id, status, started_at, finished_at, score, accepted_count, total_count, reward
+      SELECT id, session_id, user_id, status, started_at, finished_at, score, accepted_count, total_count, reward, metadata
       FROM assessment_attempts
       WHERE id = $1 AND user_id = $2
       FOR UPDATE
@@ -765,7 +814,7 @@ export async function queueFinalAssessmentSubmissions(input: {
         reward = CASE WHEN $3 IN ('completed', 'expired') THEN COALESCE(reward, $6::jsonb) ELSE reward END,
         updated_at = NOW()
       WHERE id = $1 AND user_id = $2
-      RETURNING id, session_id, user_id, status, started_at, finished_at, score, accepted_count, total_count, reward
+      RETURNING id, session_id, user_id, status, started_at, finished_at, score, accepted_count, total_count, reward, metadata
       `,
       [
         input.attemptId,
@@ -925,6 +974,7 @@ function mapAttemptRow(row: AssessmentAttemptRow): AssessmentAttempt {
     acceptedCount: row.accepted_count,
     totalCount: row.total_count,
     reward: row.reward,
+    metadata: row.metadata ?? {},
   }
 }
 

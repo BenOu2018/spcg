@@ -2,13 +2,12 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import type { TodayNewsArticleStatus } from '@spcg/shared/types'
 import { requireAdmin } from '@/lib/admin-auth'
-import { isDbConfigured } from '@/lib/db'
 import {
   setAdminTodayNewsArticlePublication,
   updateAdminTodayNewsArticle,
 } from '@/lib/services/today-news-service'
-import type { TodayNewsArticleStatus } from '@/lib/repositories/today-news-repository'
 
 const validStatuses = new Set<TodayNewsArticleStatus>(['draft', 'published', 'archived'])
 
@@ -19,7 +18,7 @@ export async function updateTodayNewsArticleAction(formData: FormData) {
   const authorKey = readRequiredString(formData, 'authorKey')
 
   const context = await requireAdmin('editor')
-  if (context.preview || !isDbConfigured()) {
+  if (context.preview) {
     revalidateTodayNewsPaths()
     redirect('/admin/today-news')
   }
@@ -53,7 +52,7 @@ export async function setTodayNewsArticlePublicationAction(formData: FormData) {
   const context = await requireAdmin('editor')
 
   const publication = readPublicationMode(mode)
-  if (context.preview || !isDbConfigured()) {
+  if (context.preview) {
     revalidateTodayNewsPaths()
     return
   }

@@ -23,6 +23,22 @@ type LeaderboardStatsRow = {
   total_levels: string | number
 }
 
+type LeaderboardAwardCandidateRow = {
+  rank: string | number
+  user_id: string
+  coin_total: string | number
+  rank_score: string | number
+  total_participants: string | number
+}
+
+export type LevelLeaderboardAwardCandidate = {
+  rank: number
+  userId: string
+  coinTotal: number
+  rankScore: number
+  totalParticipants: number
+}
+
 const rankedLeaderboardCte = `
 WITH source_entries AS (
   SELECT
@@ -191,6 +207,36 @@ export async function getLevelLeaderboardRankForClient(
   return row ? mapLeaderboardRow(row) : null
 }
 
+export async function listLevelLeaderboardAwardCandidatesForClient(
+  client: PoolClient,
+  input: {
+    spcgLevel: number
+    limit?: number
+  },
+): Promise<LevelLeaderboardAwardCandidate[]> {
+  const result = await client.query<LeaderboardAwardCandidateRow>(
+    `
+    ${rankedLeaderboardCte},
+    participant_stats AS (
+      SELECT COUNT(*)::int AS total_participants FROM ranked
+    )
+    SELECT
+      ranked.rank,
+      ranked.user_id,
+      ranked.coin_total,
+      ranked.rank_score,
+      participant_stats.total_participants
+    FROM ranked
+    CROSS JOIN participant_stats
+    WHERE ranked.rank <= $2
+    ORDER BY ranked.rank ASC
+    `,
+    [input.spcgLevel, input.limit ?? 6],
+  )
+
+  return result.rows.map(mapLeaderboardAwardCandidateRow)
+}
+
 export async function getLevelLeaderboardStats(spcgLevel: number): Promise<{
   totalParticipants: number
   todayPassedCount: number
@@ -221,9 +267,24 @@ export async function getLevelLeaderboardStats(spcgLevel: number): Promise<{
         AND COALESCE(uas.account_status, 'active') = 'active'
     ),
     scored AS (
-      SELECT user_id, SUM(coin_delta)::int AS coin_total
+      SELECT
+        user_id,
+        SUM(coin_delta)::int AS coin_total,
+        MAX(created_at) AS last_scored_at
       FROM source_entries
       GROUP BY user_id
+    ),
+    decayed AS (
+      SELECT
+        scored.user_id,
+        ROUND((
+          scored.coin_total *
+          CASE
+            WHEN GREATEST(0, EXTRACT(EPOCH FROM (NOW() - scored.last_scored_at)) / 86400.0) <= 15 THEN 1.0
+            ELSE GREATEST(0.2, 1.0 - CEIL((GREATEST(0, EXTRACT(EPOCH FROM (NOW() - scored.last_scored_at)) / 86400.0) - 15) / 7.0) * 0.1)
+          END
+        )::numeric, 1) AS rank_score
+      FROM scored
     ),
     today_passed AS (
       SELECT COALESCE(SUM(question_count), 0)::int AS count
@@ -237,11 +298,11 @@ export async function getLevelLeaderboardStats(spcgLevel: number): Promise<{
         AND difficulty->>'spcgLevel' = $1::text
     )
     SELECT
-      COUNT(scored.user_id)::int AS total_participants,
+      COUNT(decayed.user_id)::int AS total_participants,
       COALESCE((SELECT count FROM today_passed), 0)::int AS today_passed_count,
-      COALESCE(SUM(scored.coin_total), 0)::int AS total_coins,
+      COALESCE(SUM(decayed.rank_score), 0)::numeric AS total_coins,
       COALESCE((SELECT count FROM level_count), 0)::int AS total_levels
-    FROM scored
+    FROM decayed
     `,
     [spcgLevel],
   )
@@ -267,6 +328,16 @@ function mapLeaderboardRow(row: LeaderboardRow): LevelLeaderboardEntry {
     passedCount: toNumber(row.passed_count),
     firstScoredAt: toIsoString(row.first_scored_at),
     lastScoredAt: toIsoString(row.last_scored_at),
+  }
+}
+
+function mapLeaderboardAwardCandidateRow(row: LeaderboardAwardCandidateRow): LevelLeaderboardAwardCandidate {
+  return {
+    rank: toNumber(row.rank),
+    userId: row.user_id,
+    coinTotal: toNumber(row.coin_total),
+    rankScore: toNumber(row.rank_score),
+    totalParticipants: toNumber(row.total_participants),
   }
 }
 

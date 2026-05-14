@@ -39,6 +39,7 @@ type ExamAccess = {
 
 type ExamLevelProps = {
   userId: string
+  userDisplayName?: string | null
   spcgLevel?: number
   canViewHints?: boolean
   hintsUpgradeMessage?: string
@@ -46,9 +47,17 @@ type ExamLevelProps = {
 }
 
 const fallbackMessages = getStudentUiMessages('zh-CN')
+const VIDEO_MONITOR_PROCTOR_IMAGES = [
+  '/assets/art/ui/exam-proctors/proctor-same-01.webp?v=same-teacher-20260514',
+  '/assets/art/ui/exam-proctors/proctor-same-02.webp?v=same-teacher-20260514',
+  '/assets/art/ui/exam-proctors/proctor-same-03.webp?v=same-teacher-20260514',
+  '/assets/art/ui/exam-proctors/proctor-same-04.webp?v=same-teacher-20260514',
+  '/assets/art/ui/exam-proctors/proctor-same-05.webp?v=same-teacher-20260514',
+] as const
 
 export function ExamLevel({
   userId,
+  userDisplayName,
   spcgLevel = 1,
   canViewHints = true,
   hintsUpgradeMessage,
@@ -63,6 +72,8 @@ export function ExamLevel({
   const [questionListOpen, setQuestionListOpen] = useState(false)
   const [loadingCurrent, setLoadingCurrent] = useState(true)
   const [lastFinishedAttempt, setLastFinishedAttempt] = useState<ExamHistoryItem | null>(null)
+  const [videoMonitorSelected, setVideoMonitorSelected] = useState(false)
+  const [videoMonitorStream, setVideoMonitorStream] = useState<MediaStream | null>(null)
   const [starting, setStarting] = useState(false)
   const [scoring, setScoring] = useState(false)
   const [error, setError] = useState('')
@@ -167,14 +178,26 @@ export function ExamLevel({
     return () => window.removeEventListener('pointerdown', handlePointerDown)
   }, [questionListOpen])
 
+  useEffect(() => {
+    return () => {
+      stopMediaStream(videoMonitorStream)
+    }
+  }, [videoMonitorStream])
+
   async function startExam() {
     setStarting(true)
     setError('')
 
     try {
+      let videoMonitorEnabled = false
+      if (videoMonitorSelected) {
+        await requestVideoMonitorStream()
+        videoMonitorEnabled = true
+      }
       const result = await startRankedExamAttemptAction({
         spcgLevel,
         durationSeconds,
+        videoMonitorEnabled,
       })
       setExamState({
         attempt: result.attempt,
@@ -185,11 +208,36 @@ export function ExamLevel({
       setDurationSeconds(result.attempt.durationSeconds)
       setRemainingSeconds(calculateRemainingSeconds(result.attempt))
       setCurrentIndex(0)
+      setSampleResultsByLevel({})
+      setTaskExpanded(false)
+      setQuestionListOpen(false)
       setLastFinishedAttempt(null)
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '段位赛开始失败。')
     } finally {
       setStarting(false)
+    }
+  }
+
+  async function requestVideoMonitorStream(): Promise<MediaStream> {
+    if (videoMonitorStream?.active) return videoMonitorStream
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error(messages.exam.videoMonitorCameraUnsupported)
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'user',
+          width: { ideal: 640 },
+          height: { ideal: 360 },
+        },
+        audio: false,
+      })
+      setVideoMonitorStream(stream)
+      return stream
+    } catch {
+      throw new Error(messages.exam.videoMonitorCameraDenied)
     }
   }
 
@@ -284,6 +332,18 @@ export function ExamLevel({
               <strong>{messages.exam.realTimeJudge}</strong>
               <span>{messages.exam.realTimeNote}</span>
             </div>
+            <label className="exam-video-monitor-option">
+              <input
+                type="checkbox"
+                checked={videoMonitorSelected}
+                onChange={(event) => setVideoMonitorSelected(event.target.checked)}
+              />
+              <span>
+                <strong>{messages.exam.videoMonitor}</strong>
+                <em>{messages.exam.videoMonitorBonus}</em>
+                <small>{messages.exam.videoMonitorPrivacy}</small>
+              </span>
+            </label>
             {error ? <p className="exam-error">{error}</p> : null}
             <div className="exam-complete-actions">
               <button type="button" onClick={startExam} disabled={starting}>
@@ -314,6 +374,9 @@ export function ExamLevel({
   const completed = examState.attempt.status === 'completed' || examState.attempt.status === 'expired'
   const scoringLevel = examState.attempt.status === 'scoring' ? getCurrentScoringLevel(examState) : null
   const scoredCount = examState.items.filter((item) => item.status === 'done').length
+  const resultDisplayName = userDisplayName?.trim() || 'SPCG 学员'
+  const earnedCoins = examState.attempt.reward?.coinDelta ?? 0
+  const isAk = examState.attempt.acceptedCount === examState.attempt.totalCount && examState.attempt.totalCount > 0
   const statusText =
     examState.attempt.status === 'scoring'
       ? scoringLevel
@@ -398,23 +461,33 @@ export function ExamLevel({
           <span>{statusText}</span>
         </div>
 
-        <div className="exam-monitor-card" aria-label="段位赛判题状态">
-          <span>
-            <i className="exam-status-dot recording" />
-            {scoringLevel
-              ? `正在判题：${scoringLevel.level.title}`
-              : currentItem
-                ? `${formatDisplayMode(currentItem.displayMode)} · ${currentItem.maxScore}分`
-                : '实时判题'}
-          </span>
-          <span>
-            {examState.attempt.status === 'scoring'
-              ? `完成 ${scoredCount}/${examState.items.length}`
-              : completed
-                ? `${examState.attempt.acceptedCount}/${examState.attempt.totalCount} 满分题`
-                : '实时判题'}
-          </span>
-        </div>
+        {isVideoMonitorEnabled(examState.attempt) ? (
+          <div className="exam-monitor-card exam-monitor-card-video" aria-label={messages.exam.videoMonitor}>
+            <ExamVideoMonitor
+              stream={videoMonitorStream}
+              onStreamReady={setVideoMonitorStream}
+              messages={messages}
+            />
+          </div>
+        ) : (
+          <div className="exam-monitor-card" aria-label="段位赛判题状态">
+            <span>
+              <i className="exam-status-dot recording" />
+              {scoringLevel
+                ? `正在判题：${scoringLevel.level.title}`
+                : currentItem
+                  ? `${formatDisplayMode(currentItem.displayMode)} · ${currentItem.maxScore}分`
+                  : '实时判题'}
+            </span>
+            <span>
+              {examState.attempt.status === 'scoring'
+                ? `完成 ${scoredCount}/${examState.items.length}`
+                : completed
+                  ? `${examState.attempt.acceptedCount}/${examState.attempt.totalCount} 满分题`
+                  : '实时判题'}
+            </span>
+          </div>
+        )}
 
         <button
           className="exam-finish-button"
@@ -449,6 +522,7 @@ export function ExamLevel({
             assessmentAttemptId={examState.attempt.id}
             assessmentItemMaxScore={currentItem?.maxScore ?? null}
             assessmentNextQuestionTitle={nextLevel?.title ?? null}
+            storageScope={`ranked:${examState.attempt.id}`}
             messages={messages}
             onAssessmentSubmissionSettled={() => refreshExamState(examState.attempt.id)}
             onAssessmentNextQuestion={
@@ -497,10 +571,38 @@ export function ExamLevel({
           <div>
             <span className="exam-complete-emblem" aria-hidden="true" />
             <h1>{messages.exam.scoreTitle}</h1>
-            <p>
-              总分 {examState.attempt.score}/{RANKED_ASSESSMENT_TOTAL_SCORE}，满分题 {examState.attempt.acceptedCount}/
-              {examState.attempt.totalCount}。
-            </p>
+            <div className="exam-result-identity">
+              <span>参赛学员</span>
+              <strong>{resultDisplayName}</strong>
+              <small>{buildRankedAssessmentTitle(spcgLevel)}</small>
+            </div>
+            <div className="exam-result-summary" aria-label="段位赛结算摘要">
+              <article>
+                <span>总分</span>
+                <strong>
+                  {examState.attempt.score}/{RANKED_ASSESSMENT_TOTAL_SCORE}
+                </strong>
+              </article>
+              <article>
+                <span>满分题</span>
+                <strong>
+                  {examState.attempt.acceptedCount}/{examState.attempt.totalCount}
+                </strong>
+              </article>
+              <article className="exam-result-coins">
+                <span>本场获得金币</span>
+                <strong>+{earnedCoins}</strong>
+              </article>
+            </div>
+            {isAk ? (
+              <div className="exam-ak-badge">
+                <img src="/assets/art/ui/rewards/ak-badge.svg" alt="AK ALL KILL" />
+                <span>
+                  <strong>AK</strong>
+                  <em>ALL KILL · 全题满分</em>
+                </span>
+              </div>
+            ) : null}
             <div className="exam-score-list">
               {examState.items.map((item) => {
                 const level = examState.levels.find((entry) => entry.id === item.levelId)
@@ -517,6 +619,9 @@ export function ExamLevel({
                 )
               })}
             </div>
+            <a className="exam-site-mark" href="https://spcg.kidoj.com" target="_blank" rel="noreferrer">
+              spcg.kidoj.com
+            </a>
             <div className="exam-complete-actions">
               <button type="button" onClick={() => refreshExamState(examState.attempt.id)}>
                 {messages.exam.refreshScore}
@@ -569,6 +674,140 @@ function useExamLayoutRefresh(taskExpanded: boolean, currentIndex: number) {
   return layoutVersion
 }
 
+function ExamVideoMonitor({
+  stream,
+  onStreamReady,
+  messages,
+}: {
+  stream: MediaStream | null
+  onStreamReady: (stream: MediaStream) => void
+  messages: StudentUiMessages
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const popoverVideoRef = useRef<HTMLVideoElement | null>(null)
+  const monitorRef = useRef<HTMLDivElement | null>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [cameraError, setCameraError] = useState('')
+  const [proctorIndex, setProctorIndex] = useState(0)
+
+  useEffect(() => {
+    setProctorIndex(Math.floor(Math.random() * VIDEO_MONITOR_PROCTOR_IMAGES.length))
+    const intervalId = window.setInterval(() => {
+      setProctorIndex((index) => (index + 1) % VIDEO_MONITOR_PROCTOR_IMAGES.length)
+    }, 5200)
+
+    return () => window.clearInterval(intervalId)
+  }, [])
+
+  useEffect(() => {
+    if (stream?.active || !navigator.mediaDevices?.getUserMedia) return
+    let cancelled = false
+
+    async function requestStream() {
+      try {
+        const nextStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'user',
+            width: { ideal: 640 },
+            height: { ideal: 360 },
+          },
+          audio: false,
+        })
+        if (cancelled) {
+          stopMediaStream(nextStream)
+          return
+        }
+        setCameraError('')
+        onStreamReady(nextStream)
+      } catch {
+        if (!cancelled) setCameraError('摄像头暂未连接，监控奖励资格已保留。')
+      }
+    }
+
+    void requestStream()
+
+    return () => {
+      cancelled = true
+    }
+  }, [onStreamReady, stream])
+
+  useEffect(() => {
+    attachVideoStream(videoRef.current, stream)
+    attachVideoStream(popoverVideoRef.current, stream)
+  }, [stream, expanded])
+
+  useEffect(() => {
+    if (!expanded) return
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (monitorRef.current?.contains(target)) return
+      setExpanded(false)
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown)
+    return () => window.removeEventListener('pointerdown', handlePointerDown)
+  }, [expanded])
+
+  return (
+    <div className="exam-video-monitor" ref={monitorRef}>
+      <span className="exam-proctor-frame">
+        <img src={VIDEO_MONITOR_PROCTOR_IMAGES[proctorIndex]} alt="" />
+      </span>
+      <span className="exam-video-status">
+        <strong>{messages.exam.videoMonitorEnabled}</strong>
+      </span>
+      <button
+        className="exam-video-camera-button"
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        aria-label={messages.exam.videoMonitorExpand}
+        aria-expanded={expanded}
+        title={messages.exam.videoMonitorExpand}
+      >
+        <span className="exam-video-frame" aria-hidden="true">
+          {stream?.active ? (
+            <video ref={videoRef} muted playsInline autoPlay />
+          ) : (
+            <span className="exam-video-placeholder">{cameraError || messages.exam.videoMonitorLocalOnly}</span>
+          )}
+        </span>
+      </button>
+
+      {expanded ? (
+        <div className="exam-video-popover" role="dialog" aria-label={messages.exam.videoMonitor}>
+          <div className="exam-video-popover-head">
+            <strong>{messages.exam.videoMonitorLocalOnly}</strong>
+            <span>{messages.exam.videoMonitorPrivacy}</span>
+          </div>
+          <div className="exam-video-popover-main">
+            {stream?.active ? (
+              <video ref={popoverVideoRef} muted playsInline autoPlay />
+            ) : (
+              <span>{cameraError || messages.exam.videoMonitorLocalOnly}</span>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function attachVideoStream(video: HTMLVideoElement | null, stream: MediaStream | null) {
+  if (!video) return
+  if (video.srcObject !== stream) {
+    video.srcObject = stream
+  }
+  if (stream?.active) {
+    void video.play().catch(() => undefined)
+  }
+}
+
+function stopMediaStream(stream: MediaStream | null) {
+  stream?.getTracks().forEach((track) => track.stop())
+}
+
 function buildJudgingSamples(level: Level): SampleRunResultMap {
   return Object.fromEntries(
     level.publicCases.slice(0, 2).map((sample) => [sample.id, { status: 'judging', passed: false }]),
@@ -605,6 +844,10 @@ function formatVerdict(verdict: AssessmentAttemptItem['verdict']): string {
 
 function isExamQuestionSubmitted(item?: AssessmentAttemptItem | null): boolean {
   return Boolean(item?.latestRealtimeSubmissionId || item?.finalSubmissionId)
+}
+
+function isVideoMonitorEnabled(attempt: AssessmentAttempt): boolean {
+  return Boolean(attempt.metadata.videoMonitor?.enabled)
 }
 
 function getCurrentScoringLevel(examState: ExamState): { item: AssessmentAttemptItem; level: Level; position: number } | null {

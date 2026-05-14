@@ -106,7 +106,7 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
             <div>
               <img src={`${assetBase}/coin.svg`} alt="" />
               <strong>{formatNumber(leaderboard.totalCoins)}</strong>
-              <em>{messages.profile.coins}</em>
+              <em>{messages.leaderboard.currentScore}</em>
             </div>
             <small>来自 SPCG {leaderboard.spcgLevel}级题目、复习 AC 和段位赛奖励。</small>
           </div>
@@ -159,7 +159,6 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
               <span>{messages.leaderboard.source}</span>
               <span>{messages.leaderboard.count}</span>
               <span>{messages.leaderboard.activity}</span>
-              <span>{messages.leaderboard.currentScore}</span>
             </div>
 
             {rankListEntries.map((student, index) => (
@@ -174,7 +173,7 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
                 </div>
                 <span className={styles.coinCell}>
                   <img src={`${assetBase}/coin.svg`} alt="" />
-                  {formatNumber(student.coinTotal)}
+                  {formatNumber(student.rankScore)}
                 </span>
                 <span>{formatPassed(student.passedCount)}</span>
                 <span className={styles.sourceCell}>多源积分</span>
@@ -183,7 +182,6 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
                   {student.passedCount}
                 </span>
                 <ActivityBadge kind={activityKind(student.lastScoredAt)} label={activityLabel(student.lastScoredAt)} />
-                <span className={styles.scoreCell}>{formatNumber(student.rankScore)}</span>
               </div>
             ))}
           </div>
@@ -201,8 +199,8 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
 
           <div className={styles.decayPanel}>
             <PanelTitle icon="level-gem.svg" title="特殊说明" />
-            <div><span>1</span><strong>获得前三的同学将获得“上榜”背包物品，每周结算。</strong></div>
-            <div><span>2</span><strong>获得第一的同学激活“霸榜”物品。</strong></div>
+            <div><span>1</span><strong>当本级排行榜有效人数达到 10 人后，当前前六获得“老六”背包物品。</strong></div>
+            <div><span>2</span><strong>前三额外获得“上榜”，第一额外激活“霸榜”物品。</strong></div>
             <div className={styles.decayWarning}><span>3</span><strong>超过 15 天没有获得当级别积分的学员，该榜积分将按每周扣减 10%，新学员要趁机超越霸榜。</strong></div>
           </div>
         </aside>
@@ -297,10 +295,10 @@ function ActivityBadge({ kind, label }: { kind: ActivityKind; label: string }) {
 
 function PodiumStats({ student }: { student: LevelLeaderboardEntry }) {
   return (
-    <div className={styles.podiumStats} aria-label={`${formatNumber(student.coinTotal)} 金币，${student.passedCount} 题，${formatActiveDays(student.lastScoredAt)}`}>
-      <span title="金币">
+    <div className={styles.podiumStats} aria-label={`${formatNumber(student.rankScore)} 当前积分，${student.passedCount} 题，${formatActiveDays(student.lastScoredAt)}`}>
+      <span title="当前积分">
         <img src={`${assetBase}/coin.svg`} alt="" />
-        {formatNumber(student.coinTotal)}
+        {formatNumber(student.rankScore)}
       </span>
       <span title="题目">
         <img src={`${assetBase}/scroll-pass.svg`} alt="" />
@@ -353,8 +351,8 @@ function formatPassed(passedCount: number): string {
 }
 
 function formatScorePair(student: LevelLeaderboardEntry | null): string {
-  if (!student) return '0 金币 / 折后 0'
-  return `${formatNumber(student.coinTotal)} 金币 / 折后 ${formatNumber(student.rankScore)}`
+  if (!student) return '0'
+  return formatNumber(student.rankScore)
 }
 
 function progressPercent(passedCount: number, total: number): number {

@@ -7,8 +7,12 @@ import type { GameChapter } from '@spcg/shared/game-chapters'
 import type { Level } from '@spcg/shared/types'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 
+export type ChapterMenuItem =
+  | { type: 'chapter'; chapter: GameChapter }
+  | { type: 'placeholder'; id: string; label: string; title: string; description: string }
+
 type GameMapMenusProps = {
-  chapters: GameChapter[]
+  chapterMenuItems: ChapterMenuItem[]
   currentChapter: GameChapter
   levels: Level[]
   currentLevelId?: string
@@ -20,7 +24,7 @@ type OpenMenu = 'chapter' | 'level' | null
 const fallbackMessages = getStudentUiMessages('zh-CN')
 
 export function GameMapMenus({
-  chapters,
+  chapterMenuItems,
   currentChapter,
   levels,
   currentLevelId,
@@ -72,23 +76,40 @@ export function GameMapMenus({
         </button>
         {openMenu === 'chapter' ? (
           <div className="village-chapter-menu-panel" id="village-chapter-menu-panel">
-            {chapters.map((item) => (
-              <Link
-                aria-current={item.chapterId === currentChapter.chapterId ? 'page' : undefined}
-                className={item.chapterId === currentChapter.chapterId ? 'active' : undefined}
-                href={`/map?chapter=${item.chapterId}`}
-                key={item.chapterId}
-                onClick={closeMenus}
-              >
-                <span>
-                  {messages.map.levelPrefix}
-                  {item.spcgLevel}
-                  {messages.map.levelSuffix}
-                </span>
-                <strong>{item.displayName}</strong>
-                <em>{item.coreConcept}</em>
-              </Link>
-            ))}
+            {chapterMenuItems.map((item) => {
+              if (item.type === 'placeholder') {
+                return (
+                  <div
+                    aria-disabled="true"
+                    className="village-chapter-menu-placeholder"
+                    key={item.id}
+                  >
+                    <span>{item.label}</span>
+                    <strong>{item.title}</strong>
+                    <em>{item.description}</em>
+                  </div>
+                )
+              }
+
+              const chapter = item.chapter
+              return (
+                <Link
+                  aria-current={chapter.chapterId === currentChapter.chapterId ? 'page' : undefined}
+                  className={chapter.chapterId === currentChapter.chapterId ? 'active' : undefined}
+                  href={`/map?chapter=${chapter.chapterId}`}
+                  key={chapter.chapterId}
+                  onClick={closeMenus}
+                >
+                  <span>
+                    {messages.map.levelPrefix}
+                    {chapter.spcgLevel}
+                    {messages.map.levelSuffix}
+                  </span>
+                  <strong>{chapter.displayName}</strong>
+                  <em>{chapter.algorithmSummary ?? chapter.coreConcept}</em>
+                </Link>
+              )
+            })}
           </div>
         ) : null}
       </div>

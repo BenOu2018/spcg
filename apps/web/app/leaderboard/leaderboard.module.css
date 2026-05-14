@@ -671,7 +671,7 @@
 .rankRow {
   min-width: 0;
   display: grid;
-  grid-template-columns: 46px minmax(160px, 1.6fr) minmax(90px, 0.78fr) 60px 56px 54px 90px 90px;
+  grid-template-columns: 46px minmax(160px, 1.6fr) minmax(90px, 0.78fr) 60px 56px 54px 90px;
   gap: 8px;
   align-items: center;
 }
@@ -787,15 +787,10 @@
   flex: 0 0 auto;
 }
 
-.coinCell,
-.scoreCell {
+.coinCell {
   color: #4c3b24;
   font: 900 14px/1 "SFMono-Regular", Consolas, monospace;
   white-space: nowrap;
-}
-
-.scoreCell {
-  color: #8f1f19;
 }
 
 .errorCell {
@@ -1123,6 +1118,6 @@
 
   .tableHead,
   .rankRow {
-    min-width: 730px;
+    min-width: 640px;
   }
 }

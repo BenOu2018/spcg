@@ -59,6 +59,7 @@ export async function createParentForTeacherStudent(input: {
   if (!isValidUsername(username)) throw new ServiceError('bad_request', '家长用户名不合法。', 400)
   if (!displayName) throw new ServiceError('bad_request', '家长姓名不能为空。', 400)
   if (input.password.length < 8) throw new ServiceError('bad_request', '临时密码至少需要 8 位。', 400)
+  await requireStudentHasNoActiveParent(input.studentUserId)
 
   const passwordHash = await hashPassword(input.password)
   try {
@@ -91,6 +92,7 @@ export async function bindExistingParentToTeacherStudent(input: {
   if (parent.role !== 'parent') throw new ServiceError('bad_request', '只能绑定 parent 角色账号。', 400)
   if (parent.accountStatus !== 'active') throw new ServiceError('bad_request', '只能绑定 active 状态的家长账号。', 400)
   if (parent.id === input.studentUserId) throw new ServiceError('bad_request', '家长账号不能和学生相同。', 400)
+  await requireStudentHasNoActiveParent(input.studentUserId)
 
   await bindParentToStudent({
     parentUserId: parent.id,
@@ -135,6 +137,13 @@ function normalizeOptionalPhone(value: string | null | undefined): string | null
 function normalizeNullableText(value: string | null | undefined): string | null {
   const trimmed = value?.trim() ?? ''
   return trimmed ? trimmed : null
+}
+
+async function requireStudentHasNoActiveParent(studentUserId: string): Promise<void> {
+  const parents = await listParentsForStudent(studentUserId)
+  if (parents.length > 0) {
+    throw new ServiceError('conflict', '该学生已经绑定家长，目前仅支持绑定一个家长。', 409)
+  }
 }
 
 function isUniqueConflict(error: unknown): boolean {

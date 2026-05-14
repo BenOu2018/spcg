@@ -2,6 +2,7 @@ import type {
   GrowthReportDelivery,
   GrowthReportDetail,
   GrowthReportSummary,
+  GrowthReportStatus,
 } from '@spcg/shared/types'
 import { query, queryOne, withTransaction } from '@/lib/db'
 
@@ -216,8 +217,32 @@ type ReportRow = {
   status: GrowthReportSummary['status']
   markdown: string
   summary: Record<string, unknown>
+  public_token_encrypted: Record<string, unknown> | null
+  error_message: string | null
   token_expires_at: Date | string
   created_at: Date | string
+}
+
+export type GrowthReportSummaryRecord = GrowthReportSummary & {
+  publicTokenEncrypted: Record<string, unknown> | null
+}
+
+export type GrowthReportDetailRecord = GrowthReportDetail & {
+  publicTokenEncrypted: Record<string, unknown> | null
+}
+
+export type GrowthReportGenerationJob = {
+  id: string
+  studentUserId: string
+  periodStart: string
+  periodEnd: string
+  status: GrowthReportStatus
+}
+
+export type GrowthReportCooldownRecord = {
+  id: string
+  status: GrowthReportStatus
+  createdAt: string
 }
 
 type DeliveryRow = {
@@ -671,26 +696,30 @@ export async function createGrowthReportWithDeliveries(input: {
   markdown: string
   summary: Record<string, unknown>
   tokenHash: string
+  publicTokenEncrypted: Record<string, unknown>
   tokenExpiresAt: Date | string
   generatedBy: string
+  status?: GrowthReportStatus
   channels?: GrowthReportDelivery['channel'][]
-}): Promise<{ report: GrowthReportDetail; deliveries: GrowthReportDelivery[] }> {
+}): Promise<{ report: GrowthReportDetailRecord; deliveries: GrowthReportDelivery[] }> {
   return withTransaction(async (client) => {
     const reportResult = await client.query<ReportRow>(
       `
       INSERT INTO growth_reports
-        (student_user_id, period_start, period_end, title, markdown, summary, token_hash, token_expires_at, generated_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING id, student_user_id, title, period_start, period_end, status, markdown, summary, token_expires_at, created_at
+        (student_user_id, period_start, period_end, status, title, markdown, summary, token_hash, public_token_encrypted, token_expires_at, generated_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      RETURNING id, student_user_id, title, period_start, period_end, status, markdown, summary, public_token_encrypted, error_message, token_expires_at, created_at
       `,
       [
         input.studentUserId,
         input.periodStart,
         input.periodEnd,
+        input.status ?? 'generated',
         input.title,
         input.markdown,
         input.summary,
         input.tokenHash,
+        JSON.stringify(input.publicTokenEncrypted),
         input.tokenExpiresAt,
         input.generatedBy,
       ],
@@ -750,10 +779,10 @@ export async function createGrowthReportWithDeliveries(input: {
   })
 }
 
-export async function listGrowthReportsForStudent(studentUserId: string, limit = 10): Promise<GrowthReportSummary[]> {
+export async function listGrowthReportsForStudent(studentUserId: string, limit = 10): Promise<GrowthReportSummaryRecord[]> {
   const rows = await query<ReportRow>(
     `
-    SELECT id, student_user_id, title, period_start, period_end, status, markdown, summary, token_expires_at, created_at
+    SELECT id, student_user_id, title, period_start, period_end, status, markdown, summary, public_token_encrypted, error_message, token_expires_at, created_at
     FROM growth_reports
     WHERE student_user_id = $1
     ORDER BY created_at DESC
@@ -764,10 +793,10 @@ export async function listGrowthReportsForStudent(studentUserId: string, limit =
   return rows.map(mapReportSummaryRow)
 }
 
-export async function listGrowthReportDetailsForStudent(studentUserId: string, limit = 10): Promise<GrowthReportDetail[]> {
+export async function listGrowthReportDetailsForStudent(studentUserId: string, limit = 10): Promise<GrowthReportDetailRecord[]> {
   const rows = await query<ReportRow>(
     `
-    SELECT id, student_user_id, title, period_start, period_end, status, markdown, summary, token_expires_at, created_at
+    SELECT id, student_user_id, title, period_start, period_end, status, markdown, summary, public_token_encrypted, error_message, token_expires_at, created_at
     FROM growth_reports
     WHERE student_user_id = $1
     ORDER BY created_at DESC
@@ -778,10 +807,48 @@ export async function listGrowthReportDetailsForStudent(studentUserId: string, l
   return rows.map(mapReportRow)
 }
 
+export async function getGrowthReportDetailForStudent(input: {
+  studentUserId: string
+  reportId: string
+}): Promise<GrowthReportDetailRecord | null> {
+  const row = await queryOne<ReportRow>(
+    `
+    SELECT id, student_user_id, title, period_start, period_end, status, markdown, summary, public_token_encrypted, error_message, token_expires_at, created_at
+    FROM growth_reports
+    WHERE student_user_id = $1
+      AND id = $2
+    `,
+    [input.studentUserId, input.reportId],
+  )
+  return row ? mapReportRow(row) : null
+}
+
+export async function getLatestChargeableGrowthReportForStudent(studentUserId: string): Promise<GrowthReportCooldownRecord | null> {
+  const row = await queryOne<Pick<ReportRow, 'id' | 'status' | 'created_at'>>(
+    `
+    SELECT id, status, created_at
+    FROM growth_reports
+    WHERE student_user_id = $1
+      AND status IN ('pending', 'generated')
+      AND revoked_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT 1
+    `,
+    [studentUserId],
+  )
+  return row
+    ? {
+        id: row.id,
+        status: row.status,
+        createdAt: toIsoString(row.created_at),
+      }
+    : null
+}
+
 export async function getGrowthReportByTokenHash(tokenHash: string): Promise<GrowthReportDetail | null> {
   const row = await queryOne<ReportRow>(
     `
-    SELECT id, student_user_id, title, period_start, period_end, status, markdown, summary, token_expires_at, created_at
+    SELECT id, student_user_id, title, period_start, period_end, status, markdown, summary, public_token_encrypted, error_message, token_expires_at, created_at
     FROM growth_reports
     WHERE token_hash = $1
       AND status = 'generated'
@@ -789,6 +856,75 @@ export async function getGrowthReportByTokenHash(tokenHash: string): Promise<Gro
       AND token_expires_at > NOW()
     `,
     [tokenHash],
+  )
+  return row ? mapReportRow(row) : null
+}
+
+export async function getGrowthReportGenerationJob(reportId: string): Promise<GrowthReportGenerationJob | null> {
+  const row = await queryOne<Pick<ReportRow, 'id' | 'student_user_id' | 'period_start' | 'period_end' | 'status'>>(
+    `
+    SELECT id, student_user_id, period_start, period_end, status
+    FROM growth_reports
+    WHERE id = $1
+    `,
+    [reportId],
+  )
+  return row
+    ? {
+        id: row.id,
+        studentUserId: row.student_user_id,
+        periodStart: formatDateOnly(row.period_start),
+        periodEnd: formatDateOnly(row.period_end),
+        status: row.status,
+      }
+    : null
+}
+
+export async function markGrowthReportGenerated(input: {
+  reportId: string
+  title: string
+  markdown: string
+  summary: Record<string, unknown>
+}): Promise<GrowthReportDetailRecord | null> {
+  const row = await queryOne<ReportRow>(
+    `
+    UPDATE growth_reports
+    SET status = 'generated',
+        title = $2,
+        markdown = $3,
+        summary = $4,
+        error_message = NULL,
+        updated_at = NOW()
+    WHERE id = $1
+      AND status = 'pending'
+    RETURNING id, student_user_id, title, period_start, period_end, status, markdown, summary, public_token_encrypted, error_message, token_expires_at, created_at
+    `,
+    [input.reportId, input.title, input.markdown, JSON.stringify(input.summary)],
+  )
+  return row ? mapReportRow(row) : null
+}
+
+export async function markGrowthReportFailed(input: {
+  reportId: string
+  errorMessage: string
+}): Promise<GrowthReportDetailRecord | null> {
+  const markdown = [
+    '# 家长学习报告',
+    '',
+    '报告生成失败，请稍后重新生成。',
+  ].join('\n')
+  const row = await queryOne<ReportRow>(
+    `
+    UPDATE growth_reports
+    SET status = 'failed',
+        markdown = $2,
+        error_message = $3,
+        updated_at = NOW()
+    WHERE id = $1
+      AND status = 'pending'
+    RETURNING id, student_user_id, title, period_start, period_end, status, markdown, summary, public_token_encrypted, error_message, token_expires_at, created_at
+    `,
+    [input.reportId, markdown, input.errorMessage],
   )
   return row ? mapReportRow(row) : null
 }
@@ -863,15 +999,16 @@ function isUndefinedTableError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === '42P01'
 }
 
-function mapReportRow(row: ReportRow): GrowthReportDetail {
+function mapReportRow(row: ReportRow): GrowthReportDetailRecord {
   return {
     ...mapReportSummaryRow(row),
     markdown: row.markdown,
     summary: row.summary,
+    publicTokenEncrypted: row.public_token_encrypted,
   }
 }
 
-function mapReportSummaryRow(row: ReportRow): GrowthReportSummary {
+function mapReportSummaryRow(row: ReportRow): GrowthReportSummaryRecord {
   return {
     id: row.id,
     studentUserId: row.student_user_id,
@@ -879,8 +1016,11 @@ function mapReportSummaryRow(row: ReportRow): GrowthReportSummary {
     periodStart: formatDateOnly(row.period_start),
     periodEnd: formatDateOnly(row.period_end),
     status: row.status,
+    publicUrl: null,
+    errorMessage: row.error_message,
     tokenExpiresAt: toIsoString(row.token_expires_at),
     createdAt: toIsoString(row.created_at),
+    publicTokenEncrypted: row.public_token_encrypted,
   }
 }
 

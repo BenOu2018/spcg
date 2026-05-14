@@ -8,7 +8,7 @@ import { runJudge0 } from '../shared/judge0-client.js'
 import { getDifficultyCoefficient, getLevelCoinReward } from '../shared/difficulty.js'
 import { normalizeLanguageMode, resolveLanguageMode } from '../shared/language-config.js'
 import { getEarnedTitlePoolKeyForRank, pickEarnedTitleFromPool } from '../shared/earned-titles.js'
-import { getLeaderboardRankAwards } from '../shared/leaderboard-rank-awards.js'
+import { getEligibleLeaderboardRankAwards } from '../shared/leaderboard-rank-awards.js'
 import { generateTitle, getRankForCoins } from '../shared/reward-ranks.js'
 
 type Args = {
@@ -48,8 +48,10 @@ type KnowledgeUsageItem = {
 
 type LeaderboardRankAwardRow = {
   rank: string | number
+  user_id: string
   coin_total: string | number
   rank_score: string | number
+  total_participants: string | number
 }
 
 const rankedLeaderboardCte = `
@@ -693,43 +695,55 @@ async function awardLeaderboardRankItems(
 ): Promise<string[]> {
   const result = await client.query<LeaderboardRankAwardRow>(
     `
-    ${rankedLeaderboardCte}
-    SELECT rank, coin_total, rank_score
+    ${rankedLeaderboardCte},
+    participant_stats AS (
+      SELECT COUNT(*)::int AS total_participants FROM ranked
+    )
+    SELECT
+      ranked.rank,
+      ranked.user_id,
+      ranked.coin_total,
+      ranked.rank_score,
+      participant_stats.total_participants
     FROM ranked
-    WHERE user_id = $2
+    CROSS JOIN participant_stats
+    WHERE ranked.rank <= 6
+    ORDER BY ranked.rank ASC
     `,
-    [input.spcgLevel, input.userId],
+    [input.spcgLevel],
   )
-  const row = result.rows[0]
-  if (!row) return []
 
-  const rank = toNumber(row.rank)
   const ledgerIds: string[] = []
-  for (const award of getLeaderboardRankAwards(rank)) {
-    const ledgerId = await insertRewardLedger(client, {
-      userId: input.userId,
-      source: 'leaderboard_rank_award',
-      sourceRef: `leaderboard:${input.spcgLevel}:${award.itemId}`,
-      coinDelta: 0,
-      garlicDelta: 0,
-      itemId: award.itemId,
-      itemQuantity: 1,
-      metadata: {
-        spcgLevel: input.spcgLevel,
-        rank,
-        rankScore: toNumber(row.rank_score),
-        coinTotal: toNumber(row.coin_total),
-        threshold: award.threshold,
-        triggerSource: 'level_first_ac',
-        triggerSourceRef: input.levelId,
-        levelId: input.levelId,
-        submissionId: input.submissionId,
-        reason: 'leaderboard_rank_entered',
-      },
-    })
-    if (!ledgerId) continue
-    ledgerIds.push(ledgerId)
-    await addInventoryItem(client, input.userId, award.itemId, 1)
+  for (const row of result.rows) {
+    const rank = toNumber(row.rank)
+    const totalParticipants = toNumber(row.total_participants)
+    for (const award of getEligibleLeaderboardRankAwards(rank, totalParticipants)) {
+      const ledgerId = await insertRewardLedger(client, {
+        userId: row.user_id,
+        source: 'leaderboard_rank_award',
+        sourceRef: `leaderboard:${input.spcgLevel}:${award.itemId}`,
+        coinDelta: 0,
+        garlicDelta: 0,
+        itemId: award.itemId,
+        itemQuantity: 1,
+        metadata: {
+          spcgLevel: input.spcgLevel,
+          rank,
+          rankScore: toNumber(row.rank_score),
+          coinTotal: toNumber(row.coin_total),
+          totalParticipants,
+          threshold: award.threshold,
+          triggerSource: 'level_first_ac',
+          triggerSourceRef: input.levelId,
+          levelId: input.levelId,
+          submissionId: input.submissionId,
+          reason: 'leaderboard_rank_entered',
+        },
+      })
+      if (!ledgerId) continue
+      await addInventoryItem(client, row.user_id, award.itemId, 1)
+      if (row.user_id === input.userId) ledgerIds.push(ledgerId)
+    }
   }
 
   return ledgerIds

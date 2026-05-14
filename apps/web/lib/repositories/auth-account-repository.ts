@@ -1,5 +1,6 @@
 import type { PoolClient } from 'pg'
 import { queryOne, withTransaction } from '@/lib/db'
+import { createDefaultStudentParentInvite } from '@/lib/repositories/student-parent-invite-repository'
 
 export type PublicAuthUserRecord = {
   id: string
@@ -50,6 +51,12 @@ export async function createStudentUserRecord(input: {
       `,
       [user.id],
     )
+
+    await createDefaultStudentParentInvite({
+      studentUserId: user.id,
+      createdBy: user.id,
+      client,
+    })
 
     return {
       id: user.id,

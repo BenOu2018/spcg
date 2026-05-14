@@ -11,7 +11,11 @@ import {
   getEarnedTitlePoolKeyForRank,
   pickEarnedTitleFromPool,
 } from '../shared/earned-titles.js'
-import { getLeaderboardRankAwards } from '../shared/leaderboard-rank-awards.js'
+import {
+  LEADERBOARD_RANK_AWARD_MIN_PARTICIPANTS,
+  getEligibleLeaderboardRankAwards,
+  getLeaderboardRankAwards,
+} from '../shared/leaderboard-rank-awards.js'
 import { generateTitle, getRankForCoins, getRankLabel } from '../shared/reward-ranks.js'
 
 const checks: Array<[string, () => void]> = [
@@ -82,6 +86,30 @@ const checks: Array<[string, () => void]> = [
     'leaderboard rank 1 grants all rank inventory',
     () => {
       assertLeaderboardRankAwards(1, ['leaderboard-top-six', 'leaderboard-top-three', 'leaderboard-champion'])
+    },
+  ],
+  [
+    'leaderboard rank awards require 10 participants',
+    () => {
+      if (LEADERBOARD_RANK_AWARD_MIN_PARTICIPANTS !== 10) {
+        throw new Error(`expected leaderboard rank award minimum 10, got ${LEADERBOARD_RANK_AWARD_MIN_PARTICIPANTS}`)
+      }
+    },
+  ],
+  [
+    'leaderboard rank awards are blocked below participant threshold',
+    () => {
+      assertEligibleLeaderboardRankAwards(1, 9, [])
+      assertEligibleLeaderboardRankAwards(3, 9, [])
+      assertEligibleLeaderboardRankAwards(6, 9, [])
+    },
+  ],
+  [
+    'leaderboard rank awards unlock at participant threshold',
+    () => {
+      assertEligibleLeaderboardRankAwards(1, 10, ['leaderboard-top-six', 'leaderboard-top-three', 'leaderboard-champion'])
+      assertEligibleLeaderboardRankAwards(3, 10, ['leaderboard-top-six', 'leaderboard-top-three'])
+      assertEligibleLeaderboardRankAwards(6, 10, ['leaderboard-top-six'])
     },
   ],
   [
@@ -197,5 +225,16 @@ function assertLeaderboardRankAwards(rank: number, expectedItemIds: string[]) {
   const itemIds = getLeaderboardRankAwards(rank).map((award) => award.itemId)
   if (itemIds.join(',') !== expectedItemIds.join(',')) {
     throw new Error(`expected rank ${rank} to grant ${expectedItemIds.join(',') || 'nothing'}, got ${itemIds.join(',') || 'nothing'}`)
+  }
+}
+
+function assertEligibleLeaderboardRankAwards(rank: number, totalParticipants: number, expectedItemIds: string[]) {
+  const itemIds = getEligibleLeaderboardRankAwards(rank, totalParticipants).map((award) => award.itemId)
+  if (itemIds.join(',') !== expectedItemIds.join(',')) {
+    throw new Error(
+      `expected rank ${rank} with ${totalParticipants} participants to grant ${expectedItemIds.join(',') || 'nothing'}, got ${
+        itemIds.join(',') || 'nothing'
+      }`,
+    )
   }
 }

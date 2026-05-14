@@ -1,4 +1,4 @@
-import type { EntitlementSummary, StudentUserType } from '@spcg/shared/types'
+import type { EntitlementSummary, StudentEnrollmentType, StudentUserType } from '@spcg/shared/types'
 import type { PoolClient } from 'pg'
 import { query, queryOne, withTransaction } from '@/lib/db'
 
@@ -28,6 +28,10 @@ export type UpgradeRequestRecord = {
   createdAt: string
 }
 
+type StudentEnrollmentRow = {
+  student_enrollment_type: StudentEnrollmentType | null
+}
+
 type UpgradeRequestRow = {
   id: string
   user_id: string
@@ -51,6 +55,25 @@ export async function getUserEntitlementRecord(userId: string): Promise<Entitlem
     return row ? mapEntitlementRow(row) : null
   } catch (error) {
     if (isUndefinedTable(error)) return null
+    throw error
+  }
+}
+
+export async function getStudentEnrollmentTypeRecord(userId: string): Promise<StudentEnrollmentType> {
+  try {
+    const row = await queryOne<StudentEnrollmentRow>(
+      `
+      SELECT COALESCE(p.student_enrollment_type, 'online') AS student_enrollment_type
+      FROM users u
+      LEFT JOIN profiles p ON p.user_id = u.id
+      WHERE u.id = $1
+      `,
+      [userId],
+    )
+
+    return row?.student_enrollment_type === 'offline' ? 'offline' : 'online'
+  } catch (error) {
+    if (isUndefinedTable(error) || isUndefinedColumn(error)) return 'online'
     throw error
   }
 }
@@ -162,6 +185,10 @@ function mapEntitlementRow(row: EntitlementRow): EntitlementSummary {
   return {
     userId: row.user_id,
     userType: row.user_type,
+    storedUserType: row.user_type,
+    effectiveUserType: row.user_type,
+    entitlementSource: 'stored',
+    studentEnrollmentType: 'online',
     label: getEntitlementLabel(row.user_type),
     note: row.note,
     expiresAt: row.expires_at ? new Date(row.expires_at).toISOString() : null,
@@ -184,12 +211,16 @@ function getEntitlementLabel(userType: StudentUserType): string {
   const labels: Record<StudentUserType, string> = {
     experience: '体验用户',
     invite_test: '邀请测试用户',
-    paid_49: '49元完整课程',
-    paid_99: '99元高级学习',
+    paid_49: '完整课程',
+    paid_99: '高级学习',
   }
   return labels[userType]
 }
 
 function isUndefinedTable(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === '42P01'
+}
+
+function isUndefinedColumn(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === '42703'
 }

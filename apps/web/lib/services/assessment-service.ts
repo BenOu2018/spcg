@@ -3,7 +3,7 @@ import {
   RANKED_ASSESSMENT_RULES,
   buildRankedAssessmentTitle,
 } from '@spcg/shared/ranked-assessment'
-import type { AssessmentAttempt, AssessmentAttemptItem, AssessmentSession, Level } from '@spcg/shared/types'
+import type { AssessmentAttempt, AssessmentAttemptItem, AssessmentSession, Level, RewardGrantResult } from '@spcg/shared/types'
 import {
   countAcceptedLevelsSince,
   createAssessmentAttempt,
@@ -13,6 +13,7 @@ import {
   getLatestAssessmentAttemptForUserSession,
   getAssessmentSession,
   getOrCreateRankedAssessmentPaper,
+  hasPriorCompletedAssessmentAttemptForSameSessionWithinDay,
   isAssessmentAttemptLevelForUser,
   listAssessmentAttemptLevels,
   listRankedAssessmentAttemptsForUser,
@@ -23,7 +24,11 @@ import {
   type RankedAssessmentHistoryItem,
 } from '@/lib/repositories/assessment-repository'
 import { isDatabaseConfigured } from '@/lib/repositories/database-repository'
-import { grantAssessmentReward, grantRankedAssessmentReward } from '@/lib/services/reward-service'
+import {
+  RANKED_ASSESSMENT_VIDEO_MONITOR_COIN_BONUS,
+  grantAssessmentReward,
+  grantRankedAssessmentReward,
+} from '@/lib/services/reward-service'
 import { ServiceError } from '@/lib/services/errors'
 import { formatStudentDateKey } from '@/lib/student-date'
 import {
@@ -73,6 +78,7 @@ export async function startRankedAssessmentAttempt(input: {
   userId?: string | null
   spcgLevel: number
   durationSeconds: number
+  videoMonitorEnabled?: boolean
 }): Promise<RankedAssessmentStartResult> {
   if (!input.userId) throw new ServiceError('unauthorized', '当前未登录。', 401)
   if (!isDatabaseConfigured()) throw new ServiceError('db_unconfigured', '数据库未配置。', 503)
@@ -110,7 +116,6 @@ export async function startRankedAssessmentAttempt(input: {
     const rewardedAttempt = await grantRankedAssessmentRewardIfReady({
       userId: input.userId,
       attempt: refreshedAttempt,
-      allowReward: existingAttempt.status === 'scoring',
     })
     return {
       attempt: rewardedAttempt,
@@ -126,6 +131,7 @@ export async function startRankedAssessmentAttempt(input: {
     sessionId: paper.session.id,
     totalCount: paper.items.length,
     durationSeconds: input.durationSeconds,
+    videoMonitorEnabled: input.videoMonitorEnabled,
     items: paper.items,
   })
 
@@ -170,7 +176,6 @@ export async function getCurrentRankedAssessmentAttempt(input: {
   const rewardedAttempt = await grantRankedAssessmentRewardIfReady({
     userId: input.userId,
     attempt: refreshedAttempt,
-    allowReward: attempt.status === 'scoring',
   })
 
   return {
@@ -223,7 +228,6 @@ export async function getRankedAssessmentDetail(input: {
   const rewardedAttempt = await grantRankedAssessmentRewardIfReady({
     userId: input.userId,
     attempt: refreshedAttempt,
-    allowReward: attempt.status === 'scoring',
   })
 
   return {
@@ -328,18 +332,35 @@ export async function finishRankedAssessmentAttempt(input: {
   return grantRankedAssessmentRewardIfReady({
     userId: input.userId,
     attempt,
-    allowReward: attempt.status === 'completed' || attempt.status === 'expired',
   })
 }
 
 async function grantRankedAssessmentRewardIfReady(input: {
   userId: string
   attempt: AssessmentAttempt
-  allowReward: boolean
 }): Promise<AssessmentAttempt> {
-  if (!input.allowReward) return input.attempt
   if (!['completed', 'expired'].includes(input.attempt.status)) return input.attempt
-  if (input.attempt.reward?.ledgerIds.length) return input.attempt
+  if ((input.attempt.reward?.ledgerIds?.length ?? 0) > 0) return input.attempt
+
+  const hasPriorRewardAttempt = await hasPriorCompletedAssessmentAttemptForSameSessionWithinDay({
+    userId: input.userId,
+    attemptId: input.attempt.id,
+    sessionId: input.attempt.sessionId,
+  })
+
+  if (hasPriorRewardAttempt) {
+    const reward = buildEmptyRankedAssessmentReward(input.attempt)
+    await setAssessmentAttemptReward({
+      userId: input.userId,
+      attemptId: input.attempt.id,
+      reward,
+    })
+
+    return (await getAssessmentAttemptForUser({ userId: input.userId, attemptId: input.attempt.id })) ?? {
+      ...input.attempt,
+      reward,
+    }
+  }
 
   const [items, levels] = await Promise.all([
     getAssessmentAttemptItems({ userId: input.userId, attemptId: input.attempt.id }),
@@ -352,6 +373,7 @@ async function grantRankedAssessmentRewardIfReady(input: {
     levels,
     acceptedCount: input.attempt.acceptedCount,
     totalCount: input.attempt.totalCount,
+    videoMonitorBonusCoins: getVideoMonitorBonusCoins(input.attempt),
   })
 
   await setAssessmentAttemptReward({
@@ -364,6 +386,27 @@ async function grantRankedAssessmentRewardIfReady(input: {
     ...input.attempt,
     reward,
   }
+}
+
+function buildEmptyRankedAssessmentReward(attempt: AssessmentAttempt): RewardGrantResult {
+  const rank = attempt.reward?.rankBefore ?? attempt.reward?.rankAfter ?? 'scrap_iron'
+  return {
+    coinDelta: 0,
+    garlicDelta: 0,
+    items: [],
+    rankBefore: rank,
+    rankAfter: rank,
+    title: attempt.reward?.title ?? '',
+    titleAward: attempt.reward?.titleAward ?? null,
+    ledgerIds: [],
+  }
+}
+
+function getVideoMonitorBonusCoins(attempt: AssessmentAttempt): number {
+  const videoMonitor = attempt.metadata.videoMonitor
+  if (!videoMonitor?.enabled) return 0
+  const bonusCoins = typeof videoMonitor.bonusCoins === 'number' ? videoMonitor.bonusCoins : RANKED_ASSESSMENT_VIDEO_MONITOR_COIN_BONUS
+  return Math.max(0, Math.floor(bonusCoins))
 }
 
 type RankedCandidate = Awaited<ReturnType<typeof listRankedAssessmentCandidates>>[number]

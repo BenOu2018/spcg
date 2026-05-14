@@ -505,6 +505,7 @@ function mapAttemptRecord(row: AssessmentAttemptRow): DailyReviewAttemptRecord {
       acceptedCount: row.accepted_count,
       totalCount: row.total_count,
       reward: row.reward,
+      metadata: row.metadata ?? {},
     },
     metadata: row.metadata ?? {},
     sessionTitle: row.session_title,

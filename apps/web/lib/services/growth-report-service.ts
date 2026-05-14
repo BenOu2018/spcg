@@ -1,12 +1,19 @@
-import { createHash, randomBytes } from 'crypto'
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto'
 import type { GrowthReportDelivery, GrowthReportDetail, GrowthReportSettings, GrowthReportSummary } from '@spcg/shared/types'
 import {
   createGrowthReportWithDeliveries,
+  getGrowthReportDetailForStudent,
+  getGrowthReportGenerationJob,
   getGrowthReportAnalysisInput,
   getGrowthReportByTokenHash,
+  getLatestChargeableGrowthReportForStudent,
   listGrowthReportDetailsForStudent,
   listGrowthReportsForStudent,
+  markGrowthReportFailed,
+  markGrowthReportGenerated,
   type GrowthReportAnalysisInput,
+  type GrowthReportDetailRecord,
+  type GrowthReportSummaryRecord,
 } from '@/lib/repositories/growth-report-repository'
 import { canUseSystemSettingsStore, getSystemSetting } from '@/lib/repositories/system-settings-repository'
 import { ServiceError } from '@/lib/services/errors'
@@ -19,17 +26,37 @@ import {
 } from '@/lib/services/growth-report-analyzer'
 import { generateMiniMaxJsonText } from '@/lib/services/minimax-code-help-client'
 import { requireTeacherCanAccessStudent, requireTeacherManagesStudent } from '@/lib/services/teacher-service'
+import { requireParentOwnsStudent } from '@/lib/services/parent-service'
 import { requireFeatureAccess } from '@/lib/services/entitlement-service'
 import { getLocalDateRangeEndingToday } from '@/lib/student-date'
 
 const DEFAULT_TOKEN_DAYS = 30
+const PARENT_REPORT_COOLDOWN_DAYS = 14
 const GROWTH_REPORT_SETTING_KEY = 'growth_report'
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,160}$/
+
+type EncryptedGrowthReportToken =
+  | {
+      algorithm: 'aes-256-gcm'
+      iv: string
+      tag: string
+      ciphertext: string
+    }
+  | {
+      algorithm: 'plain-dev'
+      token: string
+    }
 
 export type GeneratedGrowthReport = {
   report: GrowthReportDetail
   deliveries: GrowthReportDelivery[]
   publicUrl: string
+}
+
+export type GrowthReportRequestAvailability = {
+  canRequestReport: boolean
+  nextAvailableAt: string | null
+  retryAfterSeconds: number | null
 }
 
 export async function generateGrowthReportForTeacherStudent(input: {
@@ -43,35 +70,100 @@ export async function generateGrowthReportForTeacherStudent(input: {
     studentUserId: input.studentUserId,
   })
   await requireFeatureAccess({ userId: input.studentUserId, feature: 'parent_reports' })
+  return createPendingGrowthReport({
+    studentUserId: input.studentUserId,
+    generatedBy: access.teacherUserId,
+    periodStart: input.periodStart,
+    periodEnd: input.periodEnd,
+  })
+}
+
+export async function generateGrowthReportForParentStudent(input: {
+  parentUserId?: string | null
+  studentUserId: string
+}): Promise<GeneratedGrowthReport> {
+  if (!input.parentUserId) throw new ServiceError('unauthorized', '当前未登录。', 401)
+  await requireParentOwnsStudent({
+    parentUserId: input.parentUserId,
+    studentUserId: input.studentUserId,
+  })
+  await requireFeatureAccess({ userId: input.studentUserId, feature: 'parent_reports' })
+  const availability = await getGrowthReportRequestAvailability(input.studentUserId)
+  if (!availability.canRequestReport) {
+    throw new ServiceError(
+      'rate_limited',
+      '家长报告 14 天内只能申请一次，请稍后再试。',
+      429,
+      availability.retryAfterSeconds ?? undefined,
+    )
+  }
+
+  return createPendingGrowthReport({
+    studentUserId: input.studentUserId,
+    generatedBy: input.parentUserId,
+  })
+}
+
+async function createPendingGrowthReport(input: {
+  studentUserId: string
+  generatedBy: string
+  periodStart?: string | null
+  periodEnd?: string | null
+}): Promise<GeneratedGrowthReport> {
   const settings = await getGrowthReportSettings()
   if (!settings.enabled) throw new ServiceError('forbidden', '成长报告功能暂未启用。', 403)
   const period = normalizePeriod(input.periodStart, input.periodEnd, settings.periodDays)
-  const analysis = await getGrowthReportAnalysisInput({
-    studentUserId: input.studentUserId,
-    periodStart: period.periodStart,
-    periodEnd: period.periodEnd,
-  })
-  const draft = await buildGrowthReportDraftWithOptionalMiniMax(analysis)
   const token = randomBytes(32).toString('base64url')
   const tokenHash = hashToken(token)
+  const publicTokenEncrypted = encryptPublicToken(token)
   const tokenExpiresAt = new Date(Date.now() + settings.tokenTtlDays * 86_400_000).toISOString()
 
   const created = await createGrowthReportWithDeliveries({
     studentUserId: input.studentUserId,
     periodStart: period.periodStart,
     periodEnd: period.periodEnd,
-    title: draft.title,
-    markdown: draft.markdown,
-    summary: draft.summary,
+    status: 'pending',
+    title: '家长学习报告生成中',
+    markdown: buildPendingReportMarkdown(period.periodStart, period.periodEnd),
+    summary: buildPendingReportSummary(period.periodStart, period.periodEnd),
     tokenHash,
+    publicTokenEncrypted,
     tokenExpiresAt,
-    generatedBy: access.teacherUserId,
+    generatedBy: input.generatedBy,
     channels: settings.channels,
   })
 
   return {
-    ...created,
-    publicUrl: `/reports/growth/${token}`,
+    report: withDetailPublicUrl(created.report),
+    deliveries: created.deliveries,
+    publicUrl: buildPublicUrl(token),
+  }
+}
+
+export async function completeGrowthReportGeneration(reportId: string): Promise<GrowthReportDetail | null> {
+  const job = await getGrowthReportGenerationJob(reportId)
+  if (!job || job.status !== 'pending') return null
+
+  try {
+    const analysis = await getGrowthReportAnalysisInput({
+      studentUserId: job.studentUserId,
+      periodStart: job.periodStart,
+      periodEnd: job.periodEnd,
+    })
+    const draft = await buildGrowthReportDraftWithOptionalMiniMax(analysis)
+    const report = await markGrowthReportGenerated({
+      reportId,
+      title: draft.title,
+      markdown: draft.markdown,
+      summary: draft.summary,
+    })
+    return report ? withDetailPublicUrl(report) : null
+  } catch (error) {
+    await markGrowthReportFailed({
+      reportId,
+      errorMessage: toGrowthReportFailureMessage(error),
+    }).catch(() => null)
+    return null
   }
 }
 
@@ -84,7 +176,8 @@ export async function getTeacherStudentGrowthReports(input: {
     teacherUserId: input.teacherUserId,
     studentUserId: input.studentUserId,
   })
-  return listGrowthReportsForStudent(input.studentUserId, input.limit)
+  const reports = await listGrowthReportsForStudent(input.studentUserId, input.limit)
+  return reports.map(withSummaryPublicUrl)
 }
 
 export async function getTeacherStudentGrowthReportDetails(input: {
@@ -96,7 +189,55 @@ export async function getTeacherStudentGrowthReportDetails(input: {
     teacherUserId: input.teacherUserId,
     studentUserId: input.studentUserId,
   })
-  return listGrowthReportDetailsForStudent(input.studentUserId, input.limit)
+  const reports = await listGrowthReportDetailsForStudent(input.studentUserId, input.limit)
+  return reports.map(withDetailPublicUrl)
+}
+
+export async function getParentStudentGrowthReports(input: {
+  parentUserId?: string | null
+  studentUserId: string
+  limit?: number
+}): Promise<GrowthReportSummary[]> {
+  if (!input.parentUserId) throw new ServiceError('unauthorized', '当前未登录。', 401)
+  await requireParentOwnsStudent({
+    parentUserId: input.parentUserId,
+    studentUserId: input.studentUserId,
+  })
+  const reports = await listGrowthReportsForStudent(input.studentUserId, input.limit)
+  return reports.map(withSummaryPublicUrl)
+}
+
+export async function getParentStudentGrowthReportDetail(input: {
+  parentUserId?: string | null
+  studentUserId: string
+  reportId: string
+}): Promise<GrowthReportDetail> {
+  if (!input.parentUserId) throw new ServiceError('unauthorized', '当前未登录。', 401)
+  await requireParentOwnsStudent({
+    parentUserId: input.parentUserId,
+    studentUserId: input.studentUserId,
+  })
+  const report = await getGrowthReportDetailForStudent({
+    studentUserId: input.studentUserId,
+    reportId: input.reportId,
+  })
+  if (!report) throw new ServiceError('not_found', '没有找到这份家长报告。', 404)
+  return withDetailPublicUrl(report)
+}
+
+export async function getGrowthReportRequestAvailability(studentUserId: string): Promise<GrowthReportRequestAvailability> {
+  const latest = await getLatestChargeableGrowthReportForStudent(studentUserId)
+  if (!latest) return { canRequestReport: true, nextAvailableAt: null, retryAfterSeconds: null }
+
+  const nextAvailableAt = new Date(new Date(latest.createdAt).getTime() + PARENT_REPORT_COOLDOWN_DAYS * 86_400_000)
+  const retryAfterSeconds = Math.ceil((nextAvailableAt.getTime() - Date.now()) / 1000)
+  if (retryAfterSeconds <= 0) return { canRequestReport: true, nextAvailableAt: null, retryAfterSeconds: null }
+
+  return {
+    canRequestReport: false,
+    nextAvailableAt: nextAvailableAt.toISOString(),
+    retryAfterSeconds,
+  }
 }
 
 export async function getPublicGrowthReportByToken(token: string): Promise<GrowthReportDetail | null> {
@@ -217,6 +358,107 @@ function normalizeDate(value: string | null | undefined, label: string) {
 
 function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
+}
+
+function buildPublicUrl(token: string) {
+  return `/reports/growth/${token}`
+}
+
+function buildPendingReportMarkdown(periodStart: string, periodEnd: string) {
+  return [
+    '# 家长学习报告',
+    '',
+    `报告周期：${periodStart} 至 ${periodEnd}。`,
+    '',
+    '报告正在生成中，请稍后在列表中打开查看。',
+  ].join('\n')
+}
+
+function buildPendingReportSummary(periodStart: string, periodEnd: string): Record<string, unknown> {
+  return {
+    reportVersion: 'parent-learning-report-v2',
+    periodStart,
+    periodEnd,
+    headline: '报告正在生成中。',
+    confidence: 'low',
+    confidenceReason: '报告尚未完成生成。',
+    submissionCount: 0,
+    acceptedCount: 0,
+    passedProblemCount: 0,
+    pendingRepairCount: 0,
+    weakVerdicts: [],
+    knowledgePoints: [],
+    nextActions: [],
+    generationProvider: 'local',
+  }
+}
+
+function withSummaryPublicUrl(report: GrowthReportSummaryRecord): GrowthReportSummary {
+  const { publicTokenEncrypted: _publicTokenEncrypted, ...safeReport } = report
+  const token = decryptPublicToken(report.publicTokenEncrypted)
+  return {
+    ...safeReport,
+    publicUrl: token ? buildPublicUrl(token) : null,
+  }
+}
+
+function withDetailPublicUrl(report: GrowthReportDetailRecord): GrowthReportDetail {
+  const { publicTokenEncrypted: _publicTokenEncrypted, ...safeReport } = report
+  const token = decryptPublicToken(report.publicTokenEncrypted)
+  return {
+    ...safeReport,
+    publicUrl: token ? buildPublicUrl(token) : null,
+  }
+}
+
+function encryptPublicToken(token: string): EncryptedGrowthReportToken {
+  const key = getPublicTokenEncryptionKey()
+  if (!key) return { algorithm: 'plain-dev', token }
+
+  const iv = randomBytes(12)
+  const cipher = createCipheriv('aes-256-gcm', key, iv)
+  const ciphertext = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()])
+  const tag = cipher.getAuthTag()
+
+  return {
+    algorithm: 'aes-256-gcm',
+    iv: iv.toString('base64'),
+    tag: tag.toString('base64'),
+    ciphertext: ciphertext.toString('base64'),
+  }
+}
+
+function decryptPublicToken(value: Record<string, unknown> | null | undefined): string | null {
+  if (!value) return null
+  if (value.algorithm === 'plain-dev' && typeof value.token === 'string') return value.token
+  if (
+    value.algorithm !== 'aes-256-gcm' ||
+    typeof value.iv !== 'string' ||
+    typeof value.tag !== 'string' ||
+    typeof value.ciphertext !== 'string'
+  ) {
+    return null
+  }
+
+  const key = getPublicTokenEncryptionKey()
+  if (!key) return null
+  try {
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(value.iv, 'base64'))
+    decipher.setAuthTag(Buffer.from(value.tag, 'base64'))
+    return Buffer.concat([decipher.update(Buffer.from(value.ciphertext, 'base64')), decipher.final()]).toString('utf8')
+  } catch {
+    return null
+  }
+}
+
+function getPublicTokenEncryptionKey(): Buffer | null {
+  const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET
+  return secret ? createHash('sha256').update(secret).digest() : null
+}
+
+function toGrowthReportFailureMessage(error: unknown) {
+  if (error instanceof ServiceError && error.status < 500) return error.message.slice(0, 500)
+  return '报告生成失败，请稍后重试。'
 }
 
 function normalizeGrowthReportSettings(

@@ -1,3 +1,4 @@
+import type { TodayNewsArticleCard, TodayNewsArticleStatus } from '@spcg/shared/types'
 import { isDatabaseConfigured } from '@/lib/repositories/database-repository'
 import {
   listAdminTodayNewsArticleRecords,
@@ -11,7 +12,6 @@ import {
   type SetAdminTodayNewsArticlePublicationRecordInput,
   type TodayNewsArticleRecord,
   type TodayNewsArticleReactionRecord,
-  type TodayNewsArticleStatus,
   type UpdateAdminTodayNewsArticleRecordInput,
 } from '@/lib/repositories/today-news-repository'
 import { ServiceError } from '@/lib/services/errors'
@@ -20,26 +20,6 @@ export type TodayNewsAuthor = {
   key: string
   nameZh: string
   nameEn: string
-}
-
-export type TodayNewsArticleCard = {
-  id: string
-  slug: string
-  topicZh: string
-  topicEn: string
-  bodyZh: string
-  bodyEn: string
-  imageUrl: string
-  imageAltZh: string
-  imageAltEn: string
-  authorKey: string
-  authorNameZh: string
-  authorNameEn: string
-  likeCount: number
-  viewerLiked: boolean
-  viewerBookmarked: boolean
-  publishedAt: string
-  publishedAtLabel: string
 }
 
 export type TodayNewsArticleDraft = {

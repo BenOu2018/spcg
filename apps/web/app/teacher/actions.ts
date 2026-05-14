@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { after } from 'next/server'
 import { auth } from '@/auth'
 import {
   addStudentToTeacher,
@@ -22,10 +23,11 @@ import {
   generateBehaviorAnalysisForTeacherStudent,
 } from '@/lib/services/behavior-analytics-service'
 import { toServiceError } from '@/lib/services/errors'
-import { generateGrowthReportForTeacherStudent } from '@/lib/services/growth-report-service'
+import { completeGrowthReportGeneration, generateGrowthReportForTeacherStudent } from '@/lib/services/growth-report-service'
 import { explainSubmissionErrorForTeacher } from '@/lib/services/submission-error-analysis-service'
 import { resetStudentParentInviteForTeacher } from '@/lib/services/student-parent-invite-service'
 import { isStudentUserType, setStudentUserType } from '@/lib/services/entitlement-service'
+import { isStudentEnrollmentType } from '@/lib/student-enrollment'
 
 export async function addTeacherStudentAction(formData: FormData) {
   const session = await auth()
@@ -49,6 +51,7 @@ export async function createTeacherStudentAction(formData: FormData) {
   const ageValue = String(formData.get('age') ?? '').trim()
   const age = ageValue ? Number(ageValue) : null
   const parentEmail = String(formData.get('parentEmail') ?? '').trim()
+  const studentEnrollmentTypeValue = String(formData.get('studentEnrollmentType') ?? '').trim()
 
   await createStudentForTeacher({
     teacherUserId: session?.user?.id,
@@ -57,6 +60,7 @@ export async function createTeacherStudentAction(formData: FormData) {
     password,
     age: Number.isInteger(age) ? age : null,
     parentEmail: parentEmail || null,
+    studentEnrollmentType: isStudentEnrollmentType(studentEnrollmentTypeValue) ? studentEnrollmentTypeValue : null,
   })
 
   revalidatePath('/teacher')
@@ -122,6 +126,7 @@ export async function updateTeacherStudentProfileAction(formData: FormData) {
   const realName = String(formData.get('realName') ?? '').trim()
   const idCardNumber = String(formData.get('idCardNumber') ?? '').trim()
   const parentEmail = String(formData.get('parentEmail') ?? '').trim()
+  const studentEnrollmentTypeValue = String(formData.get('studentEnrollmentType') ?? '').trim()
   const teacherNote = String(formData.get('teacherNote') ?? '').trim()
   const age = ageValue ? Number(ageValue) : null
   if (!studentUserId) throw new Error('Student id is required')
@@ -134,6 +139,7 @@ export async function updateTeacherStudentProfileAction(formData: FormData) {
     realName: realName || null,
     idCardNumber: idCardNumber || null,
     parentEmail: parentEmail || null,
+    studentEnrollmentType: isStudentEnrollmentType(studentEnrollmentTypeValue) ? studentEnrollmentTypeValue : null,
     teacherNote: teacherNote || null,
   })
 
@@ -279,9 +285,15 @@ export async function generateStudentGrowthReportAction(formData: FormData) {
   revalidatePath('/teacher')
   revalidatePath('/teacher/students')
   revalidatePath(`/teacher/students/${studentUserId}`)
+  after(async () => {
+    await completeGrowthReportGeneration(result.report.id)
+    revalidatePath('/teacher')
+    revalidatePath('/teacher/students')
+    revalidatePath(`/teacher/students/${studentUserId}`)
+  })
   redirect(
     `/teacher/students/${studentUserId}?tab=parents&growthReportId=${encodeURIComponent(result.report.id)}&growthReportMessage=${encodeURIComponent(
-      `家长报告已生成：${result.report.periodStart} 至 ${result.report.periodEnd}`,
+      `家长报告生成中：${result.report.periodStart} 至 ${result.report.periodEnd}，完成后会出现在列表中。`,
     )}`,
   )
 }

@@ -19,6 +19,8 @@ import {
 } from '@/lib/reward-rules'
 import { ServiceError } from '@/lib/services/errors'
 
+export const RANKED_ASSESSMENT_VIDEO_MONITOR_COIN_BONUS = 5
+
 export async function getRewardSummaryForSubmission(input: {
   userId?: string | null
   submissionId: string
@@ -235,9 +237,11 @@ export async function grantRankedAssessmentReward(input: {
   levels: Level[]
   acceptedCount: number
   totalCount: number
+  videoMonitorBonusCoins?: number
 }): Promise<RewardGrantResult> {
   const levelsById = new Map(input.levels.map((level) => [level.id, level]))
   const rewards: GrantRewardInput[] = []
+  const spcgLevel = input.levels[0]?.difficulty.spcgLevel ?? 1
 
   for (const item of input.items) {
     const level = levelsById.get(item.levelId)
@@ -274,7 +278,6 @@ export async function grantRankedAssessmentReward(input: {
   }
 
   if (input.acceptedCount === input.totalCount && input.totalCount > 0) {
-    const spcgLevel = input.levels[0]?.difficulty.spcgLevel ?? 1
     rewards.push({
       userId: input.userId,
       source: 'assessment_rank_bonus',
@@ -284,6 +287,21 @@ export async function grantRankedAssessmentReward(input: {
         attemptId: input.attemptId,
         spcgLevel,
         reason: 'ranked_assessment_ak',
+        leaderboardQuestionCount: 0,
+      },
+    })
+  }
+
+  if ((input.videoMonitorBonusCoins ?? 0) > 0) {
+    rewards.push({
+      userId: input.userId,
+      source: 'assessment_complete',
+      sourceRef: `${input.attemptId}:video-monitor`,
+      coinDelta: input.videoMonitorBonusCoins,
+      metadata: {
+        attemptId: input.attemptId,
+        spcgLevel,
+        reason: 'ranked_assessment_video_monitor',
         leaderboardQuestionCount: 0,
       },
     })

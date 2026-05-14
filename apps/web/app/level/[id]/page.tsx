@@ -8,6 +8,7 @@ import { TopbarAccountActions } from '@/components/TopbarAccountActions'
 import { requireUser } from '@/lib/auth-guard'
 import { getLevelAccessForUser } from '@/lib/services/level-access-service'
 import { getFeatureAccess } from '@/lib/services/entitlement-service'
+import { getCanShowPricingMenu } from '@/lib/services/account-menu-service'
 import { getLessonStageMenu, getLevelById, getMainlineLevels, getProgressRecords } from '@/lib/level-data'
 import { getStudentUiMessages } from '@/lib/student-ui'
 import { getRequestUiLocale } from '@/lib/student-ui-server'
@@ -27,7 +28,11 @@ export default async function LevelPage({ params, searchParams }: LevelPageProps
   const query = searchParams ? await searchParams : {}
   const explicitStageSelection = query.stageSelect === '1'
   const session = await requireUser(`/level/${id}${explicitStageSelection ? '?stageSelect=1' : ''}`)
-  const messages = getStudentUiMessages(await getRequestUiLocale(session.user.id))
+  const [uiLocale, canShowPricingMenu] = await Promise.all([
+    getRequestUiLocale(session.user.id),
+    getCanShowPricingMenu(session.user.id),
+  ])
+  const messages = getStudentUiMessages(uiLocale)
   const [level, levels, progressRecords, stageMenu] = await Promise.all([
     getLevelById(id),
     getMainlineLevels(),
@@ -133,7 +138,14 @@ export default async function LevelPage({ params, searchParams }: LevelPageProps
           </span>
         </section>
         <div className="programming-actions">
-          <TopbarAccountActions session={session} mapHref={`/map?chapter=${chapter.chapterId}`} showMapButton messages={messages} />
+          <TopbarAccountActions
+            session={session}
+            mapHref={`/map?chapter=${chapter.chapterId}`}
+            showMapButton
+            showProgressButton={false}
+            messages={messages}
+            canShowPricingMenu={canShowPricingMenu}
+          />
         </div>
       </header>
 

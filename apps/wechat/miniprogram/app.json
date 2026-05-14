@@ -1,0 +1,14 @@
+{
+  "pages": [
+    "pages/index/index"
+  ],
+  "window": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "SPCG 家长端",
+    "navigationBarBackgroundColor": "#f7f4ec",
+    "backgroundColor": "#f7f4ec"
+  },
+  "style": "v2",
+  "componentFramework": "glass-easel",
+  "lazyCodeLoading": "requiredComponents"
+}

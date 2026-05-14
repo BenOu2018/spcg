@@ -1,22 +1,24 @@
 'use client'
 
 import Link from 'next/link'
-import type { UiLocale } from '@spcg/shared/types'
+import type { TodayNewsArticleCard, UiLocale } from '@spcg/shared/types'
 import type { Session } from 'next-auth'
 import { useEffect, useState } from 'react'
 import { Map, Newspaper } from 'lucide-react'
 import { TodayNewsModal } from '@/components/TodayNewsModal'
+import { UserAccountMenu } from '@/components/UserAccountMenu'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
-import type { TodayNewsArticleCard } from '@/lib/services/today-news-service'
 
 type TopbarAccountActionsProps = {
   session: Session | null
   mapHref?: string
   showMapButton?: boolean
   showTodayNews?: boolean
+  showProgressButton?: boolean
   todayNewsArticles?: TodayNewsArticleCard[]
   uiLocale?: UiLocale
   messages?: StudentUiMessages
+  canShowPricingMenu?: boolean
 }
 
 const fallbackMessages = getStudentUiMessages('zh-CN')
@@ -27,67 +29,50 @@ export function TopbarAccountActions({
   mapHref = '/map',
   showMapButton = false,
   showTodayNews = false,
+  showProgressButton = true,
   todayNewsArticles = emptyTodayNewsArticles,
   uiLocale = 'zh-CN',
   messages = fallbackMessages,
+  canShowPricingMenu = false,
 }: TopbarAccountActionsProps) {
-  const [currentSession, setCurrentSession] = useState<Session | null>(session)
   const [isTodayNewsOpen, setIsTodayNewsOpen] = useState(false)
   const [newsArticles, setNewsArticles] = useState<TodayNewsArticleCard[]>(todayNewsArticles)
-  const user = currentSession?.user
-  const displayName = user?.name || user?.username || user?.email || user?.id || 'SPCG'
-  const avatarUrl = user?.avatarUrl || user?.image || null
   const todayNewsLabel = uiLocale === 'en-US' ? 'SPCG Weekly' : 'SPCG 每周资讯'
 
   useEffect(() => {
     setNewsArticles(todayNewsArticles)
   }, [todayNewsArticles])
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function refreshSession() {
-      try {
-        const response = await fetch(`/api/auth/session?t=${Date.now()}`, {
-          cache: 'no-store',
-          credentials: 'same-origin',
-        })
-        if (cancelled || !response.ok) return
-        const nextSession = (await response.json()) as Session | null
-        if (!cancelled) setCurrentSession(nextSession)
-      } catch {
-        if (!cancelled) setCurrentSession(session)
-      }
-    }
-
-    void refreshSession()
-
-    const handleFocus = () => {
-      void refreshSession()
-    }
-    window.addEventListener('focus', handleFocus)
-
-    return () => {
-      cancelled = true
-      window.removeEventListener('focus', handleFocus)
-    }
-  }, [session])
-
   return (
     <nav className="topbar-account-actions" aria-label={messages.common.settings}>
       {showMapButton ? (
-        <Link className="topbar-action-button" href={mapHref} aria-label={messages.common.backToMap} title={messages.common.backToMap}>
+        <Link
+          className="topbar-action-button"
+          data-tooltip={messages.common.backToMap}
+          href={mapHref}
+          aria-label={messages.common.backToMap}
+          title={messages.common.backToMap}
+        >
           <Map size={14} strokeWidth={2.4} />
         </Link>
       ) : null}
-      <Link className="topbar-action-button" href="/me" aria-label={messages.common.progress} title={messages.common.progress}>
-        <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-star.svg" alt="" />
-      </Link>
+      {showProgressButton ? (
+        <Link
+          className="topbar-action-button"
+          data-tooltip={messages.common.progress}
+          href="/me"
+          aria-label={messages.common.progress}
+          title={messages.common.progress}
+        >
+          <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-star.svg" alt="" />
+        </Link>
+      ) : null}
       {showTodayNews ? (
         <>
           <button
             className="topbar-action-button"
             type="button"
+            data-tooltip={todayNewsLabel}
             aria-label={todayNewsLabel}
             title={todayNewsLabel}
             onClick={() => setIsTodayNewsOpen(true)}
@@ -117,17 +102,7 @@ export function TopbarAccountActions({
           ) : null}
         </>
       ) : null}
-      <Link
-        className="topbar-avatar-button topbar-user-button"
-        href="/settings?tab=profile"
-        aria-label={`${messages.common.settings}: ${displayName}`}
-        title={displayName}
-      >
-        <span className="topbar-user-avatar" aria-hidden="true">
-          {avatarUrl ? <img src={avatarUrl} alt="" /> : displayName.slice(0, 1).toUpperCase()}
-        </span>
-        <span className="topbar-user-name">{displayName}</span>
-      </Link>
+      <UserAccountMenu session={session} canShowPricingMenu={canShowPricingMenu} variant="topbar" />
     </nav>
   )
 }

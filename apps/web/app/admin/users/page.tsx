@@ -1,5 +1,7 @@
 import Link from 'next/link'
 import { listAdminUsers, type AdminUser } from '@/lib/admin-data'
+import { STUDENT_USER_TYPE_OPTIONS } from '@/lib/services/entitlement-service'
+import { STUDENT_ENROLLMENT_TYPE_OPTIONS } from '@/lib/student-enrollment'
 import {
   AdminDrawer,
   AdminEmpty,
@@ -8,7 +10,7 @@ import {
   AdminStatCard,
   AdminTabs,
 } from '../components/AdminChrome'
-import { createAdminUser, setUserStatus, setUserTestAccount } from './actions'
+import { createAdminUser, setAdminStudentUserType, setUserStatus } from './actions'
 
 type AdminUsersPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>
@@ -22,10 +24,11 @@ export default async function AdminUsersPage({ searchParams }: AdminUsersPagePro
   const q = readStringParam(resolvedSearchParams?.q)?.trim() ?? ''
   const role = readStringParam(resolvedSearchParams?.role) ?? ''
   const status = readStringParam(resolvedSearchParams?.status) ?? ''
+  const enrollment = readStringParam(resolvedSearchParams?.enrollment) ?? ''
   const page = Math.max(1, readOptionalNumberParam(resolvedSearchParams?.page) ?? 1)
   const drawer = readStringParam(resolvedSearchParams?.drawer)
 
-  const filteredUsers = users.filter((user) => matchesUser(user, { q, role, status }))
+  const filteredUsers = users.filter((user) => matchesUser(user, { q, role, status, enrollment }))
   const pageCount = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE))
   const safePage = Math.min(page, pageCount)
   const pageUsers = filteredUsers.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
@@ -60,25 +63,31 @@ export default async function AdminUsersPage({ searchParams }: AdminUsersPagePro
         items={[
           { href: '/admin/users', label: 'All', active: !role, count: users.length },
           {
-            href: buildHref('/admin/users', resolvedSearchParams, { role: 'student', page: null, drawer: null }),
+            href: buildHref('/admin/users', resolvedSearchParams, { role: 'student', enrollment: null, page: null, drawer: null }),
             label: 'Students',
-            active: role === 'student',
+            active: role === 'student' && !enrollment,
             count: users.filter((user) => user.userRole === 'student').length,
           },
           {
-            href: buildHref('/admin/users', resolvedSearchParams, { role: 'teacher', page: null, drawer: null }),
+            href: buildHref('/admin/users', resolvedSearchParams, { role: 'student', enrollment: 'online', page: null, drawer: null }),
+            label: 'Student Online',
+            active: role === 'student' && enrollment === 'online',
+            count: users.filter((user) => user.userRole === 'student' && user.studentEnrollmentType === 'online').length,
+          },
+          {
+            href: buildHref('/admin/users', resolvedSearchParams, { role: 'teacher', enrollment: null, page: null, drawer: null }),
             label: 'Teachers',
             active: role === 'teacher',
             count: users.filter((user) => user.userRole === 'teacher').length,
           },
           {
-            href: buildHref('/admin/users', resolvedSearchParams, { role: 'parent', page: null, drawer: null }),
+            href: buildHref('/admin/users', resolvedSearchParams, { role: 'parent', enrollment: null, page: null, drawer: null }),
             label: 'Parents',
             active: role === 'parent',
             count: users.filter((user) => user.userRole === 'parent').length,
           },
           {
-            href: buildHref('/admin/users', resolvedSearchParams, { role: 'admin', page: null, drawer: null }),
+            href: buildHref('/admin/users', resolvedSearchParams, { role: 'admin', enrollment: null, page: null, drawer: null }),
             label: 'Admins',
             active: role === 'admin',
             count: users.filter((user) => user.userRole === 'admin').length,
@@ -111,6 +120,17 @@ export default async function AdminUsersPage({ searchParams }: AdminUsersPagePro
               <option value="deleted">deleted</option>
             </select>
           </label>
+          <label>
+            <span>Student type</span>
+            <select name="enrollment" defaultValue={enrollment}>
+              <option value="">All students</option>
+              {STUDENT_ENROLLMENT_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <button className="admin-button" type="submit">
             Filter
           </button>
@@ -122,6 +142,8 @@ export default async function AdminUsersPage({ searchParams }: AdminUsersPagePro
           <span>User</span>
           <span>Status</span>
           <span>User Role</span>
+          <span>Student Type</span>
+          <span>User Type</span>
           <span>Teacher</span>
           <span>Role</span>
           <span>Progress</span>
@@ -138,9 +160,10 @@ export default async function AdminUsersPage({ searchParams }: AdminUsersPagePro
             </div>
             <div className="admin-status-stack">
               <AdminStatus status={user.accountStatus} />
-              {user.isTestAccount ? <em className="admin-status admin-status-validated">test</em> : null}
             </div>
             <span>{user.userRole}</span>
+            <span>{user.userRole === 'student' ? user.studentEnrollmentLabel : '-'}</span>
+            <div>{user.userRole === 'student' ? <UserTypeForm user={user} /> : '-'}</div>
             <span>
               {user.teacherOwnerId ? (
                 <>
@@ -166,7 +189,6 @@ export default async function AdminUsersPage({ searchParams }: AdminUsersPagePro
               </Link>
               <StatusButton userId={user.id} status="active" label="Activate" disabled={user.accountStatus === 'active'} />
               <StatusButton userId={user.id} status="suspended" label="Suspend" disabled={user.accountStatus === 'suspended'} />
-              <TestButton userId={user.id} isTestAccount={!user.isTestAccount} label={user.isTestAccount ? 'Unset test' : 'Mark test'} />
             </div>
           </article>
         ))}
@@ -226,6 +248,16 @@ export default async function AdminUsersPage({ searchParams }: AdminUsersPagePro
               </select>
             </label>
             <label>
+              <span>Student type</span>
+              <select name="studentEnrollmentType" defaultValue="offline">
+                {STUDENT_ENROLLMENT_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
               <span>Admin role</span>
               <select name="adminRole" defaultValue="none">
                 <option value="none">none</option>
@@ -239,10 +271,6 @@ export default async function AdminUsersPage({ searchParams }: AdminUsersPagePro
             <label>
               <span>Notes</span>
               <input name="notes" placeholder="Internal note" />
-            </label>
-            <label className="admin-checkbox">
-              <input name="isTestAccount" type="checkbox" value="true" />
-              <span>Test account</span>
             </label>
             <label className="admin-checkbox">
               <input name="adminActive" type="checkbox" value="true" defaultChecked />
@@ -313,21 +341,19 @@ function StatusButton({
   )
 }
 
-function TestButton({
-  userId,
-  isTestAccount,
-  label,
-}: {
-  userId: string
-  isTestAccount: boolean
-  label: string
-}) {
+function UserTypeForm({ user }: { user: AdminUser }) {
   return (
-    <form action={setUserTestAccount}>
-      <input name="userId" type="hidden" value={userId} />
-      <input name="isTestAccount" type="hidden" value={String(isTestAccount)} />
+    <form action={setAdminStudentUserType} className="admin-user-type-form">
+      <input name="userId" type="hidden" value={user.id} />
+      <select aria-label={`${user.username} user type`} className="admin-inline-input" name="userType" defaultValue={user.studentUserType}>
+        {STUDENT_USER_TYPE_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
       <button className="admin-small-button" type="submit">
-        {label}
+        Save
       </button>
     </form>
   )
@@ -337,9 +363,10 @@ function AdminStatus({ status }: { status: string }) {
   return <em className={`admin-status admin-status-${status}`}>{status}</em>
 }
 
-function matchesUser(user: AdminUser, filters: { q: string; role: string; status: string }) {
+function matchesUser(user: AdminUser, filters: { q: string; role: string; status: string; enrollment: string }) {
   if (filters.role && user.userRole !== filters.role) return false
   if (filters.status && user.accountStatus !== filters.status) return false
+  if (filters.enrollment && (user.userRole !== 'student' || user.studentEnrollmentType !== filters.enrollment)) return false
   if (!filters.q) return true
 
   const haystack = [
@@ -350,6 +377,8 @@ function matchesUser(user: AdminUser, filters: { q: string; role: string; status
     user.teacherOwnerUsername,
     user.teacherOwnerName,
     user.phoneNumber,
+    user.studentEnrollmentLabel,
+    user.studentUserTypeLabel,
   ]
     .filter(Boolean)
     .join(' ')

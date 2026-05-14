@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { ReactNode } from 'react'
+import Link from 'next/link'
 import { ChevronDown } from 'lucide-react'
 import type { AssessmentAttempt, RewardLedgerEntry, UserInventoryItem, UserTitleRecord } from '@spcg/shared/types'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
@@ -23,7 +24,7 @@ type ProfileRewardMenusProps = {
 const fallbackMessages = getStudentUiMessages('zh-CN')
 
 export function ProfileRewardMenus({ inventory, titles, rewards, assessmentHistory, messages = fallbackMessages }: ProfileRewardMenusProps) {
-  const [openMenu, setOpenMenu] = useState<'inventory' | 'titles' | 'assessments' | 'rewards' | null>('inventory')
+  const [openMenu, setOpenMenu] = useState<'inventory' | 'titles' | 'assessments' | 'rewards' | null>(null)
   const completedAssessmentCount = assessmentHistory.filter((item) => item.status === 'completed' || item.status === 'expired').length
   const inventoryGroups = [
     {
@@ -116,18 +117,25 @@ export function ProfileRewardMenus({ inventory, titles, rewards, assessmentHisto
       >
         <div className="profile-menu-items">
           {assessmentHistory.map((attempt) => (
-            <article className="profile-reward-row" key={attempt.id}>
+            <Link
+              aria-label={`查看${formatAssessmentTitle(attempt)}场次`}
+              className="profile-reward-row profile-reward-row-link"
+              href={`/me/assessments/${attempt.id}`}
+              key={attempt.id}
+              prefetch={false}
+            >
               <div>
                 <strong>{formatAssessmentTitle(attempt)}</strong>
                 <span>
                   {formatAttemptTime(attempt.startedAt)} · {formatAssessmentDuration(attempt.durationSeconds)} ·{' '}
                   {formatAssessmentStatus(attempt.status)}
                 </span>
+                <span className="profile-reward-row-cta">查看场次</span>
               </div>
               <em>
                 {attempt.score}/300 · {attempt.acceptedCount}/{attempt.totalCount}
               </em>
-            </article>
+            </Link>
           ))}
           {assessmentHistory.length === 0 ? <p className="profile-empty">暂无段位赛记录。</p> : null}
         </div>

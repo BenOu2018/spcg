@@ -33,8 +33,10 @@ export function TestResults({
     return (
       <div className="result-list pending">
         <div className="result-title">
-          <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-play.svg" alt="" />
-          {messages.results.judging}
+          <span className="result-title-main">
+            <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-play.svg" alt="" />
+            {messages.results.judging}
+          </span>
           <TitleAction action={action} />
         </div>
         <div className="case muted-case">
@@ -52,8 +54,10 @@ export function TestResults({
     return (
       <div className="result-list result-idle">
         <div className="result-title">
-          <span className="result-pending-mark" aria-hidden="true" />
-          {messages.results.notStarted}
+          <span className="result-title-main">
+            <span className="result-pending-mark" aria-hidden="true" />
+            {messages.results.notStarted}
+          </span>
           <TitleAction action={action} />
         </div>
         <div className="case muted-case">
@@ -72,8 +76,10 @@ export function TestResults({
   return (
     <div className={`result-list result-${resultClassName(verdict.result)}`}>
       <div className="result-title">
-        <ResultIcon passed={passed} />
-        {verdict.result}
+        <span className="result-title-main">
+          <ResultIcon passed={passed} />
+          {verdict.result}
+        </span>
         <TitleAction action={action} />
       </div>
       <button

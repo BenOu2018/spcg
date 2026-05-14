@@ -35,7 +35,7 @@ const args = new Map(
 )
 
 const studentId = args.get('student-id') ?? null
-const periodDays = Math.max(1, Math.min(Number(args.get('period-days') ?? 7), 31))
+const periodDays = Math.max(1, Math.min(Number(args.get('period-days') ?? 14), 31))
 const dryRun = args.get('dry-run') === 'true'
 const end = new Date()
 const start = new Date(end)
@@ -110,8 +110,8 @@ async function createReport(targetStudentId: string, markdown: string, token: st
   const result = await pool.query<ReportRow>(
     `
     INSERT INTO growth_reports
-      (student_user_id, period_start, period_end, title, markdown, summary, token_hash, token_expires_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      (student_user_id, period_start, period_end, title, markdown, summary, token_hash, public_token_encrypted, token_expires_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     RETURNING id
     `,
     [
@@ -122,6 +122,7 @@ async function createReport(targetStudentId: string, markdown: string, token: st
       markdown,
       JSON.stringify(summary),
       createHash('sha256').update(token).digest('hex'),
+      JSON.stringify({ algorithm: 'plain-dev', token }),
       tokenExpiresAt,
     ],
   )

@@ -1,4 +1,4 @@
-import type { UserRole } from '@spcg/shared/types'
+import type { StudentEnrollmentType, UserRole } from '@spcg/shared/types'
 import { isDatabaseConfigured } from '@/lib/repositories/database-repository'
 import {
   addTeacherStudent,
@@ -53,9 +53,10 @@ export type TeacherStudentAccess = {
   canManage: boolean
 }
 
-export type TeacherStudentProfileUpdateInput = Omit<TeacherStudentProfileInput, 'studentUserId'> & {
+export type TeacherStudentProfileUpdateInput = Omit<TeacherStudentProfileInput, 'studentUserId' | 'studentEnrollmentType'> & {
   teacherUserId?: string | null
   studentUserId: string
+  studentEnrollmentType?: StudentEnrollmentType | null
 }
 
 export async function requireTeacher(userId?: string | null): Promise<{ userId: string; role: UserRole }> {
@@ -131,6 +132,7 @@ export async function createStudentForTeacher(input: {
   displayName: string
   parentEmail?: string | null
   age?: number | null
+  studentEnrollmentType?: StudentEnrollmentType | null
 }): Promise<TeacherStudentSummary> {
   const teacher = await requireTeacher(input.teacherUserId)
   const username = normalizeUsername(input.username)
@@ -150,6 +152,7 @@ export async function createStudentForTeacher(input: {
       displayName,
       parentEmail: input.parentEmail ?? null,
       age: input.age ?? null,
+      studentEnrollmentType: input.studentEnrollmentType ?? 'offline',
     })
   } catch (error) {
     if (isUniqueTeacherConflict(error)) {
@@ -187,6 +190,7 @@ export async function updateTeacherStudentLearningProfile(input: TeacherStudentP
       realName: normalizeNullableText(input.realName),
       idCardNumber,
       parentEmail: normalizeNullableText(input.parentEmail),
+      studentEnrollmentType: input.studentEnrollmentType ?? null,
       teacherNote: normalizeNullableText(input.teacherNote),
     },
   })

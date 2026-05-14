@@ -1,0 +1,11 @@
+button {
+  padding: 0;
+}
+
+button::after {
+  border: 0;
+}
+
+input {
+  min-width: 0;
+}

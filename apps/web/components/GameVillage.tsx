@@ -1,13 +1,12 @@
 import Link from 'next/link'
-import type { Level, Progress, UiLocale } from '@spcg/shared/types'
-import { getGameChapter, listGameChapters } from '@spcg/shared/game-chapters'
+import type { Level, Progress, TodayNewsArticleCard, UiLocale, UserRole } from '@spcg/shared/types'
+import { getGameChapter, listGameChapters, type GameChapter } from '@spcg/shared/game-chapters'
 import { isRankedAssessmentEnabledLevel } from '@spcg/shared/ranked-assessment'
 import type { Session } from 'next-auth'
-import { GameMapMenus } from '@/components/GameMapMenus'
+import { GameMapMenus, type ChapterMenuItem } from '@/components/GameMapMenus'
 import { LevelMap } from '@/components/LevelMap'
 import { TopbarAccountActions } from '@/components/TopbarAccountActions'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
-import type { TodayNewsArticleCard } from '@/lib/services/today-news-service'
 
 type StageProgressMenu = {
   items: Array<{ levelId: string }>
@@ -18,6 +17,7 @@ type GameVillageProps = {
   levels: Level[]
   progress: Progress[]
   activeChapterId?: string | null
+  userRole?: UserRole
   allowFreeJump?: boolean
   currentLevelIdOverride?: string | null
   stageMenus?: StageProgressMenu[]
@@ -25,6 +25,7 @@ type GameVillageProps = {
   todayNewsArticles?: TodayNewsArticleCard[]
   uiLocale?: UiLocale
   messages?: StudentUiMessages
+  canShowPricingMenu?: boolean
 }
 
 const fallbackMessages = getStudentUiMessages('zh-CN')
@@ -34,6 +35,7 @@ export function GameVillage({
   levels,
   progress,
   activeChapterId,
+  userRole = 'student',
   allowFreeJump = false,
   currentLevelIdOverride = null,
   stageMenus = [],
@@ -41,6 +43,7 @@ export function GameVillage({
   todayNewsArticles = [],
   uiLocale = 'zh-CN',
   messages = fallbackMessages,
+  canShowPricingMenu = false,
 }: GameVillageProps) {
   const availableChapters = listGameChapters().filter((chapter) =>
     levels.some((level) => level.chapterId === chapter.chapterId),
@@ -49,9 +52,21 @@ export function GameVillage({
   const overrideLevel = currentLevelIdOverride ? levels.find((level) => level.id === currentLevelIdOverride) : undefined
   const orderedGlobalLevels = levels.slice().sort(compareLevelPosition)
   const firstUnpassedLevel = overrideLevel ?? orderedGlobalLevels.find((level) => !passedIds.has(level.id)) ?? orderedGlobalLevels[0]
+  const studentCurrentChapterId = overrideLevel?.chapterId ?? firstUnpassedLevel?.chapterId ?? null
+  const chapterMenuItems = buildChapterMenuItems({
+    chapters: availableChapters,
+    currentChapterId: studentCurrentChapterId,
+    userRole,
+    allowFreeJump,
+  })
+  const selectableChapterIds = new Set(
+    chapterMenuItems.flatMap((item) => (item.type === 'chapter' ? [item.chapter.chapterId] : [])),
+  )
   const requestedChapter = activeChapterId ? getGameChapter(activeChapterId) : null
   const chapter =
-    availableChapters.find((item) => item.chapterId === requestedChapter?.chapterId) ??
+    availableChapters.find(
+      (item) => item.chapterId === requestedChapter?.chapterId && selectableChapterIds.has(item.chapterId),
+    ) ??
     availableChapters.find((item) => item.chapterId === firstUnpassedLevel?.chapterId) ??
     getGameChapter(firstUnpassedLevel?.chapterId ?? levels[0]?.chapterId)
   const activeLevels = levels
@@ -90,7 +105,7 @@ export function GameVillage({
       <header className="village-hud">
         <img className="village-logo" src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/logo-spcg.svg" alt="SPCG" />
         <GameMapMenus
-          chapters={availableChapters}
+          chapterMenuItems={chapterMenuItems}
           currentChapter={chapter}
           currentLevelId={activeCurrentLevel?.id}
           levels={activeLevels}
@@ -103,6 +118,7 @@ export function GameVillage({
             showTodayNews={showTodayNews}
             todayNewsArticles={todayNewsArticles}
             uiLocale={uiLocale}
+            canShowPricingMenu={canShowPricingMenu}
           />
         </div>
       </header>
@@ -135,6 +151,43 @@ export function GameVillage({
       ) : null}
     </main>
   )
+}
+
+function buildChapterMenuItems(input: {
+  chapters: GameChapter[]
+  currentChapterId: string | null
+  userRole: UserRole
+  allowFreeJump: boolean
+}): ChapterMenuItem[] {
+  const orderedChapters = input.chapters.slice().sort(compareChapterPosition)
+  const showAllChapters = input.allowFreeJump || input.userRole === 'admin' || input.userRole === 'teacher'
+  if (showAllChapters) {
+    return orderedChapters.map((chapter) => ({ type: 'chapter', chapter }))
+  }
+
+  const currentIndex = input.currentChapterId
+    ? orderedChapters.findIndex((chapter) => chapter.chapterId === input.currentChapterId)
+    : -1
+  const startIndex = Math.max(0, currentIndex)
+  const visibleChapters = orderedChapters.slice(startIndex, startIndex + 2)
+  const hasPendingChapters = orderedChapters.length > startIndex + visibleChapters.length
+  const items: ChapterMenuItem[] = visibleChapters.map((chapter) => ({ type: 'chapter', chapter }))
+
+  if (hasPendingChapters) {
+    items.push({
+      type: 'placeholder',
+      id: 'pending-chapters',
+      label: '...',
+      title: '级别待激活',
+      description: '完成当前级别后开放',
+    })
+  }
+
+  return items
+}
+
+function compareChapterPosition(a: GameChapter, b: GameChapter): number {
+  return a.spcgLevel - b.spcgLevel || a.order - b.order || a.chapterId.localeCompare(b.chapterId)
 }
 
 function compareLevelPosition(a: Level, b: Level): number {

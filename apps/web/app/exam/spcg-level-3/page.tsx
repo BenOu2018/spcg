@@ -12,6 +12,7 @@ export default async function SpcgLevelThreeExamPage() {
   return (
     <ExamLevel
       userId={session.user.id}
+      userDisplayName={session.user.name ?? session.user.username ?? null}
       spcgLevel={3}
       canViewHints={hintsAccess.allowed}
       hintsUpgradeMessage={hintsAccess.reason ?? undefined}

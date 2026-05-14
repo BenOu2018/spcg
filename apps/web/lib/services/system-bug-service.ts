@@ -7,8 +7,10 @@ import {
   type SystemBugStatus,
 } from '@/lib/repositories/system-bug-repository'
 import { isDatabaseConfigured } from '@/lib/repositories/database-repository'
+import { getUserRole } from '@/lib/repositories/user-repository'
 import { getBugReportRuntimeSettings } from '@/lib/services/system-settings-service'
 import { ServiceError } from '@/lib/services/errors'
+import { RATE_LIMIT_ACTIONS, consumeUserRateLimit } from '@/lib/services/rate-limit-service'
 
 export type SystemBugIdeContext = {
   levelId: string
@@ -31,10 +33,17 @@ export type SubmitSystemBugInput = {
 
 export type SubmitSystemBugResult =
   | { ok: true; bugId: string }
-  | { ok: false; error: string; code: 'disabled' | 'unauthorized' | 'invalid' | 'db_unconfigured' }
+  | {
+      ok: false
+      error: string
+      code: 'disabled' | 'unauthorized' | 'invalid' | 'db_unconfigured' | 'rate_limited'
+      retryAfterSeconds?: number
+    }
 
 const MAX_DESCRIPTION_LENGTH = 2000
 const MAX_CODE_LENGTH = 200_000
+const TEACHER_BUG_REPORT_RATE_LIMIT_SECONDS = 300
+const STUDENT_BUG_REPORT_RATE_LIMIT_SECONDS = 1800
 
 const validStatuses = new Set<SystemBugStatus>(['open', 'triaged', 'resolved', 'ignored'])
 
@@ -52,6 +61,29 @@ export async function submitSystemBugReport(input: SubmitSystemBugInput): Promis
   const url = normalizeText(input.url, 2048)
   const pathname = normalizeText(input.pathname, 512)
   if (!url || !pathname) return { ok: false, code: 'invalid', error: '页面地址缺失，无法提交问题。' }
+
+  const role = await getUserRole(input.userId)
+  const rateLimitSeconds =
+    role === 'teacher'
+      ? TEACHER_BUG_REPORT_RATE_LIMIT_SECONDS
+      : role === 'student'
+        ? STUDENT_BUG_REPORT_RATE_LIMIT_SECONDS
+        : 0
+  if (rateLimitSeconds > 0) {
+    const rateLimit = await consumeUserRateLimit({
+      userId: input.userId,
+      actionKey: RATE_LIMIT_ACTIONS.bugSubmit,
+      windowSeconds: rateLimitSeconds,
+    })
+    if (!rateLimit.allowed) {
+      return {
+        ok: false,
+        code: 'rate_limited',
+        error: rateLimit.message,
+        retryAfterSeconds: rateLimit.retryAfterSeconds,
+      }
+    }
+  }
 
   const ideContext = normalizeIdeContext(input.ideContext ?? null)
   const bug = await createSystemBug({

@@ -1,0 +1,208 @@
+<scroll-view class="page" scroll-y type="list" enhanced show-scrollbar="{{false}}">
+  <view class="shell">
+    <view wx:if="{{errorMessage}}" class="notice error">{{errorMessage}}</view>
+
+    <view wx:if="{{activeView === 'auth'}}" class="auth-screen">
+      <view class="auth-hero">
+        <text class="auth-kicker">SPCG 家长端</text>
+        <text class="auth-title">看见孩子的编程成长</text>
+        <text class="auth-copy">用家长邀请码关联学生，查看学习状态与 AI 学习报告。</text>
+      </view>
+
+      <view class="auth-panel card">
+        <view class="tabs">
+          <button class="tab {{authMode === 'signIn' ? 'active' : ''}}" bindtap="showSignIn">登录</button>
+          <button class="tab {{authMode === 'register' ? 'active' : ''}}" bindtap="showRegister">注册</button>
+        </view>
+
+        <view class="field">
+          <text>邮箱</text>
+          <input value="{{email}}" data-field="email" bindinput="onTextInput" type="text" placeholder="parent@example.com" />
+        </view>
+        <view wx:if="{{authMode === 'register'}}" class="field">
+          <text>昵称</text>
+          <input value="{{displayName}}" data-field="displayName" bindinput="onTextInput" type="text" placeholder="家长昵称" />
+        </view>
+        <view class="field">
+          <text>密码</text>
+          <input value="{{password}}" data-field="password" bindinput="onTextInput" password placeholder="至少 8 位" />
+        </view>
+        <view wx:if="{{authMode === 'register'}}" class="field">
+          <text>确认密码</text>
+          <input value="{{confirmPassword}}" data-field="confirmPassword" bindinput="onTextInput" password placeholder="再次输入密码" />
+        </view>
+        <view wx:if="{{authMode === 'register'}}" class="field">
+          <text>学生邀请码</text>
+          <input value="{{inviteCode}}" data-field="inviteCode" bindinput="onTextInput" type="text" placeholder="SPCG-XXXX-XXXX-XXXX" />
+        </view>
+        <button class="primary-button" loading="{{loading}}" disabled="{{loading}}" bindtap="submitAuth">
+          {{authMode === 'register' ? '注册并绑定' : '登录'}}
+        </button>
+      </view>
+    </view>
+
+    <view wx:if="{{activeView === 'dashboard'}}" class="dashboard-stack">
+      <view class="parent-card card">
+        <view class="parent-avatar">{{parentInitial}}</view>
+        <view class="parent-main">
+          <text class="micro-label">家长账户</text>
+          <text class="parent-name">{{parentName || '家长'}}</text>
+          <text class="parent-meta">已绑定 {{students.length}} 名学生</text>
+        </view>
+        <button class="text-action" bindtap="signOut">退出</button>
+      </view>
+
+      <view class="section-heading">
+        <text>成长档案</text>
+        <text>{{students.length}} 位学生</text>
+      </view>
+
+      <view wx:if="{{students.length === 0}}" class="empty-card card">
+        <text class="empty-title">暂无绑定学生</text>
+        <text class="empty-copy">绑定后可查看孩子的学习进度与 AI 学习报告。</text>
+      </view>
+
+      <view class="student-list">
+        <view
+          wx:for="{{students}}"
+          wx:key="studentUserId"
+          class="student-card card {{selectedStudent && selectedStudent.studentUserId === item.studentUserId ? 'selected' : ''}}"
+          data-id="{{item.studentUserId}}"
+          bindtap="selectStudent"
+        >
+          <view class="student-top">
+            <view class="student-avatar">{{item.avatarInitial}}</view>
+            <view class="student-info">
+              <text class="student-name">{{item.displayNameText}}</text>
+              <text class="student-level">{{item.currentLevelText}}</text>
+            </view>
+            <text class="status-chip {{item.learningStatusClass}}">{{item.learningStatusText}}</text>
+          </view>
+          <view class="student-foot">
+            <text>{{item.statsText}}</text>
+            <text>{{item.lastSubmittedText}}</text>
+          </view>
+        </view>
+      </view>
+
+      <view wx:if="{{selectedStudent}}" class="learning-section">
+        <view class="section-heading compact">
+          <text>学习统计</text>
+          <text>{{selectedStudent.displayNameText}}</text>
+        </view>
+        <view class="stat-grid">
+          <view class="stat-card card">
+            <text class="stat-value">{{selectedStudent.passedCount}}</text>
+            <text class="stat-label">已通过题数</text>
+          </view>
+          <view class="stat-card card">
+            <text class="stat-value">{{selectedStudent.submissionCount}}</text>
+            <text class="stat-label">提交次数</text>
+          </view>
+          <view class="stat-card card">
+            <text class="stat-value">{{selectedStudent.learningStreakText}}</text>
+            <text class="stat-label">连续学习</text>
+          </view>
+          <view class="stat-card card">
+            <text class="stat-value small">{{selectedStudent.lastSubmittedShortText}}</text>
+            <text class="stat-label">最近学习</text>
+          </view>
+        </view>
+
+        <view class="ai-card card">
+          <view class="ai-head">
+            <view>
+              <text class="micro-label">AI 学习报告</text>
+              <text class="ai-title">{{selectedStudent.latestReportTitleText}}</text>
+            </view>
+            <text class="warm-dot"></text>
+          </view>
+          <text class="ai-copy">{{selectedStudent.reportHintText}}</text>
+          <view class="ai-actions">
+            <button class="primary-button compact" data-id="{{selectedStudent.studentUserId}}" catchtap="openReports">
+              {{selectedStudent.reportButtonText}}
+            </button>
+          </view>
+        </view>
+      </view>
+
+      <view class="bind-card card">
+        <view class="section-head">
+          <view>
+            <text class="section-title">学生绑定</text>
+            <text class="section-subtitle">输入新的学生邀请码</text>
+          </view>
+        </view>
+        <view class="invite-control">
+          <input value="{{bindInviteCode}}" data-field="bindInviteCode" bindinput="onTextInput" placeholder="SPCG-XXXX-XXXX-XXXX" />
+          <button loading="{{loading}}" disabled="{{loading}}" bindtap="submitBindStudent">绑定</button>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{activeView === 'reports'}}" class="subpage-stack">
+      <view class="subpage-head">
+        <button class="back-button" bindtap="backToDashboard">← 返回</button>
+        <view>
+          <text class="subpage-title">{{selectedStudent.displayNameText}}</text>
+          <text class="subpage-subtitle">AI 学习报告</text>
+        </view>
+      </view>
+
+      <view class="report-apply-card card">
+        <view>
+          <text class="section-title">申请生成学习报告</text>
+          <text class="section-subtitle">{{reportAvailability && !reportAvailability.canRequestReport ? selectedStudent.reportActionText : '生成后可查看 AI 分析、薄弱知识点和学习建议'}}</text>
+        </view>
+        <button
+          class="primary-button"
+          loading="{{loading}}"
+          disabled="{{loading || (reportAvailability && !reportAvailability.canRequestReport)}}"
+          bindtap="requestReport"
+        >
+          {{reportAvailability && !reportAvailability.canRequestReport ? '冷却中' : '申请生成学习报告'}}
+        </button>
+      </view>
+
+      <view wx:if="{{reports.length === 0}}" class="empty-card card">
+        <text class="empty-title">暂无报告</text>
+        <text class="empty-copy">申请后，系统会异步生成孩子的学习报告。</text>
+      </view>
+
+      <view class="report-list">
+        <view wx:for="{{reports}}" wx:key="id" class="report-row card" data-report-id="{{item.id}}" bindtap="openReportDetail">
+          <view>
+            <text class="report-title">{{item.title}}</text>
+            <text class="report-period">{{item.periodText}}</text>
+          </view>
+          <view class="report-side">
+            <text class="report-status">{{item.statusText}}</text>
+            <text>{{item.createdText}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view wx:if="{{activeView === 'reportDetail' && selectedReport}}" class="subpage-stack">
+      <view class="subpage-head">
+        <button class="back-button" bindtap="backToReports">← 返回</button>
+        <view>
+          <text class="subpage-title">{{selectedReport.title}}</text>
+          <text class="subpage-subtitle">{{selectedReport.periodStart}} 至 {{selectedReport.periodEnd}}</text>
+        </view>
+      </view>
+
+      <view class="report-detail-hero card">
+        <text class="micro-label">AI 分析</text>
+        <text class="ai-title">孩子近期学习画像</text>
+      </view>
+
+      <view wx:for="{{reportSections}}" wx:key="title" class="report-section card">
+        <text class="section-title">{{item.title}}</text>
+        <view wx:for="{{item.items}}" wx:for-item="line" wx:key="*this" class="section-line">
+          <text>{{line}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+</scroll-view>

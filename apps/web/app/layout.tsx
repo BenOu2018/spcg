@@ -5,6 +5,7 @@ import { auth } from '@/auth'
 import { BehaviorTracker } from '@/components/BehaviorTracker'
 import { BugReportWidget } from '@/components/BugReportWidget'
 import { LoggedInUserBadge } from '@/components/LoggedInUserBadge'
+import { getCanShowPricingMenu } from '@/lib/services/account-menu-service'
 import { getBugReportRuntimeSettings } from '@/lib/services/system-settings-service'
 import { getStudentUiMessages } from '@/lib/student-ui'
 import { getRequestUiLocale } from '@/lib/student-ui-server'
@@ -22,7 +23,10 @@ export default async function RootLayout({
   settingsModal,
 }: Readonly<{ children: ReactNode; settingsModal: ReactNode }>) {
   const [bugReportSettings, session] = await Promise.all([getBugReportRuntimeSettings(), auth()])
-  const locale = await getRequestUiLocale(session?.user?.id)
+  const [locale, canShowPricingMenu] = await Promise.all([
+    getRequestUiLocale(session?.user?.id),
+    getCanShowPricingMenu(session?.user?.id),
+  ])
   const messages = getStudentUiMessages(locale)
 
   return (
@@ -31,7 +35,7 @@ export default async function RootLayout({
         {children}
         {settingsModal}
         <BehaviorTracker userId={session?.user?.id ?? null} />
-        <LoggedInUserBadge session={session} />
+        <LoggedInUserBadge session={session} canShowPricingMenu={canShowPricingMenu} />
         <BugReportWidget enabled={bugReportSettings.enabled} messages={messages.bug} />
       </body>
     </html>

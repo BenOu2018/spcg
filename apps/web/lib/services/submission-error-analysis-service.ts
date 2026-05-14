@@ -3,7 +3,7 @@ import type { CodeErrorAnalysis, SubmissionErrorAnalysis, TestCase, Verdict } fr
 import { getLanguageLabel, normalizeLanguageMode } from '@spcg/shared/language-config'
 import { isDatabaseConfigured } from '@/lib/repositories/database-repository'
 import {
-  findLatestSubmissionErrorAnalysis,
+  findSubmissionErrorAnalysis,
   getSubmissionErrorAnalysisContextForAdmin,
   getSubmissionErrorAnalysisContextForTeacher,
   getSubmissionErrorAnalysisContextForUser,
@@ -17,6 +17,7 @@ import {
   getMiniMaxCodeHelpConfig,
   type MiniMaxCodeHelpConfig,
 } from '@/lib/services/minimax-code-help-client'
+import { RATE_LIMIT_ACTIONS, consumeUserRateLimit } from '@/lib/services/rate-limit-service'
 
 export type ExplainSubmissionErrorResult =
   | {
@@ -28,12 +29,15 @@ export type ExplainSubmissionErrorResult =
   | {
       ok: false
       error: string
+      code?: 'rate_limited'
+      retryAfterSeconds?: number
     }
 
 const PROVIDER = 'minimax'
-const PROMPT_VERSION = 'spcg-error-analysis-v2'
+const PROMPT_VERSION = 'spcg-error-analysis-v3'
 const ANALYZABLE_RESULTS = new Set<Verdict['result']>(['WA', 'TLE', 'MLE', 'RE', 'CE', 'PE', 'Judge Error'])
-const OLD_NON_STRUCTURED_FALLBACK_SUMMARY = 'AI 返回了非结构化分析。'
+const STUDENT_AI_ANALYSIS_RATE_LIMIT_SECONDS = 3600
+const TEACHER_AI_ANALYSIS_RATE_LIMIT_SECONDS = 300
 
 export async function explainSubmissionErrorForUser(input: {
   userId?: string | null
@@ -54,7 +58,10 @@ export async function explainSubmissionErrorForUser(input: {
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : '当前用户类型无法使用 AI 错误分析。' }
   }
-  return explainSubmissionErrorWithContext(context)
+  return explainSubmissionErrorWithContext(context, {
+    actorUserId: input.userId,
+    windowSeconds: STUDENT_AI_ANALYSIS_RATE_LIMIT_SECONDS,
+  })
 }
 
 export async function explainSubmissionErrorForAdmin(input: {
@@ -90,11 +97,23 @@ export async function explainSubmissionErrorForTeacher(input: {
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : '该学生用户类型无法使用 AI 错误分析。' }
   }
-  return explainSubmissionErrorWithContext(context)
+  return explainSubmissionErrorWithContext(
+    context,
+    teacher.role === 'admin'
+      ? undefined
+      : {
+          actorUserId: teacher.userId,
+          windowSeconds: TEACHER_AI_ANALYSIS_RATE_LIMIT_SECONDS,
+        },
+  )
 }
 
 async function explainSubmissionErrorWithContext(
   context: SubmissionErrorAnalysisContext,
+  rateLimitInput?: {
+    actorUserId: string
+    windowSeconds: number
+  },
 ): Promise<ExplainSubmissionErrorResult> {
   if (!context.verdict || context.status === 'pending' || context.status === 'judging') {
     return { ok: false, error: '判题尚未完成，请等结果出来后再分析。' }
@@ -103,22 +122,38 @@ async function explainSubmissionErrorWithContext(
     return { ok: false, error: 'AC 提交不需要错误分析。' }
   }
 
-  const existing = await findLatestSubmissionErrorAnalysis({
-    submissionId: context.submissionId,
-    provider: PROVIDER,
-  })
-
-  if (existing) {
-    if (existing.analysis.summary !== OLD_NON_STRUCTURED_FALLBACK_SUMMARY) {
-      return { ok: true, analysis: existing.analysis, record: existing, cached: true }
-    }
-  }
-
   const config = await getMiniMaxCodeHelpConfig()
   const promptHash = buildPromptHash(context, config)
 
+  const existing = await findSubmissionErrorAnalysis({
+    submissionId: context.submissionId,
+    provider: PROVIDER,
+    model: config.model,
+    promptHash,
+  })
+
+  if (existing) {
+    return { ok: true, analysis: existing.analysis, record: existing, cached: true }
+  }
+
   if (!config.configured) {
     return { ok: false, error: config.enabled ? 'MiniMax API Key 未配置，AI 错误分析暂不可用。' : 'AI 错误分析已关闭。' }
+  }
+
+  if (rateLimitInput) {
+    const rateLimit = await consumeUserRateLimit({
+      userId: rateLimitInput.actorUserId,
+      actionKey: RATE_LIMIT_ACTIONS.aiErrorAnalysisGenerate,
+      windowSeconds: rateLimitInput.windowSeconds,
+    })
+    if (!rateLimit.allowed) {
+      return {
+        ok: false,
+        error: rateLimit.message,
+        code: 'rate_limited',
+        retryAfterSeconds: rateLimit.retryAfterSeconds,
+      }
+    }
   }
 
   try {
@@ -154,6 +189,7 @@ function buildPromptHash(context: SubmissionErrorAnalysisContext, config: MiniMa
         code: context.code,
         language: context.resolvedLanguage ?? context.language,
         verdict: context.verdict,
+        judgeDiagnostics: context.verdict ? buildJudgeDiagnostics(context.verdict, context.level.timeLimitMs) : null,
         publicCases: context.level.publicCases,
       }),
     )
@@ -167,12 +203,17 @@ function buildPrompts(context: SubmissionErrorAnalysisContext): {
   const language = getLanguageLabel(normalizeLanguageMode(context.resolvedLanguage ?? context.language))
   const verdict = context.verdict
   const publicCases = context.level.publicCases.slice(0, 3).map(formatPublicCase).join('\n\n') || '无公开样例。'
+  const judgeDiagnostics = verdict ? buildJudgeDiagnostics(verdict, context.level.timeLimitMs) : null
 
   return {
     systemPrompt: [
       '你是 SPCG 的少儿编程教练，专门帮助学生理解编译错误、运行错误和错误答案。',
       '你只能解释错误原因、定位思路、下一步修改方向，不能直接给完整 AC 代码。',
       '不要使用隐藏测试点，不要猜测未提供的隐藏样例。',
+      '必须优先结合“判题诊断”中的 result、message、errorDetail、运行耗时和时间限制判断，不要忽略 errorDetail。',
+      '如果 result 是 CE、RE 或 Judge Error，必须优先解释编译错误、运行错误或判题系统错误信息的含义。',
+      '如果 result 是 TLE，必须说明超时量级，并判断更可能是小幅优化、循环边界问题，还是算法复杂度问题。',
+      '所有分析和 nextSteps 必须以最小修改量为前提：优先定位局部变量、循环、条件、输出格式或边界处理，再考虑较大重构。',
       '必须全部使用简体中文回答；除了 C++、Python、WA、CE、RE、TLE、AC、变量名、函数名、编译器原文片段外，禁止输出英文解释句。',
       '如果判题错误详情是英文，你必须先理解后用简体中文解释，不要直接照抄英文长句。',
       '只输出一个合法 JSON 对象，不要 Markdown，不要代码块，不要额外说明，不要 thinking。',
@@ -189,6 +230,7 @@ function buildPrompts(context: SubmissionErrorAnalysisContext): {
       '你最终只能返回下面这种 JSON 对象结构，字段名不能变，不能补充其他文本：',
       '{"whereWrong":"一句话指出错误位置","summary":"一句话总结","likelyCause":"主要原因","reasonList":["原因1","原因2"],"lineHints":["定位提示1"],"nextSteps":["步骤1","步骤2"],"fixedConcept":"相关知识点"}',
       '请先判断“错在哪里”，再用列表分析原因。',
+      '请结合判题诊断分析；若有 errorDetail，必须解释它的含义。所有建议都以最小修改量为前提，不要上来要求重写整份代码。',
       '',
       `题目：${context.level.title}`,
       `知识点：${context.level.knowledgePoint}`,
@@ -208,19 +250,8 @@ function buildPrompts(context: SubmissionErrorAnalysisContext): {
       '公开样例：',
       publicCases,
       '',
-      '判题结果：',
-      JSON.stringify(
-        {
-          result: verdict?.result,
-          passedCases: verdict?.passedCases,
-          totalCases: verdict?.totalCases,
-          failedCaseIndex: verdict?.failedCaseIndex,
-          message: verdict?.childFriendlyMessage,
-          errorDetail: verdict?.errorDetail,
-        },
-        null,
-        2,
-      ),
+      '判题诊断：',
+      JSON.stringify(judgeDiagnostics, null, 2),
       '',
       '学生提交代码：',
       context.code,
@@ -237,4 +268,52 @@ function formatPublicCase(testCase: TestCase, index: number): string {
   ]
     .filter(Boolean)
     .join('\n')
+}
+
+function buildJudgeDiagnostics(verdict: Verdict, timeLimitMs: number) {
+  const failedCaseNumber = typeof verdict.failedCaseIndex === 'number' ? verdict.failedCaseIndex + 1 : null
+  const hasRuntimeTiming = verdict.result === 'TLE' && verdict.maxRuntimeMs > 0 && timeLimitMs > 0
+  const timeoutOverMs = hasRuntimeTiming ? Math.max(0, verdict.maxRuntimeMs - timeLimitMs) : null
+  const timeoutOverRatio =
+    hasRuntimeTiming ? Number((verdict.maxRuntimeMs / timeLimitMs).toFixed(2)) : null
+  const failedCaseResult =
+    failedCaseNumber === null ? null : verdict.caseResults?.find((caseResult) => caseResult.index === failedCaseNumber) ?? null
+
+  return {
+    result: verdict.result,
+    passedCases: verdict.passedCases,
+    totalCases: verdict.totalCases,
+    failedCaseIndex: verdict.failedCaseIndex,
+    failedCaseNumber,
+    message: verdict.childFriendlyMessage,
+    errorDetail: verdict.errorDetail ?? null,
+    maxRuntimeMs: verdict.maxRuntimeMs,
+    timeLimitMs,
+    timeoutOverMs,
+    timeoutOverRatio,
+    timeoutSummary:
+      verdict.result === 'TLE' && timeoutOverMs !== null && timeoutOverRatio !== null
+        ? `运行时间比限制多 ${timeoutOverMs} ms，约为时间限制的 ${timeoutOverRatio} 倍。`
+        : verdict.result === 'TLE'
+          ? '判题返回超时，但未提供有效运行耗时；请按时间限制和循环规模判断复杂度。'
+        : null,
+    failedCaseResult: failedCaseResult
+      ? {
+          index: failedCaseResult.index,
+          visibility: failedCaseResult.visibility,
+          passed: failedCaseResult.passed,
+          result: failedCaseResult.result,
+          runtimeMs: failedCaseResult.runtimeMs,
+          memoryKb: failedCaseResult.memoryKb ?? null,
+        }
+      : null,
+    caseResults: verdict.caseResults?.slice(0, 10).map((caseResult) => ({
+      index: caseResult.index,
+      visibility: caseResult.visibility,
+      passed: caseResult.passed,
+      result: caseResult.result,
+      runtimeMs: caseResult.runtimeMs,
+      memoryKb: caseResult.memoryKb ?? null,
+    })),
+  }
 }

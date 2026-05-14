@@ -2,6 +2,7 @@ import { auth } from '@/auth'
 import { jsonError, jsonOk } from '@/lib/services/api-response'
 import { removeStudentFromTeacher, updateTeacherStudentLearningProfile } from '@/lib/services/teacher-service'
 import { isStudentUserType, setStudentUserType } from '@/lib/services/entitlement-service'
+import { isStudentEnrollmentType } from '@/lib/student-enrollment'
 
 type StudentRouteContext = {
   params: Promise<{ id: string }> | { id: string }
@@ -13,6 +14,7 @@ type UpdateStudentBody = {
   realName?: unknown
   idCardNumber?: unknown
   parentEmail?: unknown
+  studentEnrollmentType?: unknown
   teacherNote?: unknown
   userType?: unknown
   userTypeNote?: unknown
@@ -34,6 +36,7 @@ export async function PATCH(request: Request, context: StudentRouteContext) {
       realName: typeof body.realName === 'string' ? body.realName : null,
       idCardNumber: typeof body.idCardNumber === 'string' ? body.idCardNumber : null,
       parentEmail: typeof body.parentEmail === 'string' ? body.parentEmail : null,
+      studentEnrollmentType: isStudentEnrollmentType(body.studentEnrollmentType) ? body.studentEnrollmentType : null,
       teacherNote: typeof body.teacherNote === 'string' ? body.teacherNote : null,
     })
     const entitlement =

@@ -2,7 +2,6 @@ import type { JudgeProgress, Language, ResolvedLanguage, RewardGrantResult, Verd
 import { normalizeLanguageMode, resolveLanguageMode } from '@spcg/shared/language-config'
 import {
   createSubmission,
-  findRecentSubmissionForUser,
   getJudgeQueueStats,
   getSubmissionDetailForUser,
   getSubmissionForUser,
@@ -24,6 +23,7 @@ import { getRewardSummaryForSubmission } from '@/lib/services/reward-service'
 import { getLevelAccessForUser } from '@/lib/services/level-access-service'
 import { canUserRunAssessmentLevel } from '@/lib/services/assessment-service'
 import { ServiceError } from '@/lib/services/errors'
+import { RATE_LIMIT_ACTIONS, consumeUserRateLimit } from '@/lib/services/rate-limit-service'
 
 export type { SubmissionHistoryItem } from '@/lib/repositories/submission-repository'
 export type { LevelSubmissionHistoryItem } from '@/lib/repositories/submission-repository'
@@ -74,7 +74,7 @@ export type UserRecentSubmissionsResult = {
   error?: string
 }
 
-const DEFAULT_SUBMISSION_RATE_LIMIT_SECONDS = 3
+const DEFAULT_SUBMISSION_RATE_LIMIT_SECONDS = 60
 
 export async function createUserSubmission(input: {
   userId?: string | null
@@ -124,16 +124,17 @@ export async function createUserSubmission(input: {
 
   const rateLimitSeconds = input.rateLimitSeconds ?? getSubmissionRateLimitSeconds()
   if (rateLimitSeconds > 0) {
-    const since = new Date(Date.now() - rateLimitSeconds * 1000)
-    const recentSubmission = await findRecentSubmissionForUser(input.userId, since)
-    if (recentSubmission) {
-      const elapsedSeconds = Math.max(0, (Date.now() - new Date(recentSubmission.createdAt).getTime()) / 1000)
-      const retryAfterSeconds = Math.max(1, Math.ceil(rateLimitSeconds - elapsedSeconds))
+    const rateLimit = await consumeUserRateLimit({
+      userId: input.userId,
+      actionKey: RATE_LIMIT_ACTIONS.ideJudge,
+      windowSeconds: rateLimitSeconds,
+    })
+    if (!rateLimit.allowed) {
       return {
         ok: false,
         code: 'rate_limited',
-        reason: `提交太频繁了，请 ${retryAfterSeconds} 秒后再试。`,
-        retryAfterSeconds,
+        reason: rateLimit.message,
+        retryAfterSeconds: rateLimit.retryAfterSeconds,
       }
     }
   }

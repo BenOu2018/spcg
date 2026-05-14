@@ -17,6 +17,7 @@ import { requireUserInventory } from '@/lib/services/inventory-service'
 import { listRankedAssessmentHistoryForUser } from '@/lib/services/assessment-service'
 import { requireWalletSummary } from '@/lib/services/wallet-service'
 import { getUserEntitlement, STUDENT_USER_TYPE_OPTIONS } from '@/lib/services/entitlement-service'
+import { STUDENT_ENROLLMENT_TYPE_OPTIONS } from '@/lib/student-enrollment'
 import { getLocalDateRangeEndingToday } from '@/lib/student-date'
 import {
   bindParentToStudentAction,
@@ -35,6 +36,7 @@ import {
 } from '../../actions'
 import { StatementMarkdown } from '@/components/StatementMarkdown'
 import { BehaviorAnalysisGenerateButton } from './BehaviorAnalysisGenerateButton'
+import { GrowthReportAutoRefresh } from './GrowthReportAutoRefresh'
 import { GrowthReportGenerateButton } from './GrowthReportGenerateButton'
 import {
   TeacherDrawer,
@@ -111,9 +113,11 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
   const selectedGrowthReport = growthReportId
     ? growthReports.find((report) => report.id === growthReportId) ?? null
     : null
+  const hasPendingGrowthReport = growthReports.some((report) => report.status === 'pending')
 
   return (
     <section className="teacher-page">
+      <GrowthReportAutoRefresh enabled={hasPendingGrowthReport} />
       <TeacherPageHeader
         eyebrow="Student"
         title={student.displayName ?? student.username ?? student.id}
@@ -145,7 +149,10 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
               : '学生完成题目后会自动出现学习位置。'}
           </p>
         </div>
-        <TeacherStatusBadge tone={student.isOnline ? 'success' : 'neutral'}>{student.isOnline ? '在线' : '离线'}</TeacherStatusBadge>
+        <div className="teacher-student-badges">
+          <TeacherStatusBadge tone={student.studentEnrollmentType === 'offline' ? 'success' : 'info'}>{student.studentEnrollmentLabel}</TeacherStatusBadge>
+          <TeacherStatusBadge tone={student.isOnline ? 'success' : 'neutral'}>{student.isOnline ? '在线' : '离线'}</TeacherStatusBadge>
+        </div>
       </section>
 
       <section className="teacher-stat-grid compact">
@@ -155,7 +162,8 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
         <TeacherStatCard label="修错成功" value={repairedSuccess} />
         <TeacherStatCard label="金币" value={wallet?.coinTotal ?? 0} hint={wallet?.rankLabel ?? '暂无段位'} />
         <TeacherStatCard label="蒜粒" value={wallet?.garlicBalance ?? 0} hint={wallet?.title ?? '暂无称谓'} />
-        <TeacherStatCard label="用户类型" value={entitlement?.label ?? '体验用户'} hint={entitlement?.updatedAt ? new Date(entitlement.updatedAt).toLocaleDateString() : '默认权益'} />
+        <TeacherStatCard label="学员类型" value={student.studentEnrollmentLabel} hint={student.studentEnrollmentType === 'offline' ? '自动最高权益' : '按线上会员权益'} />
+        <TeacherStatCard label="用户类型" value={entitlement?.label ?? '体验用户'} hint={entitlement?.entitlementSource === 'offline_enrollment' ? '线下权益生效' : entitlement?.updatedAt ? new Date(entitlement.updatedAt).toLocaleDateString() : '默认权益'} />
       </section>
 
       {parentInviteCode ? (
@@ -318,7 +326,7 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
             title="家长绑定"
             meta={`${parents.length} active`}
             action={
-              canManage ? (
+              canManage && parents.length === 0 ? (
                 <div className="teacher-row-actions">
                   <Link className="teacher-small-button" href={`${baseHref}&drawer=parent-invite`}>重置邀请码</Link>
                   <Link className="teacher-small-button" href={`${baseHref}&drawer=create-parent`}>新建家长</Link>
@@ -366,7 +374,7 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
                     <strong>{report.title}</strong>
                     <span>{report.periodStart} 至 {report.periodEnd}</span>
                   </div>
-                  <TeacherStatusBadge>{report.status}</TeacherStatusBadge>
+                  <TeacherStatusBadge>{formatGrowthReportStatus(report.status)}</TeacherStatusBadge>
                 </Link>
               ))}
               {growthReports.length === 0 ? <TeacherEmpty>暂无成长报告。</TeacherEmpty> : null}
@@ -384,9 +392,22 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
                     <strong>{selectedGrowthReport.title}</strong>
                     <span>{selectedGrowthReport.periodStart} 至 {selectedGrowthReport.periodEnd}</span>
                   </div>
-                  <TeacherStatusBadge>{selectedGrowthReport.status}</TeacherStatusBadge>
+                  <div className="growth-report-detail-actions">
+                    <TeacherStatusBadge>{formatGrowthReportStatus(selectedGrowthReport.status)}</TeacherStatusBadge>
+                    {selectedGrowthReport.status === 'generated' && selectedGrowthReport.publicUrl ? (
+                      <Link className="teacher-small-button" href={selectedGrowthReport.publicUrl} target="_blank" rel="noreferrer">
+                        家长链接
+                      </Link>
+                    ) : null}
+                  </div>
                 </header>
-                <StatementMarkdown markdown={selectedGrowthReport.markdown} assets={[]} hideImages />
+                {selectedGrowthReport.status === 'pending' ? (
+                  <TeacherEmpty>报告正在生成中，可以先离开此页面，稍后回到家长报告列表查看。</TeacherEmpty>
+                ) : selectedGrowthReport.status === 'failed' ? (
+                  <TeacherEmpty>{selectedGrowthReport.errorMessage ?? '报告生成失败，请稍后重新生成。'}</TeacherEmpty>
+                ) : (
+                  <StatementMarkdown markdown={selectedGrowthReport.markdown} assets={[]} hideImages />
+                )}
               </article>
             ) : (
               <TeacherEmpty>请选择左侧一份家长报告查看完整内容。</TeacherEmpty>
@@ -493,6 +514,7 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
               <SummaryRow label="真实姓名" value={student.realName ?? '-'} />
               <SummaryRow label="身份证" value={maskIdCardNumber(student.idCardNumber)} />
               <SummaryRow label="手机号" value={student.phoneNumberMasked ?? '未绑定'} />
+              <SummaryRow label="学员类型" value={student.studentEnrollmentLabel} />
               <SummaryRow label="用户类型" value={entitlement?.label ?? '体验用户'} />
               <SummaryRow label="老师备注" value={student.teacherNote ?? '-'} />
             </div>
@@ -538,7 +560,8 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
         student,
         levelOptions: stageMenus,
         currentLevelId: currentStudyLevel?.levelId ?? stageMenus[0]?.items[0]?.levelId ?? '',
-        userType: entitlement?.userType ?? 'experience',
+        userType: entitlement?.storedUserType ?? entitlement?.userType ?? 'experience',
+        entitlementSource: entitlement?.entitlementSource ?? null,
         growthReportError,
       })}
     </section>
@@ -556,6 +579,8 @@ function renderDrawer(input: {
     realName?: string | null
     idCardNumber?: string | null
     parentEmail: string | null
+    studentEnrollmentType: 'online' | 'offline'
+    studentEnrollmentLabel: string
     teacherNote: string | null
   }
   levelOptions: Array<{
@@ -568,6 +593,7 @@ function renderDrawer(input: {
   }>
   currentLevelId: string
   userType: string
+  entitlementSource: string | null
   growthReportError: string | null
 }) {
   if (!input.drawer) return null
@@ -581,6 +607,16 @@ function renderDrawer(input: {
           <label><span>真实姓名</span><input name="realName" defaultValue={input.student.realName ?? ''} placeholder="用于考试、证书或实名资料" /></label>
           <label><span>身份证号</span><input name="idCardNumber" defaultValue={input.student.idCardNumber ?? ''} placeholder="15或18位身份证号" /></label>
           <label><span>家长邮箱</span><input name="parentEmail" type="email" defaultValue={input.student.parentEmail ?? ''} /></label>
+          <label>
+            <span>学员类型</span>
+            <select name="studentEnrollmentType" defaultValue={input.student.studentEnrollmentType}>
+              {STUDENT_ENROLLMENT_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label><span>老师备注</span><textarea name="teacherNote" defaultValue={input.student.teacherNote ?? ''} rows={4} /></label>
           <button className="teacher-button" type="submit">保存资料</button>
         </form>
@@ -629,6 +665,9 @@ function renderDrawer(input: {
           </label>
           <label><span>备注</span><textarea name="note" rows={3} placeholder="记录开通原因、付款备注或测试批次" /></label>
           <div className="teacher-form-note">
+            {input.entitlementSource === 'offline_enrollment' ? (
+              <p><strong>线下学员</strong>：已自动拥有最高权益；这里保存的用户类型仅在切回线上学员后生效。</p>
+            ) : null}
             {STUDENT_USER_TYPE_OPTIONS.map((option) => (
               <p key={option.value}><strong>{option.label}</strong>：{option.description}</p>
             ))}
@@ -712,6 +751,21 @@ function SummaryRow({ label, value }: { label: string; value: string | number })
       <strong>{value}</strong>
     </div>
   )
+}
+
+function formatGrowthReportStatus(status: string) {
+  switch (status) {
+    case 'pending':
+      return '生成中'
+    case 'generated':
+      return '已生成'
+    case 'failed':
+      return '失败'
+    case 'revoked':
+      return '已撤销'
+    default:
+      return status
+  }
 }
 
 function maskIdCardNumber(value?: string | null): string {

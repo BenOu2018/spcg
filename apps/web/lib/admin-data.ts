@@ -8,14 +8,24 @@ import type {
   ProblemSource,
   ResolvedLanguage,
   SisterProblem,
+  StudentEnrollmentType,
   Solution,
   StatementAsset,
+  StudentUserType,
   TestCase,
   UserRole,
 } from '@spcg/shared/types'
 import { isProblemSetItemDisplayMode, type ProblemSetItemDisplayMode } from '@spcg/shared/curriculum'
 import { isDbConfigured, query, queryOne } from '@/lib/db'
 import { levels as mockLevels, progressRecords as mockProgressRecords } from '@/lib/mock-data'
+import { getStudentEnrollmentLabel } from '@/lib/student-enrollment'
+
+const STUDENT_USER_TYPE_LABELS: Record<StudentUserType, string> = {
+  experience: '体验用户',
+  invite_test: '邀请测试用户',
+  paid_49: '完整课程',
+  paid_99: '高级学习',
+}
 
 export type AdminStatus = 'draft' | 'review' | 'published' | 'archived'
 export type ImportBatchStatus = 'draft' | 'validated' | 'approved' | 'rejected' | 'imported'
@@ -166,12 +176,15 @@ export type AdminUser = {
   realName: string | null
   idCardNumber: string | null
   parentEmail: string | null
+  studentEnrollmentType: StudentEnrollmentType
+  studentEnrollmentLabel: string
+  studentUserType: StudentUserType
+  studentUserTypeLabel: string
   teacherOwnerId: string | null
   teacherOwnerUsername: string | null
   teacherOwnerEmail: string | null
   teacherOwnerName: string | null
   accountStatus: UserAccountStatus
-  isTestAccount: boolean
   adminRole: string | null
   adminActive: boolean
   userRole: UserRole
@@ -261,12 +274,13 @@ type AdminUserRow = {
   real_name: string | null
   id_card_number: string | null
   parent_email: string | null
+  student_enrollment_type: StudentEnrollmentType | null
+  student_user_type: StudentUserType | null
   teacher_owner_id: string | null
   teacher_owner_username: string | null
   teacher_owner_email: string | null
   teacher_owner_name: string | null
   account_status: UserAccountStatus | null
-  is_test_account: boolean | null
   admin_role: string | null
   admin_active: boolean | null
   user_role: UserRole | null
@@ -439,12 +453,13 @@ export const listAdminUsers = cache(async (): Promise<AdminUser[]> => {
         p.real_name,
         p.id_card_number,
         p.parent_email,
+        COALESCE(p.student_enrollment_type, 'online') AS student_enrollment_type,
+        COALESCE(ue.user_type, 'experience') AS student_user_type,
         teacher_user.id AS teacher_owner_id,
         teacher_user.username AS teacher_owner_username,
         teacher_user.email AS teacher_owner_email,
         COALESCE(teacher_profile.display_name, teacher_user.display_name, teacher_user.username) AS teacher_owner_name,
         COALESCE(uas.account_status, 'active') AS account_status,
-        COALESCE(uas.is_test_account, FALSE) AS is_test_account,
         ar.role AS admin_role,
         COALESCE(ar.active, FALSE) AS admin_active,
         COALESCE(ur.role, 'student') AS user_role,
@@ -457,6 +472,7 @@ export const listAdminUsers = cache(async (): Promise<AdminUser[]> => {
       LEFT JOIN user_admin_states uas ON uas.user_id = u.id
       LEFT JOIN admin_roles ar ON ar.user_id = u.id
       LEFT JOIN user_roles ur ON ur.user_id = u.id
+      LEFT JOIN user_entitlements ue ON ue.user_id = u.id
       LEFT JOIN teacher_students ts ON ts.student_user_id = u.id AND ts.status = 'active'
       LEFT JOIN users teacher_user ON teacher_user.id = ts.teacher_user_id
       LEFT JOIN profiles teacher_profile ON teacher_profile.user_id = teacher_user.id
@@ -469,6 +485,8 @@ export const listAdminUsers = cache(async (): Promise<AdminUser[]> => {
         p.phone_number,
         p.phone_verified_at,
         p.parent_email,
+        p.student_enrollment_type,
+        ue.user_type,
         p.real_name,
         p.id_card_number,
         teacher_user.id,
@@ -476,7 +494,6 @@ export const listAdminUsers = cache(async (): Promise<AdminUser[]> => {
         teacher_user.email,
         teacher_profile.display_name,
         uas.account_status,
-        uas.is_test_account,
         ar.role,
         ar.active,
         ur.role
@@ -498,7 +515,7 @@ export async function getAdminUser(id: string): Promise<AdminUserDetail | null> 
     return {
       ...user,
       age: null,
-      notes: user.isTestAccount ? '本地预览测试账号' : null,
+      notes: null,
       progress: fallbackUserProgress(),
     }
   }
@@ -888,6 +905,8 @@ function mapProblemSetRow(row: ProblemSetRow): ProblemSet {
 }
 
 function mapAdminUserRow(row: AdminUserRow): AdminUser {
+  const studentEnrollmentType = row.student_enrollment_type === 'offline' ? 'offline' : 'online'
+  const studentUserType = normalizeStudentUserType(row.student_user_type)
   return {
     id: row.id,
     username: row.username,
@@ -899,12 +918,15 @@ function mapAdminUserRow(row: AdminUserRow): AdminUser {
     realName: row.real_name,
     idCardNumber: row.id_card_number,
     parentEmail: row.parent_email,
+    studentEnrollmentType,
+    studentEnrollmentLabel: getStudentEnrollmentLabel(studentEnrollmentType),
+    studentUserType,
+    studentUserTypeLabel: STUDENT_USER_TYPE_LABELS[studentUserType],
     teacherOwnerId: row.teacher_owner_id,
     teacherOwnerUsername: row.teacher_owner_username,
     teacherOwnerEmail: row.teacher_owner_email,
     teacherOwnerName: row.teacher_owner_name,
     accountStatus: row.account_status ?? 'active',
-    isTestAccount: Boolean(row.is_test_account),
     adminRole: row.admin_role,
     adminActive: Boolean(row.admin_active),
     userRole: row.user_role ?? 'student',
@@ -913,6 +935,11 @@ function mapAdminUserRow(row: AdminUserRow): AdminUser {
     createdAt: row.created_at,
     lastSignInAt: row.last_sign_in_at,
   }
+}
+
+function normalizeStudentUserType(value: StudentUserType | null): StudentUserType {
+  if (value === 'invite_test' || value === 'paid_49' || value === 'paid_99') return value
+  return 'experience'
 }
 
 function mapImportBatchRow(row: ImportBatchRow): ImportBatch {
@@ -1066,12 +1093,15 @@ function fallbackUsers(): AdminUser[] {
       realName: null,
       idCardNumber: null,
       parentEmail: 'parent-preview@spcg.local',
+      studentEnrollmentType: 'online',
+      studentEnrollmentLabel: getStudentEnrollmentLabel('online'),
+      studentUserType: 'experience',
+      studentUserTypeLabel: STUDENT_USER_TYPE_LABELS.experience,
       teacherOwnerId: null,
       teacherOwnerUsername: null,
       teacherOwnerEmail: null,
       teacherOwnerName: null,
       accountStatus: 'active',
-      isTestAccount: true,
       adminRole: null,
       adminActive: false,
       userRole: 'student',
@@ -1091,12 +1121,15 @@ function fallbackUsers(): AdminUser[] {
       realName: null,
       idCardNumber: null,
       parentEmail: null,
+      studentEnrollmentType: 'online',
+      studentEnrollmentLabel: getStudentEnrollmentLabel('online'),
+      studentUserType: 'experience',
+      studentUserTypeLabel: STUDENT_USER_TYPE_LABELS.experience,
       teacherOwnerId: null,
       teacherOwnerUsername: null,
       teacherOwnerEmail: null,
       teacherOwnerName: null,
       accountStatus: 'active',
-      isTestAccount: true,
       adminRole: 'owner',
       adminActive: true,
       userRole: 'admin',

@@ -5,9 +5,10 @@ import { requireUserInventory } from '@/lib/services/inventory-service'
 import { getAdminSubmissionHistory } from '@/lib/services/submission-service'
 import { requireRewardHistory, requireWalletSummary } from '@/lib/services/wallet-service'
 import { getUserEntitlement, STUDENT_USER_TYPE_OPTIONS } from '@/lib/services/entitlement-service'
+import { STUDENT_ENROLLMENT_TYPE_OPTIONS } from '@/lib/student-enrollment'
 import { AdminDrawer, AdminPageHeader, AdminTabs } from '../../components/AdminChrome'
 import { AdminSubmissionTable } from '../../components/AdminSubmissionTable'
-import { deleteAdminUser, resetUserProgress, setAdminStudentUserType, setUserStatus, setUserTestAccount, updateAdminUser } from '../actions'
+import { deleteAdminUser, resetUserProgress, setAdminStudentUserType, setUserStatus, updateAdminUser } from '../actions'
 
 type AdminUserDetailPageProps = {
   params: Promise<{ id: string }> | { id: string }
@@ -55,7 +56,6 @@ export default async function AdminUserDetailPage({ params, searchParams }: Admi
         meta={
           <div className="admin-status-stack">
             <em className={`admin-status admin-status-${user.accountStatus}`}>{user.accountStatus}</em>
-            {user.isTestAccount ? <em className="admin-status admin-status-validated">test</em> : null}
           </div>
         }
         title={user.displayName ?? user.username ?? user.id}
@@ -69,6 +69,7 @@ export default async function AdminUserDetailPage({ params, searchParams }: Admi
         <AdminFact label="Garlic" value={wallet?.garlicBalance ?? 0} />
         <AdminFact label="Rank" value={wallet?.rankLabel ?? '黑铁'} />
         <AdminFact label="Inventory" value={inventory.length} />
+        <AdminFact label="Student Type" value={user.userRole === 'student' ? user.studentEnrollmentLabel : '-'} />
         <AdminFact label="User Type" value={user.userRole === 'student' ? entitlement?.label ?? '体验用户' : '-'} />
         <AdminFact label="Created" value={user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '-'} />
       </section>
@@ -130,6 +131,8 @@ export default async function AdminUserDetailPage({ params, searchParams }: Admi
               <dd>{user.adminRole ? `${user.adminRole}${user.adminActive ? '' : ' inactive'}` : '-'}</dd>
               <dt>User Role</dt>
               <dd>{user.userRole}</dd>
+              <dt>Student Type</dt>
+              <dd>{user.userRole === 'student' ? user.studentEnrollmentLabel : '-'}</dd>
               <dt>User Type</dt>
               <dd>{user.userRole === 'student' ? entitlement?.label ?? '体验用户' : '-'}</dd>
               <dt>Teacher Owner</dt>
@@ -158,10 +161,6 @@ export default async function AdminUserDetailPage({ params, searchParams }: Admi
               <div className="admin-list-row">
                 <span>Status</span>
                 <em className={`admin-status admin-status-${user.accountStatus}`}>{user.accountStatus}</em>
-              </div>
-              <div className="admin-list-row">
-                <span>Test account</span>
-                <small>{user.isTestAccount ? 'yes' : 'no'}</small>
               </div>
               <div className="admin-list-row">
                 <span>Admin active</span>
@@ -251,7 +250,6 @@ export default async function AdminUserDetailPage({ params, searchParams }: Admi
               <StatusButton userId={user.id} status="active" label="Activate" disabled={user.accountStatus === 'active'} />
               <StatusButton userId={user.id} status="suspended" label="Suspend" disabled={user.accountStatus === 'suspended'} />
               <StatusButton userId={user.id} status="deleted" label="Mark deleted" disabled={user.accountStatus === 'deleted'} />
-              <TestButton userId={user.id} isTestAccount={!user.isTestAccount} label={user.isTestAccount ? 'Unset test account' : 'Mark test account'} />
               <ResetProgressButton userId={user.id} />
               {user.userRole === 'student' ? (
                 <Link className="admin-button" href={buildHref(`/admin/users/${user.id}`, resolvedSearchParams, { drawer: 'user-type' })}>
@@ -328,6 +326,18 @@ export default async function AdminUserDetailPage({ params, searchParams }: Admi
                 <option value="admin">admin</option>
               </select>
             </label>
+            {user.userRole === 'student' ? (
+              <label>
+                <span>Student type</span>
+                <select name="studentEnrollmentType" defaultValue={user.studentEnrollmentType}>
+                  {STUDENT_ENROLLMENT_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <label>
               <span>Admin role</span>
               <select name="adminRole" defaultValue={user.adminRole ?? 'none'}>
@@ -342,10 +352,6 @@ export default async function AdminUserDetailPage({ params, searchParams }: Admi
             <label>
               <span>Notes</span>
               <textarea name="notes" defaultValue={user.notes ?? ''} rows={3} />
-            </label>
-            <label className="admin-checkbox">
-              <input name="isTestAccount" type="checkbox" value="true" defaultChecked={user.isTestAccount} />
-              <span>Test account</span>
             </label>
             <label className="admin-checkbox">
               <input name="adminActive" type="checkbox" value="true" defaultChecked={user.adminActive} />
@@ -396,7 +402,7 @@ export default async function AdminUserDetailPage({ params, searchParams }: Admi
             <input name="userId" type="hidden" value={user.id} />
             <label>
               <span>User type</span>
-              <select name="userType" defaultValue={entitlement?.userType ?? 'experience'}>
+              <select name="userType" defaultValue={entitlement?.storedUserType ?? entitlement?.userType ?? 'experience'}>
                 {STUDENT_USER_TYPE_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
@@ -409,6 +415,11 @@ export default async function AdminUserDetailPage({ params, searchParams }: Admi
               <textarea name="note" rows={3} placeholder="Payment note, test batch, or manual approval reason" />
             </label>
             <div className="admin-help-text">
+              {entitlement?.entitlementSource === 'offline_enrollment' ? (
+                <p>
+                  <strong>线下学员</strong>: 已自动拥有最高权益；这里保存的用户类型仅在切回线上学员后生效。
+                </p>
+              ) : null}
               {STUDENT_USER_TYPE_OPTIONS.map((option) => (
                 <p key={option.value}>
                   <strong>{option.label}</strong>: {option.description}
@@ -441,26 +452,6 @@ function StatusButton({
       <input name="userId" type="hidden" value={userId} />
       <input name="status" type="hidden" value={status} />
       <button className="admin-button" type="submit" disabled={disabled}>
-        {label}
-      </button>
-    </form>
-  )
-}
-
-function TestButton({
-  userId,
-  isTestAccount,
-  label,
-}: {
-  userId: string
-  isTestAccount: boolean
-  label: string
-}) {
-  return (
-    <form action={setUserTestAccount}>
-      <input name="userId" type="hidden" value={userId} />
-      <input name="isTestAccount" type="hidden" value={String(isTestAccount)} />
-      <button className="admin-button" type="submit">
         {label}
       </button>
     </form>

@@ -6,12 +6,17 @@ export type ResolvedLanguage = Exclude<Language, 'auto'>
 export type UserRole = 'admin' | 'teacher' | 'student' | 'parent'
 export type UiLocale = 'zh-CN' | 'en-US'
 export type PhoneVerificationStatus = 'unbound' | 'pending' | 'verified'
+export type StudentEnrollmentType = 'online' | 'offline'
 export type StudentUserType = 'experience' | 'invite_test' | 'paid_49' | 'paid_99'
 export type FeatureKey = 'levels_all' | 'ranked_all' | 'hints' | 'ai_analysis' | 'parent_reports'
 
 export type EntitlementSummary = {
   userId: string
   userType: StudentUserType
+  storedUserType: StudentUserType
+  effectiveUserType: StudentUserType
+  entitlementSource: 'stored' | 'offline_enrollment'
+  studentEnrollmentType: StudentEnrollmentType
   label: string
   note: string | null
   expiresAt: string | null
@@ -59,9 +64,10 @@ export type StudentParentInviteSummary = {
   studentPhoneNumberMasked: string | null
   studentPhoneVerified: boolean
   inviteStatus: 'active' | 'missing' | 'revoked'
+  inviteCode: string | null
   codePreview: string | null
   rotatedAt: string | null
-  canRevealCode: false
+  canRevealCode: boolean
   boundParentCount: number
 }
 
@@ -575,7 +581,29 @@ export type LevelLeaderboardSummary = {
   currentUser: CurrentUserLeaderboardRank
 }
 
-export type GrowthReportStatus = 'generated' | 'revoked'
+export type TodayNewsArticleStatus = 'draft' | 'published' | 'archived'
+
+export type TodayNewsArticleCard = {
+  id: string
+  slug: string
+  topicZh: string
+  topicEn: string
+  bodyZh: string
+  bodyEn: string
+  imageUrl: string
+  imageAltZh: string
+  imageAltEn: string
+  authorKey: string
+  authorNameZh: string
+  authorNameEn: string
+  likeCount: number
+  viewerLiked: boolean
+  viewerBookmarked: boolean
+  publishedAt: string
+  publishedAtLabel: string
+}
+
+export type GrowthReportStatus = 'pending' | 'generated' | 'failed' | 'revoked'
 export type GrowthReportDeliveryChannel = 'email' | 'sms'
 export type GrowthReportDeliveryStatus = 'pending' | 'sent' | 'failed' | 'skipped'
 
@@ -608,6 +636,8 @@ export type GrowthReportSummary = {
   periodStart: string
   periodEnd: string
   status: GrowthReportStatus
+  publicUrl: string | null
+  errorMessage: string | null
   tokenExpiresAt: string
   createdAt: string
 }
@@ -706,6 +736,17 @@ export type AssessmentSession = {
   status: 'draft' | 'published' | 'archived'
 }
 
+export type AssessmentAttemptMetadata = Record<string, unknown> & {
+  selectedDurationSeconds?: number | null
+  judgeMode?: string | null
+  futureGarlicCost?: number | null
+  videoMonitor?: {
+    enabled?: boolean
+    bonusCoins?: number
+    verifiedAt?: string | null
+  } | null
+}
+
 export type AssessmentAttempt = {
   id: string
   sessionId: string
@@ -718,6 +759,7 @@ export type AssessmentAttempt = {
   acceptedCount: number
   totalCount: number
   reward: RewardGrantResult | null
+  metadata: AssessmentAttemptMetadata
 }
 
 export type AssessmentAttemptItem = {

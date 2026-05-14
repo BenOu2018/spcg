@@ -1,7 +1,8 @@
-import type { AccessDecision, FeatureKey, StudentUserType, UserRole } from '@spcg/shared/types'
+import type { AccessDecision, EntitlementSummary, FeatureKey, StudentEnrollmentType, StudentUserType, UserRole } from '@spcg/shared/types'
 import { isDatabaseConfigured } from '@/lib/repositories/database-repository'
 import {
   createUpgradeRequestRecord,
+  getStudentEnrollmentTypeRecord,
   getUserEntitlementRecord,
   setUserEntitlementRecord,
   type UpgradeRequestRecord,
@@ -13,8 +14,8 @@ import { ServiceError } from '@/lib/services/errors'
 export const STUDENT_USER_TYPE_LABELS: Record<StudentUserType, string> = {
   experience: '体验用户',
   invite_test: '邀请测试用户',
-  paid_49: '49元完整课程',
-  paid_99: '99元高级学习',
+  paid_49: '完整课程',
+  paid_99: '高级学习',
 }
 
 export const STUDENT_USER_TYPE_OPTIONS: Array<{ value: StudentUserType; label: string; description: string }> = [
@@ -46,8 +47,11 @@ export type RankedAssessmentAccessDecision = AccessDecision & {
 
 export async function getUserEntitlement(userId: string | null | undefined) {
   if (!userId || !isDatabaseConfigured()) return buildDefaultEntitlement(userId ?? '')
-  const record = await getUserEntitlementRecord(userId)
-  return record ?? buildDefaultEntitlement(userId)
+  const [record, studentEnrollmentType] = await Promise.all([
+    getUserEntitlementRecord(userId),
+    getStudentEnrollmentTypeRecord(userId),
+  ])
+  return applyEnrollmentEntitlement(record ?? buildDefaultEntitlement(userId), studentEnrollmentType)
 }
 
 export async function getFeatureAccess(input: {
@@ -65,12 +69,7 @@ export async function getFeatureAccess(input: {
     return allowed(entitlement.userType)
   }
 
-  return denied(
-    `${STUDENT_USER_TYPE_LABELS[required]}可使用该功能，请升级后继续。`,
-    required,
-    true,
-    entitlement.userType,
-  )
+  return denied('暂不支持此功能，升级套餐后继续。', required, true, entitlement.userType)
 }
 
 export async function requireFeatureAccess(input: { userId?: string | null; feature: FeatureKey }): Promise<void> {
@@ -155,13 +154,15 @@ export async function setStudentUserType(input: {
     if (!owns) throw new ServiceError('forbidden', '只有主老师可以设置学生用户类型。', 403)
   }
 
-  return setUserEntitlementRecord({
+  const updated = await setUserEntitlementRecord({
     actorUserId: input.actorUserId,
     actorRole,
     studentUserId: input.studentUserId,
     userType: input.userType,
     note: input.note ?? null,
   })
+  const studentEnrollmentType = await getStudentEnrollmentTypeRecord(input.studentUserId)
+  return applyEnrollmentEntitlement(updated, studentEnrollmentType)
 }
 
 export async function createUpgradeRequest(input: {
@@ -175,6 +176,10 @@ export async function createUpgradeRequest(input: {
   }
   const role = await getUserRole(input.userId)
   if (role !== 'student') throw new ServiceError('bad_request', '只有学生账号可以提交升级申请。', 400)
+  const studentEnrollmentType = await getStudentEnrollmentTypeRecord(input.userId)
+  if (studentEnrollmentType === 'offline') {
+    throw new ServiceError('bad_request', '线下学员已自动拥有最高级会员权益，无需提交升级申请。', 400)
+  }
   return createUpgradeRequestRecord({
     userId: input.userId,
     targetUserType: input.targetPlan,
@@ -190,14 +195,46 @@ export function isStudentUserType(value: unknown): value is StudentUserType {
   return value === 'experience' || value === 'invite_test' || value === 'paid_49' || value === 'paid_99'
 }
 
-function buildDefaultEntitlement(userId: string) {
+function buildDefaultEntitlement(userId: string): EntitlementSummary {
   return {
     userId,
     userType: 'experience' as const,
+    storedUserType: 'experience' as const,
+    effectiveUserType: 'experience' as const,
+    entitlementSource: 'stored' as const,
+    studentEnrollmentType: 'online' as const,
     label: STUDENT_USER_TYPE_LABELS.experience,
     note: null,
     expiresAt: null,
     updatedAt: null,
+  }
+}
+
+function applyEnrollmentEntitlement(
+  entitlement: EntitlementSummary,
+  studentEnrollmentType: StudentEnrollmentType,
+): EntitlementSummary {
+  const storedUserType = entitlement.storedUserType ?? entitlement.userType
+  if (studentEnrollmentType === 'offline') {
+    return {
+      ...entitlement,
+      userType: 'paid_99' as const,
+      storedUserType,
+      effectiveUserType: 'paid_99' as const,
+      entitlementSource: 'offline_enrollment' as const,
+      studentEnrollmentType,
+      label: STUDENT_USER_TYPE_LABELS.paid_99,
+    }
+  }
+
+  return {
+    ...entitlement,
+    userType: storedUserType,
+    storedUserType,
+    effectiveUserType: storedUserType,
+    entitlementSource: 'stored' as const,
+    studentEnrollmentType,
+    label: STUDENT_USER_TYPE_LABELS[storedUserType],
   }
 }
 

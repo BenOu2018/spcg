@@ -1,4 +1,4 @@
-import { AccountSettingsContent, type SettingsSearchParams } from '@/components/AccountSettingsContent'
+import { AccountSettingsContent, type SettingsSearchParams } from '@/app/settings/AccountSettingsContent'
 import { SettingsModalShell } from '@/components/SettingsModalShell'
 
 type SettingsModalPageProps = {

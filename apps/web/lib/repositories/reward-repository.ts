@@ -10,10 +10,10 @@ import type {
   WalletSummary,
 } from '@spcg/shared/types'
 import { getEarnedTitlePoolKeyForRank, pickEarnedTitleFromPool } from '@spcg/shared/earned-titles'
-import { getLeaderboardRankAwards } from '@spcg/shared/leaderboard-rank-awards'
+import { getEligibleLeaderboardRankAwards } from '@spcg/shared/leaderboard-rank-awards'
 import type { PoolClient } from 'pg'
 import { query, queryOne, withTransaction } from '@/lib/db'
-import { getLevelLeaderboardRankForClient } from '@/lib/repositories/leaderboard-repository'
+import { listLevelLeaderboardAwardCandidatesForClient } from '@/lib/repositories/leaderboard-repository'
 import { deterministicEarnedTitleSeed, generateTitle, getRankForCoins, getRankLabel } from '@/lib/reward-rules'
 
 type WalletRow = {
@@ -476,52 +476,56 @@ async function awardLeaderboardRankItemsForLevels(
   const items: RewardGrantResult['items'] = []
 
   for (const trigger of input.triggers) {
-    const rankEntry = await getLevelLeaderboardRankForClient(client, {
+    const candidates = await listLevelLeaderboardAwardCandidatesForClient(client, {
       spcgLevel: trigger.spcgLevel,
-      userId: input.userId,
+      limit: 6,
     })
-    if (!rankEntry) continue
 
-    for (const award of getLeaderboardRankAwards(rankEntry.rank)) {
-      const metadata: Record<string, unknown> = {
-        spcgLevel: trigger.spcgLevel,
-        rank: rankEntry.rank,
-        rankScore: rankEntry.rankScore,
-        coinTotal: rankEntry.coinTotal,
-        threshold: award.threshold,
-        triggerSource: trigger.source,
-        triggerSourceRef: trigger.sourceRef,
-        reason: 'leaderboard_rank_entered',
+    for (const candidate of candidates) {
+      for (const award of getEligibleLeaderboardRankAwards(candidate.rank, candidate.totalParticipants)) {
+        const metadata: Record<string, unknown> = {
+          spcgLevel: trigger.spcgLevel,
+          rank: candidate.rank,
+          rankScore: candidate.rankScore,
+          coinTotal: candidate.coinTotal,
+          totalParticipants: candidate.totalParticipants,
+          threshold: award.threshold,
+          triggerSource: trigger.source,
+          triggerSourceRef: trigger.sourceRef,
+          reason: 'leaderboard_rank_entered',
+        }
+        if (trigger.submissionId) metadata.submissionId = trigger.submissionId
+        if (trigger.attemptId) metadata.attemptId = trigger.attemptId
+        if (trigger.levelId) metadata.levelId = trigger.levelId
+
+        const inserted = await client.query<{ id: string }>(
+          `
+          INSERT INTO reward_ledger
+            (user_id, source, source_ref, coin_delta, garlic_delta, item_id, item_quantity, metadata)
+          VALUES ($1, 'leaderboard_rank_award', $2, 0, 0, $3, 1, $4)
+          ON CONFLICT (user_id, source, source_ref) DO NOTHING
+          RETURNING id
+          `,
+          [
+            candidate.userId,
+            `leaderboard:${trigger.spcgLevel}:${award.itemId}`,
+            award.itemId,
+            metadata,
+          ],
+        )
+        const ledgerId = inserted.rows[0]?.id
+        if (!ledgerId) continue
+
+        await addInventoryItemForClient(client, candidate.userId, award.itemId, 1)
+        if (candidate.userId !== input.userId) continue
+
+        ledgerIds.push(ledgerId)
+        items.push({
+          itemId: award.itemId,
+          name: await getInventoryItemNameForClient(client, award.itemId),
+          quantity: 1,
+        })
       }
-      if (trigger.submissionId) metadata.submissionId = trigger.submissionId
-      if (trigger.attemptId) metadata.attemptId = trigger.attemptId
-      if (trigger.levelId) metadata.levelId = trigger.levelId
-
-      const inserted = await client.query<{ id: string }>(
-        `
-        INSERT INTO reward_ledger
-          (user_id, source, source_ref, coin_delta, garlic_delta, item_id, item_quantity, metadata)
-        VALUES ($1, 'leaderboard_rank_award', $2, 0, 0, $3, 1, $4)
-        ON CONFLICT (user_id, source, source_ref) DO NOTHING
-        RETURNING id
-        `,
-        [
-          input.userId,
-          `leaderboard:${trigger.spcgLevel}:${award.itemId}`,
-          award.itemId,
-          metadata,
-        ],
-      )
-      const ledgerId = inserted.rows[0]?.id
-      if (!ledgerId) continue
-
-      ledgerIds.push(ledgerId)
-      await addInventoryItemForClient(client, input.userId, award.itemId, 1)
-      items.push({
-        itemId: award.itemId,
-        name: await getInventoryItemNameForClient(client, award.itemId),
-        quantity: 1,
-      })
     }
   }
 

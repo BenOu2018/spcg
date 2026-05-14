@@ -31,12 +31,17 @@ export async function finishExamAttemptAction(input: { attemptId: string; totalC
   })
 }
 
-export async function startRankedExamAttemptAction(input: { spcgLevel?: number; durationSeconds: number }) {
+export async function startRankedExamAttemptAction(input: {
+  spcgLevel?: number
+  durationSeconds: number
+  videoMonitorEnabled?: boolean
+}) {
   const session = await auth()
   return startRankedAssessmentAttempt({
     userId: session?.user?.id,
     spcgLevel: input.spcgLevel ?? 1,
     durationSeconds: input.durationSeconds,
+    videoMonitorEnabled: input.videoMonitorEnabled,
   })
 }
 

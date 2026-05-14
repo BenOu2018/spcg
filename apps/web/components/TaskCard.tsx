@@ -27,7 +27,7 @@ export function TaskCard({
   onToggleExpanded,
   onPlayVideo,
   canViewHints = true,
-  hintsUpgradeMessage = '升级到高级学习版后可查看提示。',
+  hintsUpgradeMessage = '暂不支持此功能，升级套餐后继续。',
   messages = fallbackMessages,
 }: TaskCardProps) {
   const visibleSamples = level.publicCases.slice(0, 2)
@@ -140,16 +140,18 @@ export function TaskCard({
           </div>
         </section>
 
-        <section>
-          <h2>{messages.task.algorithmVideo}</h2>
-          <button className="video-card" type="button" onClick={onPlayVideo} disabled={!onPlayVideo}>
-            <span className="video-card-icon">
-              <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-play.svg" alt="" />
-            </span>
-            <strong>{level.title}</strong>
-            <span>{onPlayVideo ? messages.task.play : messages.task.waiting}</span>
-          </button>
-        </section>
+        {onPlayVideo ? (
+          <section>
+            <h2>{messages.task.algorithmVideo}</h2>
+            <button className="video-card" type="button" onClick={onPlayVideo}>
+              <span className="video-card-icon">
+                <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-play.svg" alt="" />
+              </span>
+              <strong>{level.title}</strong>
+              <span>{messages.task.play}</span>
+            </button>
+          </section>
+        ) : null}
 
         <section className="task-foldouts">
           <details

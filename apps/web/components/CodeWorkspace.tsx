@@ -24,7 +24,6 @@ import {
   getAssessmentSubmissionHistoryAction,
   getSubmissionVerdictAction,
   runCodeAction,
-  runPublicSamplesAction,
   submitCodeAction,
 } from '@/app/level/actions'
 import { AlgorithmWhiteboardButton, AlgorithmWhiteboardModal } from '@/components/AlgorithmWhiteboard'
@@ -196,7 +195,6 @@ export function CodeWorkspace({
   const ideLayoutSnapshotRef = useRef('')
   const statusRef = useRef(status)
   const runInFlightRef = useRef(false)
-  const lastRunRequestRef = useRef<{ key: string; at: number } | null>(null)
   const submitInFlightRef = useRef(false)
   const editorDisposablesRef = useRef<Array<{ dispose: () => void }>>([])
   const editSummaryRef = useRef<IdeEditSummary>(createEmptyEditSummary())
@@ -789,22 +787,10 @@ export function CodeWorkspace({
 
   async function runCode() {
     const runStdin = usesConsole ? consoleInput : ''
-    const requestKey = JSON.stringify({
-      levelId: level.id,
-      code,
-      languageMode,
-      stdin: runStdin,
-      assessmentAttemptId,
-    })
-    const now = Date.now()
-    const lastRunRequest = lastRunRequestRef.current
-    if (runInFlightRef.current || (lastRunRequest?.key === requestKey && now - lastRunRequest.at < 5000)) {
-      return
-    }
+    if (runInFlightRef.current) return
     flushEditSummary()
     const runStartedAt = Date.now()
     runInFlightRef.current = true
-    lastRunRequestRef.current = { key: requestKey, at: now }
     clearCompileErrorMarker()
     setStatus('judging')
     setVerdict(null)
@@ -830,16 +816,13 @@ export function CodeWorkspace({
     })
 
     try {
-      const [runResult, sampleResult] = await Promise.all([
-        runCodeAction({
-          levelId: level.id,
-          code,
-          languageMode,
-          stdin: runStdin,
-          assessmentAttemptId,
-        }),
-        runVisiblePublicSamples(),
-      ])
+      const runResult = await runCodeAction({
+        levelId: level.id,
+        code,
+        languageMode,
+        stdin: runStdin,
+        assessmentAttemptId,
+      })
       const execution = runResult.execution
       const nextVerdict = buildRunVerdict(level, runStdin, execution, pickLocalMessage)
 
@@ -877,7 +860,7 @@ export function CodeWorkspace({
           },
         })
       }
-      onRunComplete?.(sampleResult.samples)
+      onRunComplete?.(runResult.samples)
     } catch (error) {
       const message = error instanceof Error ? error.message : '运行失败。'
       const nextVerdict = buildServiceVerdict('Judge Error', message)
@@ -912,40 +895,6 @@ export function CodeWorkspace({
     } finally {
       runInFlightRef.current = false
     }
-  }
-
-  async function runVisiblePublicSamples(): Promise<{ samples: SampleRunResultMap }> {
-    const samples = level.publicCases.slice(0, 2)
-    if (samples.length === 0) {
-      setSampleProgress(null)
-      return { samples: {} }
-    }
-
-    const entries: Array<readonly [string, SampleRunResultMap[string]]> = []
-
-    for (const [index, sample] of samples.entries()) {
-      setSampleProgress(buildLocalSampleProgress(level, index + 1, index, samples.length))
-
-      try {
-        const runResult = await runCodeAction({
-          levelId: level.id,
-          code,
-          languageMode,
-          stdin: sample.input,
-          assessmentAttemptId,
-        })
-        const execution = runResult.execution
-        const passed = execution.result === 'AC' && normalizeOutput(execution.stdout) === normalizeOutput(sample.expectedOutput)
-        const status: SampleRunResultMap[string]['status'] = execution.result === 'AC' ? (passed ? 'AC' : 'WA') : execution.result
-        entries.push([sample.id, { status, passed }])
-      } catch {
-        entries.push([sample.id, { status: 'Judge Error', passed: false }])
-      }
-
-      setSampleProgress(buildLocalSampleProgress(level, index + 2, index + 1, samples.length))
-    }
-
-    return { samples: Object.fromEntries(entries) }
   }
 
   async function submitCode() {

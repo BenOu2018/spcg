@@ -152,7 +152,6 @@ export function LevelMap({
             className={`level-node ${state}${showTooltip ? ' show-tooltip' : ''}`}
             href={`/level/${level.id}`}
             key={level.id}
-            prefetch={false}
             style={style}
           >
             {nodeContent}

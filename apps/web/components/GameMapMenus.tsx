@@ -134,7 +134,6 @@ export function GameMapMenus({
                 href={`/level/${level.id}`}
                 key={level.id}
                 onClick={closeMenus}
-                prefetch={false}
               >
                 <span>
                   {messages.map.levelPrefix}

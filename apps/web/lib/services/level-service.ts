@@ -12,8 +12,10 @@ import {
 } from '@/lib/repositories/level-repository'
 import {
   getLessonStageProblemMenuForLevel,
+  listPublishedLessonStageProblemMenus,
   listCurriculumMainlineStages,
   listMainlineStageTitles,
+  type LessonStageProblemMenu,
 } from '@/lib/repositories/problem-set-repository'
 import { getProgressForUser } from '@/lib/services/progress-service'
 import { ServiceError } from '@/lib/services/errors'
@@ -26,15 +28,14 @@ type LevelServiceInput = {
 
 const STORY_MAINLINE_LEVEL_IDS = new Set(listGameChapters().flatMap((chapter) => chapter.levelPlan.map((level) => level.id)))
 
-export const getAllLevelsForUser = cache(async (input: LevelServiceInput = {}): Promise<Level[]> => {
-  const allowMockFallback = input.allowMockFallback ?? false
+const getAllLevelsForUserCached = cache(async (userId: string | null, allowMockFallback: boolean): Promise<Level[]> => {
   const levels = await loadLevels({ allowMockFallback })
   const progress = await getProgressForUser({
-    userId: input.userId,
+    userId,
     allowMockFallback,
   })
 
-  if (!input.userId || !isDatabaseConfigured() || progress.length === 0) {
+  if (!userId || !isDatabaseConfigured() || progress.length === 0) {
     return applySolutionVideoPolicy(progress.length > 0 ? applySolutionUnlocks(levels, progress) : levels)
   }
 
@@ -45,6 +46,10 @@ export const getAllLevelsForUser = cache(async (input: LevelServiceInput = {}): 
     return applySolutionVideoPolicy(applySolutionUnlocks(levels, progress))
   }
 })
+
+export function getAllLevelsForUser(input: LevelServiceInput = {}): Promise<Level[]> {
+  return getAllLevelsForUserCached(input.userId ?? null, input.allowMockFallback ?? false)
+}
 
 export async function getMainlineLevelsForUser(input: LevelServiceInput = {}): Promise<Level[]> {
   const levels = await getAllLevelsForUser(input)
@@ -66,6 +71,23 @@ export async function getLevelByIdForUser(id: string, input: LevelServiceInput =
 export async function getLessonStageMenuForLevel(levelId: string) {
   if (!isDatabaseConfigured()) return null
   return getLessonStageProblemMenuForLevel(levelId)
+}
+
+export async function listLessonStageMenusForLevels(levelIds: string[]): Promise<LessonStageProblemMenu[]> {
+  if (!isDatabaseConfigured() || levelIds.length === 0) return []
+
+  const requestedIds = new Set(levelIds)
+  const menus = await listPublishedLessonStageProblemMenus({ track: 'A' })
+  const menuByLevelId = new Map<string, LessonStageProblemMenu>()
+  for (const menu of menus) {
+    for (const item of menu.items) {
+      if (requestedIds.has(item.levelId) && !menuByLevelId.has(item.levelId)) {
+        menuByLevelId.set(item.levelId, menu)
+      }
+    }
+  }
+
+  return levelIds.map((levelId) => menuByLevelId.get(levelId)).filter((menu): menu is LessonStageProblemMenu => Boolean(menu))
 }
 
 export async function getLevelTestSummaries() {

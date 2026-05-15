@@ -75,7 +75,7 @@ export function TaskCard({
         {level.sisterProblem ? (
           <section>
             <h2>{messages.task.sisterQuest}</h2>
-            <Link className="sister-card" href={`/level/${level.sisterProblem.levelId}`} prefetch={false}>
+            <Link className="sister-card" href={`/level/${level.sisterProblem.levelId}`}>
               <span className="sister-card-icon">
                 <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-star.svg" alt="" />
               </span>

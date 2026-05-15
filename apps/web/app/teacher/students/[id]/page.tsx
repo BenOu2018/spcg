@@ -158,6 +158,8 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
       <section className="teacher-stat-grid compact">
         <TeacherStatCard label="通过题目" value={student.passedCount} />
         <TeacherStatCard label="今日提交" value={student.todaySubmissionCount} />
+        <TeacherStatCard label="今日通过" value={student.todayAcceptedCount} hint="今日 AC 题目数" />
+        <TeacherStatCard label="今日金币" value={`+${student.todayCoinDelta}`} hint="今日获得金币" />
         <TeacherStatCard label="待修错" value={pendingRepair} />
         <TeacherStatCard label="修错成功" value={repairedSuccess} />
         <TeacherStatCard label="金币" value={wallet?.coinTotal ?? 0} hint={wallet?.rankLabel ?? '暂无段位'} />

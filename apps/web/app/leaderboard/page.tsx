@@ -1,10 +1,13 @@
 import type { CSSProperties } from 'react'
 import type { Metadata } from 'next'
+import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
 import type { LevelLeaderboardEntry } from '@spcg/shared/types'
 import { auth } from '@/auth'
 import { getLevelLeaderboard, normalizeLeaderboardLevel } from '@/lib/services/leaderboard-service'
 import { getStudentUiMessages } from '@/lib/student-ui'
 import { getRequestUiLocale } from '@/lib/student-ui-server'
+import { LeaderboardFreshness } from './LeaderboardFreshness'
 import styles from './leaderboard.module.css'
 
 export const metadata: Metadata = {
@@ -13,6 +16,8 @@ export const metadata: Metadata = {
 }
 
 export const dynamic = 'force-dynamic'
+export const revalidate = 0
+export const fetchCache = 'force-no-store'
 
 type ActivityKind = 'fresh' | 'normal' | 'decay'
 type Tone = 'gold' | 'silver' | 'bronze'
@@ -57,7 +62,12 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
 
   return (
     <main className={styles.page} style={pageStyle}>
+      <LeaderboardFreshness />
       <header className={styles.topBar}>
+        <Link className={styles.backButton} href="/map" prefetch={false} aria-label={messages.common.backToMap}>
+          <ArrowLeft size={18} strokeWidth={2.8} aria-hidden="true" />
+        </Link>
+
         <div className={styles.guildMark}>
           <img src={`${assetBase}/guild-crest.svg`} alt="" />
         </div>
@@ -71,15 +81,16 @@ export default async function LeaderboardPage({ searchParams }: LeaderboardPageP
           <span>{messages.leaderboard.selectLevel}</span>
           <div>
             {levelNumbers.map((level) => (
-              <a
+              <Link
                 key={level}
                 className={level === leaderboard.spcgLevel ? styles.activeLevel : undefined}
                 href={`/leaderboard?level=${level}`}
+                prefetch={false}
                 aria-current={level === leaderboard.spcgLevel ? 'page' : undefined}
                 title={`SPCG ${level}级排行榜`}
               >
                 {level}
-              </a>
+              </Link>
             ))}
           </div>
         </nav>

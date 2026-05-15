@@ -64,9 +64,12 @@ type CodeWorkspaceProps = {
   completionNextHref?: string | null
   completionNextLabel?: string
   completionNextVisible?: boolean
+  completionNextAction?: () => void
+  completionNextBreathing?: boolean
   onRunStart?: () => void
   onRunComplete?: (sampleResults: SampleRunResultMap) => void
   onAccepted?: () => void | Promise<void>
+  onStageLevelSelect?: (levelId: string) => void
   stagePath?: StagePath
   assessmentAttemptId?: string | null
   assessmentItemMaxScore?: number | null
@@ -149,9 +152,12 @@ export function CodeWorkspace({
   completionNextHref = null,
   completionNextLabel = '下一题',
   completionNextVisible = false,
+  completionNextAction,
+  completionNextBreathing = false,
   onRunStart,
   onRunComplete,
   onAccepted,
+  onStageLevelSelect,
   stagePath,
   assessmentAttemptId = null,
   assessmentItemMaxScore = null,
@@ -174,6 +180,7 @@ export function CodeWorkspace({
   const [outputExpanded, setOutputExpanded] = useState(false)
   const [resultsMaximized, setResultsMaximized] = useState(false)
   const [status, setStatus] = useState<'idle' | 'judging' | 'done'>('idle')
+  const [activeJudgeAction, setActiveJudgeAction] = useState<'run' | 'submit' | null>(null)
   const [verdict, setVerdict] = useState<Verdict | null>(null)
   const [consoleInput, setConsoleInput] = useState(() => getDefaultConsoleInput(level))
   const [consoleOutput, setConsoleOutput] = useState('')
@@ -267,11 +274,12 @@ export function CodeWorkspace({
     setSampleProgress(null)
     setVerdict(completedVerdict)
     setStatus(completedVerdict ? 'done' : 'idle')
+    setActiveJudgeAction(null)
     setOutputExpanded(false)
     setResultsMaximized(false)
     setLastRemoteSubmissionId(null)
     setAnalysisBySubmissionId({})
-    setLearningFeedback(completedVerdict ? buildPreviouslyAcceptedLearningFeedback(level.id, stagePath) : null)
+    setLearningFeedback(completedVerdict ? buildPreviouslyAcceptedLearningFeedback(level.id, stagePath, onStageLevelSelect) : null)
     setRepairAttemptCount(0)
     setHistoryOpen(false)
     setWhiteboardOpen(false)
@@ -323,7 +331,7 @@ export function CodeWorkspace({
             acceptedVerdict,
           ),
         )
-        setLearningFeedback(buildPreviouslyAcceptedLearningFeedback(level.id, stagePath))
+        setLearningFeedback(buildPreviouslyAcceptedLearningFeedback(level.id, stagePath, onStageLevelSelect))
       } catch {
         // 如果历史提交恢复失败，保留 progress 已通过状态即可。
       }
@@ -800,6 +808,7 @@ export function CodeWorkspace({
     const runStartedAt = Date.now()
     runInFlightRef.current = true
     clearCompileErrorMarker()
+    setActiveJudgeAction('run')
     setStatus('judging')
     setVerdict(null)
     setLearningFeedback(null)
@@ -901,6 +910,7 @@ export function CodeWorkspace({
         },
       })
     } finally {
+      setActiveJudgeAction(null)
       runInFlightRef.current = false
     }
   }
@@ -911,6 +921,7 @@ export function CodeWorkspace({
     const submitStartedAt = Date.now()
     submitInFlightRef.current = true
     clearCompileErrorMarker()
+    setActiveJudgeAction('submit')
     setStatus('judging')
     setVerdict(null)
     setLastRemoteSubmissionId(null)
@@ -989,7 +1000,7 @@ export function CodeWorkspace({
         onRunComplete?.(buildPublicSampleResultsFromVerdict(level, nextVerdict))
         if (assessmentAttemptId) void onAssessmentSubmissionSettled?.()
         if (nextVerdict.result === 'AC') void onAccepted?.()
-        void refreshHistory(false)
+        refreshHistoryAfterSubmit()
         return
       }
 
@@ -1014,7 +1025,7 @@ export function CodeWorkspace({
           reasonCode: remoteSubmission.code,
         },
       })
-      void refreshHistory(false)
+      refreshHistoryAfterSubmit()
       return
     } catch (error) {
       const message = error instanceof Error ? error.message : '远程提交失败。'
@@ -1038,9 +1049,10 @@ export function CodeWorkspace({
           status: 'error',
         },
       })
-      void refreshHistory(false)
+      refreshHistoryAfterSubmit()
       return
     } finally {
+      setActiveJudgeAction(null)
       submitInFlightRef.current = false
     }
   }
@@ -1060,11 +1072,11 @@ export function CodeWorkspace({
         })
       }
       setRepairAttemptCount(0)
-      setLearningFeedback(
-        assessmentAttemptId
-          ? buildAssessmentAcceptedLearningFeedback(assessmentNextQuestionTitle, onAssessmentNextQuestion)
-          : buildAcceptedLearningFeedback(level.id, stagePath),
-      )
+        setLearningFeedback(
+          assessmentAttemptId
+            ? buildAssessmentAcceptedLearningFeedback(assessmentNextQuestionTitle, onAssessmentNextQuestion)
+            : buildAcceptedLearningFeedback(level.id, stagePath, onStageLevelSelect),
+        )
       return
     }
 
@@ -1107,6 +1119,11 @@ export function CodeWorkspace({
       setHistoryStatus('error')
       setHistoryError(error instanceof Error ? error.message : '历史提交读取失败。')
     }
+  }
+
+  function refreshHistoryAfterSubmit() {
+    if (!historyOpen) return
+    void refreshHistory(false)
   }
 
   function loadHistoryCode(item: SubmissionHistoryItem) {
@@ -1385,17 +1402,29 @@ export function CodeWorkspace({
         />
         <div className="judge-actions editor-actions">
           {completionNextVisible && completionNextHref ? (
-            <Link className="completion-next-button" href={completionNextHref} prefetch={false}>
-              {completionNextLabel}
-            </Link>
+            completionNextAction ? (
+              <button
+                className={`completion-next-button ${completionNextBreathing ? 'breathing' : ''}`}
+                type="button"
+                onClick={completionNextAction}
+              >
+                {completionNextLabel}
+              </button>
+            ) : (
+              <Link className={`completion-next-button ${completionNextBreathing ? 'breathing' : ''}`} href={completionNextHref}>
+                {completionNextLabel}
+              </Link>
+            )
           ) : null}
           <button className="asset-button run" type="button" onClick={runCode} disabled={status === 'judging'}>
             <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-play.svg" alt="" />
-            {messages.ide.run}
+            {activeJudgeAction === 'run' ? messages.results.running : messages.ide.run}
           </button>
           <button className="asset-button submit" type="button" onClick={submitCode} disabled={status === 'judging'}>
             <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-star.svg" alt="" />
-            {status === 'judging' ? messages.ide.judging : messages.ide.submit}
+            {activeJudgeAction === 'submit' || (status === 'judging' && activeJudgeAction !== 'run')
+              ? messages.ide.judging
+              : messages.ide.submit}
           </button>
         </div>
         {whiteboardOpen ? (
@@ -1677,7 +1706,7 @@ function LearningFeedbackCard({ feedback }: { feedback: LearningFeedback }) {
         </ul>
       ) : null}
       {feedback.nextHref && feedback.nextLabel ? (
-        <Link href={feedback.nextHref} prefetch={false}>{feedback.nextLabel}</Link>
+        <Link href={feedback.nextHref}>{feedback.nextLabel}</Link>
       ) : null}
       {feedback.nextAction && feedback.nextActionLabel ? (
         <button type="button" onClick={feedback.nextAction}>
@@ -1719,8 +1748,12 @@ function formatCompletedProgressDebugInfo(progress: Progress): string[] {
   return lines
 }
 
-function buildPreviouslyAcceptedLearningFeedback(levelId: string, stagePath?: StagePath): LearningFeedback {
-  const feedback = buildAcceptedLearningFeedback(levelId, stagePath)
+function buildPreviouslyAcceptedLearningFeedback(
+  levelId: string,
+  stagePath?: StagePath,
+  onStageLevelSelect?: (levelId: string) => void,
+): LearningFeedback {
+  const feedback = buildAcceptedLearningFeedback(levelId, stagePath, onStageLevelSelect)
 
   return {
     ...feedback,
@@ -1749,7 +1782,11 @@ function buildAssessmentAcceptedLearningFeedback(
   }
 }
 
-function buildAcceptedLearningFeedback(levelId: string, stagePath?: StagePath): LearningFeedback {
+function buildAcceptedLearningFeedback(
+  levelId: string,
+  stagePath?: StagePath,
+  onStageLevelSelect?: (levelId: string) => void,
+): LearningFeedback {
   if (!stagePath) {
     return {
       kind: 'accepted',
@@ -1780,6 +1817,17 @@ function buildAcceptedLearningFeedback(levelId: string, stagePath?: StagePath): 
   }
 
   if (mainlinePassed >= 3) {
+    const action =
+      recommended && onStageLevelSelect
+        ? {
+            nextActionLabel: `挑战：${recommended.title}`,
+            nextAction: () => onStageLevelSelect(recommended.levelId),
+          }
+        : {
+            nextHref: recommended ? `/level/${recommended.levelId}?stageSelect=1` : '/map',
+            nextLabel: recommended ? `挑战：${recommended.title}` : '回地图',
+          }
+
     return {
       kind: 'accepted',
       title: totalPassed >= 4 ? '掌握良好' : '本关主线已完成',
@@ -1787,17 +1835,26 @@ function buildAcceptedLearningFeedback(levelId: string, stagePath?: StagePath): 
         totalPassed >= 4
           ? '提高题也通过了，离完全掌握只差最后一步。'
           : '前 3 道主线题已通过，可以进入下一关，也可以继续挑战提高题。',
-      nextHref: recommended ? `/level/${recommended.levelId}` : '/map',
-      nextLabel: recommended ? `挑战：${recommended.title}` : '回地图',
+      ...action,
     }
   }
 
   if (recommended) {
+    if (onStageLevelSelect) {
+      return {
+        kind: 'accepted',
+        title: '继续下一题',
+        body: `下一步建议完成 ${getProblemSetItemDisplayModeLabel(recommended.displayMode)}，把这关的主线能力补齐。`,
+        nextActionLabel: `去做：${recommended.title}`,
+        nextAction: () => onStageLevelSelect(recommended.levelId),
+      }
+    }
+
     return {
       kind: 'accepted',
       title: '继续下一题',
       body: `下一步建议完成 ${getProblemSetItemDisplayModeLabel(recommended.displayMode)}，把这关的主线能力补齐。`,
-      nextHref: `/level/${recommended.levelId}`,
+      nextHref: `/level/${recommended.levelId}?stageSelect=1`,
       nextLabel: `去做：${recommended.title}`,
     }
   }

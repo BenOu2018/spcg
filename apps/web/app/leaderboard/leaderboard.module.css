@@ -47,7 +47,7 @@
   min-height: 0;
   height: 60px;
   display: grid;
-  grid-template-columns: 46px minmax(172px, 260px) minmax(294px, 1fr) 54px;
+  grid-template-columns: 42px 46px minmax(172px, 260px) minmax(294px, 1fr) 54px;
   gap: 10px;
   align-items: center;
   padding: 5px 11px;
@@ -69,6 +69,37 @@
   pointer-events: none;
   border: 1px solid rgba(218, 160, 72, 0.34);
   border-radius: 6px;
+}
+
+.backButton {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  color: #fff0bf;
+  background:
+    linear-gradient(180deg, rgba(255, 247, 214, 0.16), rgba(226, 168, 69, 0.1)),
+    rgba(16, 51, 48, 0.78);
+  border: 1px solid rgba(226, 185, 106, 0.58);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  font-size: 11px;
+  font-weight: 950;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.backButton:hover,
+.backButton:focus-visible {
+  color: #103735;
+  background: linear-gradient(180deg, #fff7d6, #e7b75d);
+  border-color: #fff0bf;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(245, 215, 132, 0.22), 0 0 16px rgba(245, 215, 132, 0.24);
 }
 
 .guildMark {
@@ -1063,7 +1094,7 @@
   .topBar {
     height: auto;
     min-height: 60px;
-    grid-template-columns: 46px 1fr;
+    grid-template-columns: 42px 46px 1fr;
   }
 
   .levelTabs,

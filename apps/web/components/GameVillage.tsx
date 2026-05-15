@@ -138,7 +138,7 @@ export function GameVillage({
       />
 
       {ctaLevel ? (
-        <Link className="current-level-cta" href={`/daily-review?levelId=${encodeURIComponent(ctaLevel.id)}`} prefetch={false}>
+        <Link className="current-level-cta" href={`/daily-review?levelId=${encodeURIComponent(ctaLevel.id)}`}>
           <span>
             {messages.map.dailyTask}
           </span>

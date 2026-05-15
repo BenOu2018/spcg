@@ -136,7 +136,7 @@ export default async function TeacherStudentsPage({ searchParams }: TeacherStude
               </span>
               <span>
                 {student.todaySubmissionCount} 次
-                <small>{new Date(student.linkedAt).toLocaleDateString()} 绑定</small>
+                <small>{student.todayAcceptedCount} 今日通过 / +{student.todayCoinDelta} 金币</small>
               </span>
               <span>{student.parentCount}</span>
               <span>

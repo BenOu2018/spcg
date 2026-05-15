@@ -44,6 +44,8 @@ export type TeacherStudentSummary = {
   passedCount: number
   submissionCount: number
   todaySubmissionCount: number
+  todayAcceptedCount: number
+  todayCoinDelta: number
   pendingRepairCount: number
   parentCount: number
   isOnline: boolean
@@ -182,6 +184,8 @@ type TeacherStudentRow = {
   passed_count: string | number
   submission_count: string | number
   today_submission_count: string | number
+  today_accepted_count: string | number
+  today_coin_delta: string | number
   pending_repair_count: string | number
   parent_count: string | number
   is_online: boolean
@@ -569,6 +573,8 @@ export async function listTeacherStudents(teacherUserId: string): Promise<Teache
       COALESCE(progress_stats.passed_count, 0) AS passed_count,
       COALESCE(submission_stats.submission_count, 0) AS submission_count,
       COALESCE(submission_stats.today_submission_count, 0) AS today_submission_count,
+      COALESCE(submission_stats.today_accepted_count, 0) AS today_accepted_count,
+      COALESCE(reward_stats.today_coin_delta, 0) AS today_coin_delta,
       COALESCE(progress_stats.pending_repair_count, 0) AS pending_repair_count,
       COALESCE(parent_stats.parent_count, 0) AS parent_count,
       (
@@ -598,10 +604,20 @@ export async function listTeacherStudents(teacherUserId: string): Promise<Teache
     LEFT JOIN LATERAL (
       SELECT
         COUNT(*) AS submission_count,
-        COUNT(*) FILTER (WHERE s.created_at >= date_trunc('day', NOW())) AS today_submission_count
+        COUNT(*) FILTER (WHERE s.created_at >= date_trunc('day', NOW())) AS today_submission_count,
+        COUNT(DISTINCT s.level_id) FILTER (
+          WHERE s.created_at >= date_trunc('day', NOW())
+            AND s.verdict->>'result' = 'AC'
+        ) AS today_accepted_count
       FROM submissions s
       WHERE s.user_id = u.id
     ) submission_stats ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(rl.coin_delta) FILTER (WHERE rl.coin_delta > 0), 0) AS today_coin_delta
+      FROM reward_ledger rl
+      WHERE rl.user_id = u.id
+        AND rl.created_at >= date_trunc('day', NOW())
+    ) reward_stats ON TRUE
     LEFT JOIN LATERAL (
       SELECT COUNT(*) AS parent_count
       FROM parent_students ps
@@ -980,6 +996,8 @@ function mapTeacherStudentRow(row: TeacherStudentRow): TeacherStudentSummary {
     passedCount: toNumber(row.passed_count),
     submissionCount: toNumber(row.submission_count),
     todaySubmissionCount: toNumber(row.today_submission_count),
+    todayAcceptedCount: toNumber(row.today_accepted_count),
+    todayCoinDelta: toNumber(row.today_coin_delta),
     pendingRepairCount: toNumber(row.pending_repair_count),
     parentCount: toNumber(row.parent_count),
     isOnline: Boolean(row.is_online),

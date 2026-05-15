@@ -28,11 +28,16 @@ type ProgrammingLevelProps = {
   canViewHints?: boolean
   hintsUpgradeMessage?: string
   messages?: StudentUiMessages
+  onStageLevelSelect?: (levelId: string) => void
+  onPassedLevelChange?: (levelId: string) => void
+  fallbackNextHref?: string | null
+  fallbackNextLabel?: string
 }
 
 type CompletionAnimationPhase = 'idle' | 'slide-out' | 'ko-show' | 'impact' | 'next-ready'
 
 type RecommendedNextLevel = {
+  levelId: string | null
   href: string
   label: string
 }
@@ -53,12 +58,17 @@ export function ProgrammingLevel({
   canViewHints = true,
   hintsUpgradeMessage,
   messages = fallbackMessages,
+  onStageLevelSelect,
+  onPassedLevelChange,
+  fallbackNextHref = null,
+  fallbackNextLabel = '下一关',
 }: ProgrammingLevelProps) {
   const [activeLevel, setActiveLevel] = useState(level)
   const [sampleResults, setSampleResults] = useState<SampleRunResultMap>({})
   const [videoOpen, setVideoOpen] = useState(false)
   const [taskExpanded, setTaskExpanded] = useState(false)
   const [completionPhase, setCompletionPhase] = useState<CompletionAnimationPhase>('idle')
+  const [completionNextReady, setCompletionNextReady] = useState(false)
   const [localPassedIds, setLocalPassedIds] = useState<Set<string>>(
     () => new Set(progressRecords.filter((progress) => progress.passed).map((progress) => progress.levelId)),
   )
@@ -66,7 +76,10 @@ export function ProgrammingLevel({
   const layoutVersion = useProgrammingLayoutRefresh()
   const videoUrl = activeLevel.solutionVideoUrl ?? null
   const activeProgress = progressRecords.find((progress) => progress.levelId === activeLevel.id) ?? null
-  const recommendedNext = getRecommendedNextLevel(activeLevel.id, stageMenu, localPassedIds)
+  const recommendedNext = getRecommendedNextLevel(activeLevel.id, stageMenu, localPassedIds, {
+    fallbackHref: fallbackNextHref,
+    fallbackLabel: fallbackNextLabel,
+  })
   const showKoOverlay = completionPhase === 'slide-out' || completionPhase === 'ko-show' || completionPhase === 'impact'
 
   useEffect(() => {
@@ -98,10 +111,12 @@ export function ProgrammingLevel({
   function resetCompletionAnimation() {
     clearCompletionTimers()
     setCompletionPhase('idle')
+    setCompletionNextReady(false)
   }
 
   function startCompletionAnimation() {
     clearCompletionTimers()
+    setCompletionNextReady(true)
     setCompletionPhase('slide-out')
 
     const showTimer = window.setTimeout(() => {
@@ -122,6 +137,7 @@ export function ProgrammingLevel({
 
   async function handleAccepted() {
     startCompletionAnimation()
+    onPassedLevelChange?.(activeLevel.id)
     await refreshSolutionUnlock()
   }
 
@@ -188,10 +204,15 @@ export function ProgrammingLevel({
         className="completion-workbench-panel"
         completionNextHref={recommendedNext?.href ?? null}
         completionNextLabel={recommendedNext?.label ?? '下一题'}
-        completionNextVisible={completionPhase === 'next-ready' && Boolean(recommendedNext)}
+        completionNextVisible={completionNextReady && Boolean(recommendedNext)}
+        completionNextAction={
+          recommendedNext?.levelId && onStageLevelSelect ? () => onStageLevelSelect(recommendedNext.levelId!) : undefined
+        }
+        completionNextBreathing={completionPhase === 'next-ready'}
         onRunStart={() => setSampleResults(buildJudgingSamples(activeLevel))}
         onRunComplete={setSampleResults}
         onAccepted={handleAccepted}
+        onStageLevelSelect={onStageLevelSelect}
         messages={messages}
         stagePath={
           stageMenu
@@ -225,17 +246,38 @@ function getRecommendedNextLevel(
   levelId: string,
   stageMenu: StagePathMenu,
   passedLevelIds: Set<string>,
+  fallback?: {
+    fallbackHref?: string | null
+    fallbackLabel?: string
+  },
 ): RecommendedNextLevel | null {
-  if (!stageMenu) return null
+  if (!stageMenu) {
+    return fallback?.fallbackHref
+      ? {
+          levelId: null,
+          href: fallback.fallbackHref,
+          label: fallback.fallbackLabel ?? '下一关',
+        }
+      : null
+  }
   const passedIds = new Set(passedLevelIds)
   passedIds.add(levelId)
   const current = stageMenu.items.find((item) => item.levelId === levelId)
   const nextMainline = stageMenu.items.find((item) => item.position <= 3 && !passedIds.has(item.levelId))
   const nextUnpassed = stageMenu.items.find((item) => item.position > (current?.position ?? 0) && !passedIds.has(item.levelId))
   const recommended = nextMainline ?? nextUnpassed
-  if (!recommended) return null
+  if (!recommended) {
+    return fallback?.fallbackHref
+      ? {
+          levelId: null,
+          href: fallback.fallbackHref,
+          label: fallback.fallbackLabel ?? '下一关',
+        }
+      : null
+  }
   return {
-    href: `/level/${recommended.levelId}`,
+    levelId: recommended.levelId,
+    href: `/level/${recommended.levelId}?stageSelect=1`,
     label: '下一题',
   }
 }

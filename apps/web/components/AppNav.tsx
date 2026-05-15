@@ -13,11 +13,11 @@ export function AppNav() {
           <MapPinned size={18} />
           地图
         </Link>
-        <Link href="/level/ch1-01" prefetch={false}>
+        <Link href="/level/ch1-01">
           <Code2 size={18} />
           关卡
         </Link>
-        <Link href="/leaderboard">
+        <Link href="/leaderboard" prefetch={false}>
           <Trophy size={18} />
           榜单
         </Link>

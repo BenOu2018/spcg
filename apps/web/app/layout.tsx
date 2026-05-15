@@ -5,6 +5,7 @@ import { auth } from '@/auth'
 import { BehaviorTracker } from '@/components/BehaviorTracker'
 import { BugReportWidget } from '@/components/BugReportWidget'
 import { LoggedInUserBadge } from '@/components/LoggedInUserBadge'
+import { NavigationFeedback } from '@/components/NavigationFeedback'
 import { getCanShowPricingMenu } from '@/lib/services/account-menu-service'
 import { getBugReportRuntimeSettings } from '@/lib/services/system-settings-service'
 import { getStudentUiMessages } from '@/lib/student-ui'
@@ -34,6 +35,7 @@ export default async function RootLayout({
       <body>
         {children}
         {settingsModal}
+        <NavigationFeedback />
         <BehaviorTracker userId={session?.user?.id ?? null} />
         <LoggedInUserBadge session={session} canShowPricingMenu={canShowPricingMenu} />
         <BugReportWidget enabled={bugReportSettings.enabled} messages={messages.bug} />

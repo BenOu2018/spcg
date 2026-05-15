@@ -8,8 +8,8 @@ import {
 import { getUserRole } from '@/lib/repositories/user-repository'
 import {
   getAllLevelsForUser,
-  getLessonStageMenuForLevel,
   getLevelByIdForUser,
+  listLessonStageMenusForLevels,
   getMainlineLevelsForUser,
 } from '@/lib/services/level-service'
 import { getProgressForUser } from '@/lib/services/progress-service'
@@ -40,6 +40,13 @@ export type StudentCurrentLevelSummary = {
   source: 'teacher_set' | 'progress'
   assignedBy: string | null
   updatedAt: string | null
+}
+
+type PreloadedStudyStateInput = {
+  userId: string
+  levels: Level[]
+  progress: Progress[]
+  stageMenus: LessonStageProblemMenu[]
 }
 
 type StageAccess = LessonStageProblemMenu & {
@@ -95,6 +102,40 @@ export async function getLevelNavigationForUser(userId?: string | null): Promise
   }
 }
 
+export async function getLevelNavigationForUserFromData(input: {
+  userId?: string | null
+  levels: Level[]
+  progress: Progress[]
+  stageMenus: LessonStageProblemMenu[]
+}): Promise<LevelAccessResult> {
+  if (!isDatabaseConfigured()) return DEV_ALLOW_ACCESS
+  if (!input.userId) return denyAnonymousAccess()
+
+  const role = await getUserRole(input.userId)
+  if (role === 'admin' || role === 'teacher') {
+    return allowElevatedAccess(role)
+  }
+
+  const state = await resolveStudentStudyStateFromData({
+    userId: input.userId,
+    levels: input.levels,
+    progress: input.progress,
+    stageMenus: input.stageMenus,
+  })
+  return {
+    role,
+    allowed: true,
+    canFreeJump: false,
+    currentMapLevelId: state.currentStage?.representativeLevelId ?? state.fallbackCurrentLevelId,
+    currentEntryLevelId: state.currentEntryLevelId,
+    redirectLevelId: null,
+    reason: null,
+    upgradeRequired: false,
+    requiredUserType: null,
+    userType: null,
+  }
+}
+
 export async function getLevelAccessForUser(input: {
   userId?: string | null
   levelId: string
@@ -104,29 +145,62 @@ export async function getLevelAccessForUser(input: {
 
   const role = await getUserRole(input.userId)
   if (role === 'admin' || role === 'teacher') {
-    return {
-      role,
-      allowed: true,
-      canFreeJump: true,
-      currentMapLevelId: null,
-      currentEntryLevelId: null,
-      redirectLevelId: null,
-      reason: null,
-      upgradeRequired: false,
-      requiredUserType: null,
-      userType: null,
-    }
+    return allowElevatedAccess(role)
   }
 
   const state = await resolveStudentStudyState(input.userId)
+  return getStudentLevelAccessFromState({
+    userId: input.userId,
+    role,
+    levelId: input.levelId,
+    state,
+  })
+}
+
+export async function getLevelAccessForUserFromData(input: {
+  userId?: string | null
+  levelId: string
+  levels: Level[]
+  progress: Progress[]
+  stageMenus: LessonStageProblemMenu[]
+}): Promise<LevelAccessResult> {
+  if (!isDatabaseConfigured()) return DEV_ALLOW_ACCESS
+  if (!input.userId) return denyAnonymousAccess()
+
+  const role = await getUserRole(input.userId)
+  if (role === 'admin' || role === 'teacher') {
+    return allowElevatedAccess(role)
+  }
+
+  const state = await resolveStudentStudyStateFromData({
+    userId: input.userId,
+    levels: input.levels,
+    progress: input.progress,
+    stageMenus: input.stageMenus,
+  })
+  return getStudentLevelAccessFromState({
+    userId: input.userId,
+    role,
+    levelId: input.levelId,
+    state,
+  })
+}
+
+async function getStudentLevelAccessFromState(input: {
+  userId: string
+  role: UserRole
+  levelId: string
+  state: Awaited<ReturnType<typeof resolveStudentStudyState>>
+}): Promise<LevelAccessResult> {
+  const { userId, role, levelId, state } = input
   const currentMapLevelId = state.currentStage?.representativeLevelId ?? state.fallbackCurrentLevelId
   const currentEntryLevelId = state.currentEntryLevelId
   const redirectLevelId = currentEntryLevelId ?? currentMapLevelId
-  const targetStageIndex = state.stages.findIndex((stage) => stage.items.some((item) => item.levelId === input.levelId))
+  const targetStageIndex = state.stages.findIndex((stage) => stage.items.some((item) => item.levelId === levelId))
   const targetStage = targetStageIndex >= 0 ? state.stages[targetStageIndex] : null
-  const targetLevel = state.levels.find((level) => level.id === input.levelId)
+  const targetLevel = state.levels.find((level) => level.id === levelId)
   const entitlementAccess = await getLevelEntitlementAccess({
-    userId: input.userId,
+    userId,
     role,
     spcgLevel: targetStage?.spcgLevel ?? Number(targetLevel?.difficulty.spcgLevel ?? 0),
     stageNo: targetStage?.stageNo ?? targetLevel?.order ?? null,
@@ -147,7 +221,7 @@ export async function getLevelAccessForUser(input: {
     }
   }
 
-  if (state.passedLevelIds.has(input.levelId)) {
+  if (state.passedLevelIds.has(levelId)) {
     return allowStudentAccess(role, currentMapLevelId, currentEntryLevelId)
   }
 
@@ -267,14 +341,48 @@ async function resolveStudentStudyState(userId: string) {
   }
 }
 
+async function resolveStudentStudyStateFromData(input: PreloadedStudyStateInput) {
+  const stored = await getStudentCurrentLevel(input.userId)
+  const passedLevelIds = new Set(input.progress.filter((item) => item.passed).map((item) => item.levelId))
+  const stages = buildStageAccessFromMenus(input.levels, input.stageMenus)
+  const currentStageState = findCurrentStage(stages, passedLevelIds, stored?.levelId ?? null)
+  const fallbackCurrentLevelId = stored?.levelId ?? findFallbackCurrentLevelId(input.levels, input.progress)
+  const currentEntryLevelId = currentStageState.stage
+    ? getFirstOpenStageLevelId(currentStageState.stage, passedLevelIds)
+    : fallbackCurrentLevelId
+
+  return {
+    progress: input.progress,
+    levels: input.levels,
+    stages,
+    passedLevelIds,
+    currentStage: currentStageState.stage,
+    currentStageIndex: currentStageState.index,
+    currentEntryLevelId,
+    fallbackCurrentLevelId,
+  }
+}
+
 async function loadStageAccess(levels: Level[]): Promise<StageAccess[]> {
-  const menus = await Promise.all(levels.map((level) => getLessonStageMenuForLevel(level.id)))
+  const menus = await listLessonStageMenusForLevels(levels.map((level) => level.id))
+  return buildStageAccessFromMenus(levels, menus)
+}
+
+function buildStageAccessFromMenus(levels: Level[], menus: LessonStageProblemMenu[]): StageAccess[] {
+  const representativeByMenuId = new Map<string, Level>()
+  const levelById = new Map(levels.map((level) => [level.id, level]))
+  for (const menu of menus) {
+    const representative = menu.items.map((item) => levelById.get(item.levelId)).find((level): level is Level => Boolean(level))
+    if (representative && !representativeByMenuId.has(menu.problemSetId)) {
+      representativeByMenuId.set(menu.problemSetId, representative)
+    }
+  }
   const seen = new Set<string>()
   const stages: StageAccess[] = []
 
-  menus.forEach((menu, index) => {
-    const representative = levels[index]
-    if (!menu || !representative || seen.has(menu.problemSetId)) return
+  menus.forEach((menu) => {
+    const representative = representativeByMenuId.get(menu.problemSetId)
+    if (!representative || seen.has(menu.problemSetId)) return
     seen.add(menu.problemSetId)
     stages.push({
       ...menu,
@@ -291,6 +399,21 @@ async function loadStageAccess(levels: Level[]): Promise<StageAccess[]> {
       a.track.localeCompare(b.track) ||
       a.representativeOrder - b.representativeOrder,
   )
+}
+
+function allowElevatedAccess(role: Extract<UserRole, 'admin' | 'teacher'>): LevelAccessResult {
+  return {
+    role,
+    allowed: true,
+    canFreeJump: true,
+    currentMapLevelId: null,
+    currentEntryLevelId: null,
+    redirectLevelId: null,
+    reason: null,
+    upgradeRequired: false,
+    requiredUserType: null,
+    userType: null,
+  }
 }
 
 function findCurrentStage(

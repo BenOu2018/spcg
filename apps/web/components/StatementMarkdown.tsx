@@ -1,3 +1,4 @@
+import { isValidElement, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
@@ -37,6 +38,22 @@ export function StatementMarkdown({ markdown, assets, hideImages = false }: Stat
           {children}
         </a>
       )
+    },
+    p({ children, ...props }) {
+      const text = getNodeText(children).trim()
+      if (isStatementSubheading(text)) {
+        return (
+          <p {...props} className="statement-subheading">
+            {children}
+          </p>
+        )
+      }
+
+      return <p {...props}>{children}</p>
+    },
+    pre({ children, ...props }) {
+      if (getNodeText(children).trim().length === 0) return null
+      return <pre {...props}>{children}</pre>
     },
   } satisfies Components
 
@@ -163,6 +180,18 @@ function looksLikeRawSampleData(line: string): boolean {
   const trimmed = line.trim()
   if (trimmed.length === 0) return false
   return !/[，。；、？！]/.test(trimmed)
+}
+
+function isStatementSubheading(text: string): boolean {
+  return /^(?:输入格式|输出格式|变量说明|约束|公开样例|样例\s*(?:#?\s*)?[0-9０-９一二三四五六七八九十]+)\s*[：:]?$/.test(text)
+}
+
+function getNodeText(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === 'boolean') return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(getNodeText).join('')
+  if (isValidElement<{ children?: ReactNode }>(node)) return getNodeText(node.props.children)
+  return ''
 }
 
 function isSafeLink(href: string) {

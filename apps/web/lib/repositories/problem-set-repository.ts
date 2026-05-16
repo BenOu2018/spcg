@@ -95,6 +95,15 @@ export type LessonStageProblemMenu = {
   items: LessonStageProblemMenuItem[]
 }
 
+export type LessonStageAccessItem = LessonStageProblemMenuItem & {
+  chapterId: string
+  order: number
+}
+
+export type LessonStageAccessSummary = Omit<LessonStageProblemMenu, 'items'> & {
+  items: LessonStageAccessItem[]
+}
+
 export type LessonPlanProblem = ProblemSetItemSummary & {
   description: string
   inputFormat: string
@@ -493,6 +502,83 @@ export async function listPublishedLessonStageProblemMenus(input: {
   }
 
   return [...menus.values()]
+}
+
+export async function listPublishedLessonStageAccessSummaries(input: {
+  track?: LessonTrack
+} = {}): Promise<LessonStageAccessSummary[]> {
+  const track = input.track ?? 'A'
+  const rows = await query<
+    {
+      problem_set_id: string
+      problem_set_title: string
+      spcg_level: number
+      stage_no: number
+      track: LessonTrack
+      lesson_focus: string | null
+      level_id: string
+      level_title: string
+      chapter_id: string
+      level_order: number
+      position: number
+      display_mode: ProblemSetItemDisplayMode | null
+    } & Record<string, unknown>
+  >(
+    `
+    SELECT
+      ps.id AS problem_set_id,
+      ps.title AS problem_set_title,
+      ps.spcg_level,
+      ps.stage_no,
+      ps.track,
+      ps.lesson_focus,
+      psi.level_id,
+      l.title AS level_title,
+      l.chapter_id,
+      l."order" AS level_order,
+      psi.position,
+      COALESCE(psi.metadata->>'displayMode', 'primary') AS display_mode
+    FROM problem_sets ps
+    JOIN problem_set_items psi ON psi.problem_set_id = ps.id
+    JOIN levels l ON l.id = psi.level_id
+    WHERE
+      ps.type = 'lesson'
+      AND ps.status = 'published'
+      AND ps.visibility = 'student'
+      AND ps.track = $1
+      AND l.status = 'published'
+      AND COALESCE(psi.metadata->>'displayMode', 'primary') = ANY($2::text[])
+    ORDER BY ps.spcg_level ASC, ps.stage_no ASC, psi.position ASC, psi.level_id ASC
+    `,
+    [track, FRONTEND_LESSON_DISPLAY_MODES],
+  )
+
+  const summaries = new Map<string, LessonStageAccessSummary>()
+  for (const row of rows) {
+    const existing = summaries.get(row.problem_set_id)
+    const summary =
+      existing ??
+      {
+        problemSetId: row.problem_set_id,
+        title: row.problem_set_title,
+        spcgLevel: row.spcg_level,
+        stageNo: row.stage_no,
+        track: row.track,
+        lessonFocus: row.lesson_focus,
+        items: [],
+      }
+    summary.items.push({
+      levelId: row.level_id,
+      title: row.level_title,
+      chapterId: row.chapter_id,
+      order: row.level_order,
+      position: row.position,
+      displayMode: isProblemSetItemDisplayMode(row.display_mode) ? row.display_mode : 'primary',
+    })
+    summaries.set(row.problem_set_id, summary)
+  }
+
+  return [...summaries.values()]
 }
 
 export async function createProblemSet(

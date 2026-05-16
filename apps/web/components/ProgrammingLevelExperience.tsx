@@ -2,13 +2,18 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import type { Session } from 'next-auth'
 import type { Level, Progress } from '@spcg/shared/types'
 import { getGameChapter } from '@spcg/shared/game-chapters'
 import { getProblemSetItemDisplayModeLabel } from '@spcg/shared/curriculum'
 import { ProgrammingLevel } from '@/components/ProgrammingLevel'
 import { TopbarAccountActions } from '@/components/TopbarAccountActions'
+import { markLevelPagePayloadLevelPassed } from '@/lib/level-page-payload-cache'
+import { markMapSnapshotLevelPassed } from '@/lib/map-snapshot-cache'
+import { markMePagePayloadLevelPassed } from '@/lib/me-page-payload-cache'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
+import { getStageLevelUnlockState, isStageLevelUnlocked, OPTIONAL_STAGE_LOCK_REASON } from '@/lib/stage-unlock'
 
 type StagePathMenu = {
   title: string
@@ -34,6 +39,8 @@ type ProgrammingLevelExperienceProps = {
   hintsUpgradeMessage?: string
   messages?: StudentUiMessages
   canShowPricingMenu?: boolean
+  canFreeJump?: boolean
+  embeddedInMap?: boolean
 }
 
 type StageMenuItem = NonNullable<StagePathMenu>['items'][number]
@@ -47,6 +54,7 @@ type PromoteItem = {
   required: boolean
   passed: boolean
   current: boolean
+  unlocked: boolean
   missing: boolean
   nodeAsset: string
 }
@@ -65,7 +73,10 @@ export function ProgrammingLevelExperience({
   hintsUpgradeMessage,
   messages = fallbackMessages,
   canShowPricingMenu = false,
+  canFreeJump = false,
+  embeddedInMap = false,
 }: ProgrammingLevelExperienceProps) {
+  const router = useRouter()
   const [activeLevel, setActiveLevel] = useState(level)
   const [localProgressRecords, setLocalProgressRecords] = useState(progressRecords)
 
@@ -91,12 +102,17 @@ export function ProgrammingLevelExperience({
     function handlePopState() {
       const levelId = readLevelIdFromPath(window.location.pathname)
       if (!levelId) {
+        if (embeddedInMap) return
         window.location.href = window.location.href
         return
       }
 
       const nextLevel = stageLevelById.get(levelId)
       if (nextLevel) {
+        if (stageMenu && !isStageLevelUnlocked(stageMenu.items, levelId, passedLevelIds, canFreeJump)) {
+          window.location.href = window.location.href
+          return
+        }
         setActiveLevel(nextLevel)
         return
       }
@@ -106,9 +122,11 @@ export function ProgrammingLevelExperience({
 
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
-  }, [stageLevelById])
+  }, [canFreeJump, embeddedInMap, passedLevelIds, stageLevelById, stageMenu])
 
   function selectStageLevel(levelId: string) {
+    if (stageMenu && !isStageLevelUnlocked(stageMenu.items, levelId, passedLevelIds, canFreeJump)) return
+
     const nextLevel = stageLevelById.get(levelId)
     if (!nextLevel) {
       window.location.href = getStageSelectionHref(levelId)
@@ -125,6 +143,9 @@ export function ProgrammingLevelExperience({
   }
 
   function markLevelPassed(levelId: string) {
+    markLevelPagePayloadLevelPassed(userId, levelId)
+    markMapSnapshotLevelPassed(userId, levelId)
+    markMePagePayloadLevelPassed(userId, levelId)
     setLocalProgressRecords((current) => {
       const existing = current.find((progress) => progress.levelId === levelId)
       if (existing?.passed) return current
@@ -157,6 +178,7 @@ export function ProgrammingLevelExperience({
   }
 
   const chapter = getGameChapter(activeLevel.chapterId)
+  const mapHref = `/map?chapter=${chapter.chapterId}`
   const chapterLevels = levels.filter((item) => item.chapterId === activeLevel.chapterId)
   const stageLabel = stageMenu ? `第${stageMenu.stageNo}层 ${stageMenu.title}` : `第${activeLevel.order}层 ${activeLevel.title}`
   const stagePassedCount = stageMenu?.items.filter((item) => passedLevelIds.has(item.levelId)).length ?? 0
@@ -172,6 +194,7 @@ export function ProgrammingLevelExperience({
   const promoteItems = buildPromoteItems({
     currentLevelId: activeLevel.id,
     fallbackLevels: chapterLevels,
+    canFreeJump,
     passedLevelIds,
     stageItems: stageMenu?.items ?? null,
   })
@@ -183,10 +206,14 @@ export function ProgrammingLevelExperience({
     fallbackChapterId: chapter.chapterId,
   })
 
+  useEffect(() => {
+    router.prefetch(mapHref)
+  }, [mapHref, router])
+
   return (
     <>
       <header className="programming-topbar">
-        <Link className="kit-logo" href={`/map?chapter=${chapter.chapterId}`} aria-label="返回地图">
+        <Link className="kit-logo" href={mapHref} aria-label="返回地图">
           <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/logo-spcg.svg" alt="SPCG" />
         </Link>
         <div className="programming-level-context">
@@ -199,10 +226,37 @@ export function ProgrammingLevelExperience({
                 {stageMenu.items.map((item) => {
                   const passed = passedLevelIds.has(item.levelId)
                   const active = item.levelId === activeLevel.id
+                  const unlockState = getStageLevelUnlockState(stageMenu.items, item.levelId, passedLevelIds, canFreeJump)
+                  const className = [active ? 'active' : '', !unlockState.unlocked ? 'locked' : ''].filter(Boolean).join(' ')
+                  const itemContent = (
+                    <>
+                      <span>{String(item.position).padStart(2, '0')}</span>
+                      <strong>{item.title}</strong>
+                      <em>
+                        {!unlockState.unlocked
+                          ? '未解锁'
+                          : `${getProblemSetItemDisplayModeLabel(item.displayMode)} · ${passed ? '已通过' : '未通过'}`}
+                      </em>
+                    </>
+                  )
+
+                  if (!unlockState.unlocked) {
+                    return (
+                      <span
+                        aria-disabled="true"
+                        className={className}
+                        key={item.levelId}
+                        title={unlockState.reason ?? OPTIONAL_STAGE_LOCK_REASON}
+                      >
+                        {itemContent}
+                      </span>
+                    )
+                  }
+
                   return (
                     <Link
                       aria-current={active ? 'page' : undefined}
-                      className={active ? 'active' : undefined}
+                      className={className || undefined}
                       data-navigation-feedback="false"
                       href={getStageSelectionHref(item.levelId)}
                       key={item.levelId}
@@ -212,11 +266,7 @@ export function ProgrammingLevelExperience({
                         if (!active) selectStageLevel(item.levelId)
                       }}
                     >
-                      <span>{String(item.position).padStart(2, '0')}</span>
-                      <strong>{item.title}</strong>
-                      <em>
-                        {getProblemSetItemDisplayModeLabel(item.displayMode)} · {passed ? '已通过' : '未通过'}
-                      </em>
+                      {itemContent}
                     </Link>
                   )
                 })}
@@ -237,7 +287,7 @@ export function ProgrammingLevelExperience({
         <div className="programming-actions">
           <TopbarAccountActions
             session={session}
-            mapHref={`/map?chapter=${chapter.chapterId}`}
+            mapHref={mapHref}
             showMapButton
             showProgressButton={false}
             messages={messages}
@@ -255,6 +305,7 @@ export function ProgrammingLevelExperience({
           canViewHints={canViewHints}
           hintsUpgradeMessage={hintsUpgradeMessage}
           messages={messages}
+          canFreeJump={canFreeJump}
           onStageLevelSelect={selectStageLevel}
           onPassedLevelChange={markLevelPassed}
           fallbackNextHref={nextStageHref}
@@ -273,11 +324,13 @@ function readLevelIdFromPath(pathname: string) {
 function buildPromoteItems({
   currentLevelId,
   fallbackLevels,
+  canFreeJump,
   passedLevelIds,
   stageItems,
 }: {
   currentLevelId: string
   fallbackLevels: Array<{ id: string; title: string }>
+  canFreeJump: boolean
   passedLevelIds: Set<string>
   stageItems: StageMenuItem[] | null
 }): PromoteItem[] {
@@ -307,6 +360,7 @@ function buildPromoteItems({
     const current = levelId === currentLevelId
     const passed = levelId ? passedLevelIds.has(levelId) : false
     const required = slot <= 3
+    const unlocked = levelId ? isStageLevelUnlocked(sourceItems, levelId, passedLevelIds, canFreeJump) : false
     const roleLabel = getPromoteRoleLabel(source?.displayMode, slot)
     const optionalPassed = slot >= 4 && passed
     const nodeAsset = optionalPassed
@@ -332,6 +386,7 @@ function buildPromoteItems({
       required,
       passed,
       current,
+      unlocked,
       missing: !source,
       nodeAsset,
     }
@@ -407,6 +462,7 @@ function PromoteNode({ item, onSelect, switchable }: { item: PromoteItem; onSele
     item.passed ? 'passed' : '',
     item.slot >= 4 && item.passed ? 'optional-passed' : '',
     item.required ? 'required' : 'optional',
+    !item.unlocked ? 'locked' : '',
     item.missing ? 'missing' : '',
   ]
     .filter(Boolean)
@@ -420,9 +476,14 @@ function PromoteNode({ item, onSelect, switchable }: { item: PromoteItem; onSele
   )
   const label = `${item.roleLabel}，${item.current ? '当前题目，' : ''}${item.passed ? '已通过，' : ''}${item.title}`
 
-  if (!item.href || item.current) {
+  if (!item.href || item.current || !item.unlocked) {
     return (
-      <span aria-label={label} className={className} title={item.title}>
+      <span
+        aria-disabled={!item.unlocked ? 'true' : undefined}
+        aria-label={!item.unlocked ? `${label}，未解锁` : label}
+        className={className}
+        title={!item.unlocked ? OPTIONAL_STAGE_LOCK_REASON : item.title}
+      >
         {content}
       </span>
     )

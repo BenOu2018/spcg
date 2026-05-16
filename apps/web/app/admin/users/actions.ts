@@ -8,7 +8,13 @@ import { requireAdmin, type AdminContext } from '@/lib/admin-auth'
 import type { UserAccountStatus } from '@/lib/admin-data'
 import { isDbConfigured, withTransaction } from '@/lib/db'
 import { hashPassword } from '@/lib/password'
-import { isValidUsername, normalizeUsername } from '@/lib/user-identity'
+import {
+  isEmailLikeUsername,
+  isValidStudentUsername,
+  isValidUsername,
+  normalizeUsername,
+  STUDENT_USERNAME_INVALID_MESSAGE,
+} from '@/lib/user-identity'
 import { isStudentUserType, setStudentUserType } from '@/lib/services/entitlement-service'
 import { isStudentEnrollmentType } from '@/lib/student-enrollment'
 
@@ -24,7 +30,12 @@ export async function createAdminUser(formData: FormData) {
   const displayName = readRequired(formData, 'displayName')
   const password = readRequired(formData, 'password')
   const parentEmail = readOptionalEmail(formData, 'parentEmail')
-  const age = readOptionalInteger(formData, 'age')
+  let age: number | null = null
+  try {
+    age = readOptionalInteger(formData, 'age')
+  } catch {
+    redirectToAdminUserCreateError('年龄必须是 0-120 的整数。')
+  }
   const realName = readOptional(formData, 'realName')
   const idCardNumber = normalizeIdCardNumber(readOptional(formData, 'idCardNumber'))
   const status = readStatus(formData)
@@ -34,9 +45,8 @@ export async function createAdminUser(formData: FormData) {
   const studentEnrollmentType = userRole === 'student' ? readStudentEnrollmentType(formData, 'offline') : 'online'
   const adminActive = readBoolean(formData, 'adminActive')
 
-  if (!isValidUsername(username) || (email && !isEmail(email)) || !displayName || password.length < 8) {
-    throw new Error('Invalid user create request')
-  }
+  const validationError = getAdminUserCreateValidationError({ username, email, displayName, password, userRole })
+  if (validationError) redirectToAdminUserCreateError(validationError)
 
   const context = await requireAdmin('admin')
   if (context.preview || !isDbConfigured()) {
@@ -47,29 +57,70 @@ export async function createAdminUser(formData: FormData) {
   const passwordHash = await hashPassword(password)
   let userId = ''
 
-  await withTransaction(async (client) => {
-    const user = await client.query<{ id: string }>(
-      `
-      INSERT INTO users (username, email, password_hash, display_name)
-      VALUES ($1, $2, $3, $4)
-      RETURNING id
-      `,
-      [username, email, passwordHash, displayName],
-    )
-    userId = user.rows[0]?.id ?? ''
-    if (!userId) throw new Error('Failed to create user')
+  try {
+    await withTransaction(async (client) => {
+      const user = await client.query<{ id: string }>(
+        `
+        INSERT INTO users (username, email, password_hash, display_name)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id
+        `,
+        [username, email, passwordHash, displayName],
+      )
+      userId = user.rows[0]?.id ?? ''
+      if (!userId) throw new Error('Failed to create user')
 
-    await upsertProfile(client, userId, displayName, parentEmail, age, realName, idCardNumber, studentEnrollmentType)
-    await upsertAdminState(client, userId, status, notes, context.userId)
-    await upsertAdminRole(client, userId, role, adminActive, displayName, context.userId)
-    await upsertUserRole(client, userId, userRole, context.userId)
+      await upsertProfile(client, userId, displayName, parentEmail, age, realName, idCardNumber, studentEnrollmentType)
+      await upsertAdminState(client, userId, status, notes, context.userId)
+      await upsertAdminRole(client, userId, role, adminActive, displayName, context.userId)
+      await upsertUserRole(client, userId, userRole, context.userId)
 
-    const after = await readUserAuditSnapshot(client, userId)
-    await writeAudit(client, context, 'user.create', userId, null, after, { username, email, role, userRole, studentEnrollmentType })
-  })
+      const after = await readUserAuditSnapshot(client, userId)
+      await writeAudit(client, context, 'user.create', userId, null, after, { username, email, role, userRole, studentEnrollmentType })
+    })
+  } catch (error) {
+    const message = getAdminUserCreateDatabaseError(error)
+    if (message) redirectToAdminUserCreateError(message)
+    throw error
+  }
 
   revalidateUserPaths(userId)
   redirect(`/admin/users/${userId}`)
+}
+
+function getAdminUserCreateValidationError(input: {
+  username: string
+  email: string | null
+  displayName: string
+  password: string
+  userRole: UserRole
+}): string | null {
+  const usernameError = getAdminUsernameValidationError(input.username, input.userRole)
+  if (usernameError) return usernameError
+  if (input.email && !isEmail(input.email)) return '邮箱格式不正确。'
+  if (!input.displayName) return '显示名不能为空。'
+  if (input.password.length < 8) return '密码至少需要 8 位。'
+  return null
+}
+
+function getAdminUsernameValidationError(username: string, userRole: UserRole): string | null {
+  if (isEmailLikeUsername(username)) {
+    return userRole === 'student'
+      ? '学生用户名不能使用邮箱格式，请将邮箱填入 Email 字段。'
+      : '用户名不能使用邮箱格式，请将邮箱填入 Email 字段。'
+  }
+  if (userRole === 'student') {
+    return isValidStudentUsername(username) ? null : STUDENT_USERNAME_INVALID_MESSAGE
+  }
+  return isValidUsername(username) ? null : '用户名仅支持 3-24 位中文、英文字母、数字、下划线或连字符。'
+}
+
+function redirectToAdminUserCreateError(message: string): never {
+  const params = new URLSearchParams({
+    drawer: 'create',
+    createError: message.slice(0, 300),
+  })
+  redirect(`/admin/users?${params.toString()}`)
 }
 
 export async function updateAdminUser(formData: FormData) {
@@ -89,8 +140,9 @@ export async function updateAdminUser(formData: FormData) {
   const studentEnrollmentType = userRole === 'student' ? readStudentEnrollmentType(formData, 'online') : 'online'
   const adminActive = readBoolean(formData, 'adminActive')
 
-  if (!userId || !isValidUsername(username) || (email && !isEmail(email)) || !displayName || (password && password.length < 8)) {
-    throw new Error('Invalid user update request')
+  const usernameError = getAdminUsernameValidationError(username, userRole)
+  if (!userId || usernameError || (email && !isEmail(email)) || !displayName || (password && password.length < 8)) {
+    throw new Error(usernameError ?? 'Invalid user update request')
   }
 
   const context = await requireAdmin('admin')
@@ -365,6 +417,19 @@ function readStudentEnrollmentType(formData: FormData, defaultValue: StudentEnro
 
 function isEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+function getAdminUserCreateDatabaseError(error: unknown): string | null {
+  const pgError = error as { code?: string; constraint?: string } | null
+  if (pgError?.code === '23505') {
+    const constraint = String(pgError.constraint ?? '').toLowerCase()
+    if (constraint.includes('email')) return '这个邮箱已经注册。'
+    return '这个用户名已经注册。'
+  }
+  if (pgError?.code === '23514') {
+    return '账号字段不符合要求，请检查用户名、邮箱和密码后重试。'
+  }
+  return null
 }
 
 function normalizeIdCardNumber(value: string | null): string | null {

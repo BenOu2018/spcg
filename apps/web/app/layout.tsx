@@ -4,6 +4,7 @@ import 'katex/dist/katex.min.css'
 import { auth } from '@/auth'
 import { BehaviorTracker } from '@/components/BehaviorTracker'
 import { BugReportWidget } from '@/components/BugReportWidget'
+import { InstantMeOverlay } from '@/components/InstantMeOverlay'
 import { LoggedInUserBadge } from '@/components/LoggedInUserBadge'
 import { NavigationFeedback } from '@/components/NavigationFeedback'
 import { getCanShowPricingMenu } from '@/lib/services/account-menu-service'
@@ -36,6 +37,7 @@ export default async function RootLayout({
         {children}
         {settingsModal}
         <NavigationFeedback />
+        <InstantMeOverlay userId={session?.user?.id ?? null} uiLocale={locale} />
         <BehaviorTracker userId={session?.user?.id ?? null} />
         <LoggedInUserBadge session={session} canShowPricingMenu={canShowPricingMenu} />
         <BugReportWidget enabled={bugReportSettings.enabled} messages={messages.bug} />

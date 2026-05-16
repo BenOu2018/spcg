@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "judge:check": "tsx scripts/check-judge.ts",
     "reward:check": "tsx scripts/check-reward-rules.ts",
+    "leaderboard:rank-awards:diagnose": "tsx scripts/diagnose-leaderboard-rank-awards.ts",
     "import-validation:check": "tsx scripts/check-import-difficulty-validation.ts",
     "judge:worker": "tsx scripts/judge-worker.ts",
     "db:migrate": "tsx scripts/db-migrate.ts",

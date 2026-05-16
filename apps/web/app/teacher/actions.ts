@@ -53,18 +53,34 @@ export async function createTeacherStudentAction(formData: FormData) {
   const parentEmail = String(formData.get('parentEmail') ?? '').trim()
   const studentEnrollmentTypeValue = String(formData.get('studentEnrollmentType') ?? '').trim()
 
-  await createStudentForTeacher({
-    teacherUserId: session?.user?.id,
-    username,
-    displayName,
-    password,
-    age: Number.isInteger(age) ? age : null,
-    parentEmail: parentEmail || null,
-    studentEnrollmentType: isStudentEnrollmentType(studentEnrollmentTypeValue) ? studentEnrollmentTypeValue : null,
-  })
+  try {
+    await createStudentForTeacher({
+      teacherUserId: session?.user?.id,
+      username,
+      displayName,
+      password,
+      age: Number.isInteger(age) ? age : null,
+      parentEmail: parentEmail || null,
+      studentEnrollmentType: isStudentEnrollmentType(studentEnrollmentTypeValue) ? studentEnrollmentTypeValue : null,
+    })
+  } catch (error) {
+    const serviceError = toServiceError(error)
+    if (serviceError.status < 500) {
+      redirectToTeacherStudentCreateError(serviceError.message)
+    }
+    throw error
+  }
 
   revalidatePath('/teacher')
   revalidatePath('/teacher/students')
+}
+
+function redirectToTeacherStudentCreateError(message: string): never {
+  const params = new URLSearchParams({
+    drawer: 'create',
+    createError: message.slice(0, 300),
+  })
+  redirect(`/teacher/students?${params.toString()}`)
 }
 
 export async function removeTeacherStudentAction(formData: FormData) {
@@ -86,17 +102,56 @@ export async function setTeacherStudentCurrentLevelAction(formData: FormData) {
   const session = await auth()
   const studentUserId = String(formData.get('studentUserId') ?? '').trim()
   const levelId = String(formData.get('levelId') ?? '').trim()
+  const returnTo = String(formData.get('returnTo') ?? '').trim()
   if (!studentUserId || !levelId) throw new Error('Student id and level id are required')
 
-  await setTeacherStudentCurrentLevel({
-    teacherUserId: session?.user?.id,
-    studentUserId,
-    levelId,
-  })
+  try {
+    await setTeacherStudentCurrentLevel({
+      teacherUserId: session?.user?.id,
+      studentUserId,
+      levelId,
+    })
+  } catch (error) {
+    const serviceError = toServiceError(error)
+    if (serviceError.status < 500) {
+      redirect(
+        buildTeacherStudentCurrentLevelReturnHref({
+          studentUserId,
+          returnTo,
+          status: 'error',
+          message: serviceError.message,
+        }),
+      )
+    }
+    throw error
+  }
 
-  revalidatePath('/teacher')
-  revalidatePath('/teacher/students')
   revalidatePath(`/teacher/students/${studentUserId}`)
+  redirect(
+    buildTeacherStudentCurrentLevelReturnHref({
+      studentUserId,
+      returnTo,
+      status: 'saved',
+      message: '当前关卡已保存。',
+    }),
+  )
+}
+
+function buildTeacherStudentCurrentLevelReturnHref(input: {
+  studentUserId: string
+  returnTo: string
+  status: 'saved' | 'error'
+  message: string
+}) {
+  const fallback = `/teacher/students/${encodeURIComponent(input.studentUserId)}?tab=settings`
+  const base = input.returnTo.startsWith(`/teacher/students/${input.studentUserId}`) ? input.returnTo : fallback
+  const [path, query = ''] = base.split('?')
+  const params = new URLSearchParams(query)
+  params.set('tab', params.get('tab') ?? 'settings')
+  params.set('drawer', 'current-level')
+  params.set('currentLevelStatus', input.status)
+  params.set('currentLevelMessage', input.message.slice(0, 300))
+  return `${path}?${params.toString()}`
 }
 
 export async function setTeacherStudentUserTypeAction(formData: FormData) {

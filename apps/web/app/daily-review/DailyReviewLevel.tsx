@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AssessmentAttemptItem, Level } from '@spcg/shared/types'
 import { completeDailyReviewAction, getDailyReviewAttemptAction } from '@/app/daily-review/actions'
-import { CodeWorkspace } from '@/components/CodeWorkspace'
+import { CodeWorkspace, type CodeWorkspaceHandle } from '@/components/CodeWorkspace'
 import { TaskCard } from '@/components/TaskCard'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 import type { DailyReviewDetail } from '@/lib/services/daily-review-service'
@@ -31,10 +31,12 @@ export function DailyReviewLevel({
   const [currentIndex, setCurrentIndex] = useState(() => findFirstOpenIndex(detail.items))
   const [sampleResultsByLevel, setSampleResultsByLevel] = useState<Record<string, SampleRunResultMap>>({})
   const [taskExpanded, setTaskExpanded] = useState(false)
+  const [judgeBusy, setJudgeBusy] = useState(false)
   const [questionListOpen, setQuestionListOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const questionMenuRef = useRef<HTMLDivElement | null>(null)
+  const codeWorkspaceRef = useRef<CodeWorkspaceHandle | null>(null)
   const currentLevel = reviewState.levels[currentIndex] ?? reviewState.levels[0] ?? null
   const currentItem = currentLevel ? reviewState.items.find((item) => item.levelId === currentLevel.id) ?? null : null
   const nextOpenIndex = useMemo(() => findNextOpenIndex(reviewState.items, currentIndex), [reviewState.items, currentIndex])
@@ -60,6 +62,7 @@ export function DailyReviewLevel({
   useEffect(() => {
     setTaskExpanded(false)
     setQuestionListOpen(false)
+    setJudgeBusy(false)
   }, [currentLevel?.id])
 
   useEffect(() => {
@@ -216,18 +219,27 @@ export function DailyReviewLevel({
           sampleResults={sampleResults}
           expanded={taskExpanded}
           onToggleExpanded={() => setTaskExpanded((value) => !value)}
+          onRunSample={(sample) => void codeWorkspaceRef.current?.runSampleInput(sample.id, sample.input)}
+          sampleRunDisabled={judgeBusy}
           canViewHints={canViewHints}
           hintsUpgradeMessage={hintsUpgradeMessage}
           messages={messages}
         />
         <div className="exam-workbench-wrap">
           <CodeWorkspace
+            ref={codeWorkspaceRef}
             key={`${reviewState.attempt.id}:${currentLevel.id}`}
             level={currentLevel}
             userId={userId}
             layoutVersion={layoutVersion}
-            onRunStart={() => setSampleResults(currentLevel.id, buildJudgingSamples(currentLevel))}
+            onRunStart={(event) =>
+              setSampleResults(
+                currentLevel.id,
+                event ? (event.sampleId ? buildJudgingSample(currentLevel, event.sampleId) : {}) : buildJudgingSamples(currentLevel),
+              )
+            }
             onRunComplete={(results) => setSampleResults(currentLevel.id, results)}
+            onJudgeBusyChange={setJudgeBusy}
             assessmentAttemptId={reviewState.attempt.id}
             assessmentItemMaxScore={currentItem?.maxScore ?? 1}
             assessmentNextQuestionTitle={nextOpenLevel?.title ?? null}
@@ -311,6 +323,11 @@ function useDailyReviewLayoutRefresh(taskExpanded: boolean, currentIndex: number
   }, [taskExpanded, currentIndex])
 
   return layoutVersion
+}
+
+function buildJudgingSample(level: Level, sampleId: string): SampleRunResultMap {
+  const sample = level.publicCases.find((item) => item.id === sampleId)
+  return sample ? { [sample.id]: { status: 'judging', passed: false } } : {}
 }
 
 function buildJudgingSamples(level: Level): SampleRunResultMap {

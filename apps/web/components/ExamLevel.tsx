@@ -16,7 +16,7 @@ import {
   listRankedExamHistoryAction,
   startRankedExamAttemptAction,
 } from '@/app/exam/actions'
-import { CodeWorkspace } from '@/components/CodeWorkspace'
+import { CodeWorkspace, type CodeWorkspaceHandle } from '@/components/CodeWorkspace'
 import { TaskCard } from '@/components/TaskCard'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 import type { SampleRunResultMap } from '@/components/sample-run'
@@ -69,6 +69,7 @@ export function ExamLevel({
   const [remainingSeconds, setRemainingSeconds] = useState(3600)
   const [sampleResultsByLevel, setSampleResultsByLevel] = useState<Record<string, SampleRunResultMap>>({})
   const [taskExpanded, setTaskExpanded] = useState(false)
+  const [judgeBusy, setJudgeBusy] = useState(false)
   const [questionListOpen, setQuestionListOpen] = useState(false)
   const [loadingCurrent, setLoadingCurrent] = useState(true)
   const [lastFinishedAttempt, setLastFinishedAttempt] = useState<ExamHistoryItem | null>(null)
@@ -78,6 +79,7 @@ export function ExamLevel({
   const [scoring, setScoring] = useState(false)
   const [error, setError] = useState('')
   const questionMenuRef = useRef<HTMLDivElement | null>(null)
+  const codeWorkspaceRef = useRef<CodeWorkspaceHandle | null>(null)
   const visibleQuestionCount = examState?.access.visibleQuestionCount ?? RANKED_ASSESSMENT_TOTAL_QUESTIONS
   const currentLevel = currentIndex < visibleQuestionCount ? examState?.levels[currentIndex] ?? null : null
   const nextLevel = currentIndex + 1 < visibleQuestionCount ? examState?.levels[currentIndex + 1] ?? null : null
@@ -162,6 +164,7 @@ export function ExamLevel({
   useEffect(() => {
     setTaskExpanded(false)
     setQuestionListOpen(false)
+    setJudgeBusy(false)
   }, [currentLevel?.id])
 
   useEffect(() => {
@@ -507,18 +510,27 @@ export function ExamLevel({
           sampleResults={sampleResults}
           expanded={taskExpanded}
           onToggleExpanded={() => setTaskExpanded((value) => !value)}
+          onRunSample={(sample) => void codeWorkspaceRef.current?.runSampleInput(sample.id, sample.input)}
+          sampleRunDisabled={judgeBusy}
           canViewHints={canViewHints}
           hintsUpgradeMessage={hintsUpgradeMessage}
           messages={messages}
         />
         <div className="exam-workbench-wrap">
           <CodeWorkspace
+            ref={codeWorkspaceRef}
             key={`${examState.attempt.id}:${currentLevel.id}`}
             level={currentLevel}
             userId={userId}
             layoutVersion={layoutVersion}
-            onRunStart={() => setSampleResults(currentLevel.id, buildJudgingSamples(currentLevel))}
+            onRunStart={(event) =>
+              setSampleResults(
+                currentLevel.id,
+                event ? (event.sampleId ? buildJudgingSample(currentLevel, event.sampleId) : {}) : buildJudgingSamples(currentLevel),
+              )
+            }
             onRunComplete={(results) => setSampleResults(currentLevel.id, results)}
+            onJudgeBusyChange={setJudgeBusy}
             assessmentAttemptId={examState.attempt.id}
             assessmentItemMaxScore={currentItem?.maxScore ?? null}
             assessmentNextQuestionTitle={nextLevel?.title ?? null}
@@ -806,6 +818,11 @@ function attachVideoStream(video: HTMLVideoElement | null, stream: MediaStream |
 
 function stopMediaStream(stream: MediaStream | null) {
   stream?.getTracks().forEach((track) => track.stop())
+}
+
+function buildJudgingSample(level: Level, sampleId: string): SampleRunResultMap {
+  const sample = level.publicCases.find((item) => item.id === sampleId)
+  return sample ? { [sample.id]: { status: 'judging', passed: false } } : {}
 }
 
 function buildJudgingSamples(level: Level): SampleRunResultMap {

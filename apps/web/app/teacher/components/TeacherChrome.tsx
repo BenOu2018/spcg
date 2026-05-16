@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { createContext, useContext, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 
 export type TeacherNavItem = {
@@ -151,14 +152,37 @@ export function TeacherTabs({
 }: {
   tabs: Array<{ href: string; label: string; active?: boolean; count?: number | string }>
 }) {
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [pendingHref, setPendingHref] = useState<string | null>(null)
+  const routeKey = `${pathname}?${searchParams.toString()}`
+
+  useEffect(() => {
+    setPendingHref(null)
+  }, [routeKey])
+
   return (
     <nav className="teacher-tabs" aria-label="Teacher section tabs">
-      {tabs.map((tab) => (
-        <Link className={tab.active ? 'active' : undefined} href={tab.href} key={tab.href}>
-          <span>{tab.label}</span>
-          {tab.count !== undefined ? <strong>{tab.count}</strong> : null}
-        </Link>
-      ))}
+      {tabs.map((tab) => {
+        const isPending = pendingHref === tab.href
+        const className = [tab.active ? 'active' : null, isPending ? 'pending' : null].filter(Boolean).join(' ') || undefined
+        return (
+          <Link
+            aria-busy={isPending || undefined}
+            className={className}
+            href={tab.href}
+            key={tab.href}
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0 || tab.active) return
+              setPendingHref(tab.href)
+            }}
+          >
+            <span>{tab.label}</span>
+            {tab.count !== undefined ? <strong>{tab.count}</strong> : null}
+            {isPending ? <em className="teacher-tab-spinner" aria-hidden="true" /> : null}
+          </Link>
+        )
+      })}
     </nav>
   )
 }

@@ -5,12 +5,12 @@ import { redirect } from 'next/navigation'
 import { signIn, signOut } from '@/auth'
 import { isDbConfigured } from '@/lib/db'
 import { requestPasswordReset, resetPasswordWithToken } from '@/lib/services/password-reset-service'
-import { registerStudentWithEmail } from '@/lib/services/public-auth-service'
+import { registerStudentAccount, STUDENT_USERNAME_INVALID_MESSAGE } from '@/lib/services/public-auth-service'
 
 export async function signInAction(formData: FormData) {
   const identifier = readRequired(formData, 'identifier') || readRequired(formData, 'username')
   const password = readRequired(formData, 'password')
-  const next = sanitizeNextPath(readOptional(formData, 'next') ?? '/')
+  const next = sanitizeNextPath(readOptional(formData, 'next') ?? '/map')
 
   if (!isDbConfigured()) {
     redirectWithError('/auth/sign-in', next, '数据库环境变量未配置。')
@@ -31,22 +31,22 @@ export async function signInAction(formData: FormData) {
 }
 
 export async function signUpAction(formData: FormData) {
-  const email = readRequired(formData, 'email')
-  const displayName = readRequired(formData, 'displayName')
+  const username = readRequired(formData, 'username')
+  const email = readOptional(formData, 'email')
   const password = readRequired(formData, 'password')
   const confirmPassword = readRequired(formData, 'confirmPassword')
 
   if (!isDbConfigured()) {
     redirectWithError('/auth/sign-up', '/', '数据库环境变量未配置。')
   }
-  const result = await registerStudentWithEmail({ email, displayName, password, confirmPassword })
+  const result = await registerStudentAccount({ username, email, password, confirmPassword })
   if (!result.ok) redirectWithError('/auth/sign-up', '/', getSignUpErrorMessage(result.code))
 
   try {
     await signIn('credentials', {
-      username: result.email,
+      username: result.username,
       password,
-      redirectTo: '/',
+      redirectTo: '/map',
     })
   } catch (error) {
     if (isCredentialsError(error)) {
@@ -104,8 +104,13 @@ function readOptional(formData: FormData, key: string): string | null {
 }
 
 function sanitizeNextPath(value: string): string {
-  if (!value.startsWith('/') || value.startsWith('//')) return '/'
-  return value
+  if (!value.startsWith('/') || value.startsWith('//')) return '/map'
+  if (isSettingsPath(value)) return '/map'
+  return value === '/' ? '/map' : value
+}
+
+function isSettingsPath(value: string): boolean {
+  return value === '/settings' || value.startsWith('/settings?') || value.startsWith('/settings/')
 }
 
 function redirectWithError(path: string, next: string, error: string): never {
@@ -122,12 +127,16 @@ function isCredentialsError(error: unknown): boolean {
 
 function getSignUpErrorMessage(code: string): string {
   switch (code) {
+    case 'invalid-username':
+      return STUDENT_USERNAME_INVALID_MESSAGE
+    case 'email-like-username':
+      return '用户名不能使用邮箱格式，请将邮箱填入邮箱字段。'
+    case 'username-taken':
+      return '这个用户名已经注册。'
     case 'invalid-email':
       return '请输入有效的邮箱地址。'
     case 'email-taken':
       return '这个邮箱已经注册。'
-    case 'invalid-name':
-      return '昵称需要 2-24 个字符。'
     case 'too-short':
       return '密码至少需要 8 位。'
     case 'mismatch':

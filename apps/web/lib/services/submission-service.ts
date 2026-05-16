@@ -75,7 +75,7 @@ export type UserRecentSubmissionsResult = {
 }
 
 const DEFAULT_SUBMISSION_RATE_LIMIT_SECONDS = 60
-const DEFAULT_SUBMISSION_RATE_LIMIT_MAX_HITS = 2
+const DEFAULT_SUBMISSION_RATE_LIMIT_MAX_HITS = 5
 
 export async function createUserSubmission(input: {
   userId?: string | null

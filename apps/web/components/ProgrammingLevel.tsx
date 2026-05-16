@@ -3,11 +3,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Level, Progress } from '@spcg/shared/types'
 import { getUnlockedLevelSolutionAction } from '@/app/level/actions'
-import { CodeWorkspace } from '@/components/CodeWorkspace'
+import { CodeWorkspace, type CodeWorkspaceHandle } from '@/components/CodeWorkspace'
 import { TaskCard } from '@/components/TaskCard'
 import { emitBehaviorEvent } from '@/components/behavior-events'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 import type { SampleRunResultMap } from '@/components/sample-run'
+import { isStageLevelUnlocked } from '@/lib/stage-unlock'
 
 type StagePathMenu = {
   title: string
@@ -28,6 +29,7 @@ type ProgrammingLevelProps = {
   canViewHints?: boolean
   hintsUpgradeMessage?: string
   messages?: StudentUiMessages
+  canFreeJump?: boolean
   onStageLevelSelect?: (levelId: string) => void
   onPassedLevelChange?: (levelId: string) => void
   fallbackNextHref?: string | null
@@ -58,6 +60,7 @@ export function ProgrammingLevel({
   canViewHints = true,
   hintsUpgradeMessage,
   messages = fallbackMessages,
+  canFreeJump = false,
   onStageLevelSelect,
   onPassedLevelChange,
   fallbackNextHref = null,
@@ -67,16 +70,19 @@ export function ProgrammingLevel({
   const [sampleResults, setSampleResults] = useState<SampleRunResultMap>({})
   const [videoOpen, setVideoOpen] = useState(false)
   const [taskExpanded, setTaskExpanded] = useState(false)
+  const [editorExpanded, setEditorExpanded] = useState(false)
+  const [judgeBusy, setJudgeBusy] = useState(false)
   const [completionPhase, setCompletionPhase] = useState<CompletionAnimationPhase>('idle')
   const [completionNextReady, setCompletionNextReady] = useState(false)
   const [localPassedIds, setLocalPassedIds] = useState<Set<string>>(
     () => new Set(progressRecords.filter((progress) => progress.passed).map((progress) => progress.levelId)),
   )
   const completionTimersRef = useRef<number[]>([])
+  const codeWorkspaceRef = useRef<CodeWorkspaceHandle | null>(null)
   const layoutVersion = useProgrammingLayoutRefresh()
   const videoUrl = activeLevel.solutionVideoUrl ?? null
   const activeProgress = progressRecords.find((progress) => progress.levelId === activeLevel.id) ?? null
-  const recommendedNext = getRecommendedNextLevel(activeLevel.id, stageMenu, localPassedIds, {
+  const recommendedNext = getRecommendedNextLevel(activeLevel.id, stageMenu, localPassedIds, canFreeJump, {
     fallbackHref: fallbackNextHref,
     fallbackLabel: fallbackNextLabel,
   })
@@ -88,6 +94,8 @@ export function ProgrammingLevel({
     setSampleResults({})
     setVideoOpen(false)
     setTaskExpanded(false)
+    setEditorExpanded(false)
+    setJudgeBusy(false)
   }, [level.id])
 
   useEffect(() => {
@@ -97,7 +105,7 @@ export function ProgrammingLevel({
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')))
     return () => window.cancelAnimationFrame(frame)
-  }, [taskExpanded])
+  }, [editorExpanded, taskExpanded])
 
   useEffect(() => {
     return () => clearCompletionTimers()
@@ -168,6 +176,7 @@ export function ProgrammingLevel({
       className={[
         'programming-layout',
         taskExpanded ? 'task-expanded' : '',
+        editorExpanded ? 'editor-expanded' : '',
         completionPhase !== 'idle' ? 'completion-animation' : '',
         completionPhase !== 'idle' ? `completion-${completionPhase}` : '',
       ]
@@ -192,16 +201,21 @@ export function ProgrammingLevel({
               }
             : undefined
         }
+        onRunSample={(sample) => void codeWorkspaceRef.current?.runSampleInput(sample.id, sample.input)}
+        sampleRunDisabled={judgeBusy}
         canViewHints={canViewHints}
         hintsUpgradeMessage={hintsUpgradeMessage}
         messages={messages}
       />
       <CodeWorkspace
+        ref={codeWorkspaceRef}
         level={activeLevel}
         userId={userId}
         initialProgress={activeProgress}
-        layoutVersion={layoutVersion + (taskExpanded ? 1 : 0)}
+        layoutVersion={layoutVersion + (taskExpanded ? 1 : 0) + (editorExpanded ? 10 : 0)}
         className="completion-workbench-panel"
+        expanded={editorExpanded}
+        onExpandedChange={setEditorExpanded}
         completionNextHref={recommendedNext?.href ?? null}
         completionNextLabel={recommendedNext?.label ?? '下一题'}
         completionNextVisible={completionNextReady && Boolean(recommendedNext)}
@@ -209,8 +223,13 @@ export function ProgrammingLevel({
           recommendedNext?.levelId && onStageLevelSelect ? () => onStageLevelSelect(recommendedNext.levelId!) : undefined
         }
         completionNextBreathing={completionPhase === 'next-ready'}
-        onRunStart={() => setSampleResults(buildJudgingSamples(activeLevel))}
+        onRunStart={(event) =>
+          setSampleResults(
+            event ? (event.sampleId ? buildJudgingSample(activeLevel, event.sampleId) : {}) : buildJudgingSamples(activeLevel),
+          )
+        }
         onRunComplete={setSampleResults}
+        onJudgeBusyChange={setJudgeBusy}
         onAccepted={handleAccepted}
         onStageLevelSelect={onStageLevelSelect}
         messages={messages}
@@ -221,6 +240,7 @@ export function ProgrammingLevel({
                 stageNo: stageMenu.stageNo,
                 items: stageMenu.items,
                 passedLevelIds: [...localPassedIds],
+                canFreeJump,
               }
             : undefined
         }
@@ -246,6 +266,7 @@ function getRecommendedNextLevel(
   levelId: string,
   stageMenu: StagePathMenu,
   passedLevelIds: Set<string>,
+  canFreeJump: boolean,
   fallback?: {
     fallbackHref?: string | null
     fallbackLabel?: string
@@ -264,7 +285,12 @@ function getRecommendedNextLevel(
   passedIds.add(levelId)
   const current = stageMenu.items.find((item) => item.levelId === levelId)
   const nextMainline = stageMenu.items.find((item) => item.position <= 3 && !passedIds.has(item.levelId))
-  const nextUnpassed = stageMenu.items.find((item) => item.position > (current?.position ?? 0) && !passedIds.has(item.levelId))
+  const nextUnpassed = stageMenu.items.find(
+    (item) =>
+      item.position > (current?.position ?? 0) &&
+      !passedIds.has(item.levelId) &&
+      isStageLevelUnlocked(stageMenu.items, item.levelId, passedIds, canFreeJump),
+  )
   const recommended = nextMainline ?? nextUnpassed
   if (!recommended) {
     return fallback?.fallbackHref
@@ -365,6 +391,11 @@ function useProgrammingLayoutRefresh() {
   }, [])
 
   return layoutVersion
+}
+
+function buildJudgingSample(level: Level, sampleId: string): SampleRunResultMap {
+  const sample = level.publicCases.find((item) => item.id === sampleId)
+  return sample ? { [sample.id]: { status: 'judging', passed: false } } : {}
 }
 
 function buildJudgingSamples(level: Level): SampleRunResultMap {

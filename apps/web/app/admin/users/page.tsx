@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { listAdminUsers, type AdminUser } from '@/lib/admin-data'
 import { STUDENT_USER_TYPE_OPTIONS } from '@/lib/services/entitlement-service'
 import { STUDENT_ENROLLMENT_TYPE_OPTIONS } from '@/lib/student-enrollment'
+import { STUDENT_USERNAME_RULE_TITLE } from '@/lib/user-identity'
 import {
   AdminDrawer,
   AdminEmpty,
@@ -27,6 +28,7 @@ export default async function AdminUsersPage({ searchParams }: AdminUsersPagePro
   const enrollment = readStringParam(resolvedSearchParams?.enrollment) ?? ''
   const page = Math.max(1, readOptionalNumberParam(resolvedSearchParams?.page) ?? 1)
   const drawer = readStringParam(resolvedSearchParams?.drawer)
+  const createError = readStringParam(resolvedSearchParams?.createError)
 
   const filteredUsers = users.filter((user) => matchesUser(user, { q, role, status, enrollment }))
   const pageCount = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE))
@@ -37,7 +39,7 @@ export default async function AdminUsersPage({ searchParams }: AdminUsersPagePro
     <section className="admin-stack">
       <AdminPageHeader
         actions={
-          <Link className="admin-button" href={buildHref('/admin/users', resolvedSearchParams, { drawer: 'create' })}>
+          <Link className="admin-button" href={buildHref('/admin/users', resolvedSearchParams, { drawer: 'create', createError: null })}>
             New user
           </Link>
         }
@@ -204,7 +206,12 @@ export default async function AdminUsersPage({ searchParams }: AdminUsersPagePro
       />
 
       {drawer === 'create' ? (
-        <AdminDrawer closeHref={buildHref('/admin/users', resolvedSearchParams, { drawer: null })} title="Create user" width="xl">
+        <AdminDrawer closeHref={buildHref('/admin/users', resolvedSearchParams, { drawer: null, createError: null })} title="Create user" width="xl">
+          {createError ? (
+            <p className="admin-inline-warning" role="alert">
+              {createError}
+            </p>
+          ) : null}
           <form action={createAdminUser} className="admin-form-grid admin-form-grid-users">
             <label>
               <span>Display name</span>
@@ -212,7 +219,15 @@ export default async function AdminUsersPage({ searchParams }: AdminUsersPagePro
             </label>
             <label>
               <span>Username</span>
-              <input name="username" required placeholder="toby01" minLength={3} maxLength={24} />
+              <input
+                name="username"
+                required
+                placeholder="toby01"
+                minLength={2}
+                maxLength={24}
+                autoCapitalize="none"
+                title={STUDENT_USERNAME_RULE_TITLE}
+              />
             </label>
             <label>
               <span>Password</span>

@@ -5,13 +5,13 @@ import { createDefaultStudentParentInvite } from '@/lib/repositories/student-par
 export type PublicAuthUserRecord = {
   id: string
   username: string
-  email: string
+  email: string | null
   displayName: string
 }
 
 export async function createStudentUserRecord(input: {
   username: string
-  email: string
+  email: string | null
   displayName: string
   passwordHash: string
 }): Promise<PublicAuthUserRecord> {
@@ -19,7 +19,7 @@ export async function createStudentUserRecord(input: {
     const result = await client.query<{
       id: string
       username: string
-      email: string
+      email: string | null
       display_name: string
     }>(
       `

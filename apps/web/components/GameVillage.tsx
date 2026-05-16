@@ -4,7 +4,10 @@ import { getGameChapter, listGameChapters, type GameChapter } from '@spcg/shared
 import { isRankedAssessmentEnabledLevel } from '@spcg/shared/ranked-assessment'
 import type { Session } from 'next-auth'
 import { GameMapMenus, type ChapterMenuItem } from '@/components/GameMapMenus'
+import { InstantLevelOverlay } from '@/components/InstantLevelOverlay'
 import { LevelMap } from '@/components/LevelMap'
+import { LevelRoutePrefetcher } from '@/components/LevelRoutePrefetcher'
+import { MapSnapshotCacheBridge } from '@/components/MapSnapshotCacheBridge'
 import { TopbarAccountActions } from '@/components/TopbarAccountActions'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 
@@ -99,6 +102,13 @@ export function GameVillage({
     : -1
   const unlockedMapLevelIds =
     globalCurrentIndex >= 0 ? orderedGlobalLevels.slice(0, globalCurrentIndex + 1).map((level) => level.id) : []
+  const levelPrefetchHrefs = buildLevelPrefetchHrefs({
+    activeLevels,
+    currentLevelId: activeCurrentLevel?.id ?? activeOverrideLevel?.id ?? null,
+    completedLevelIds: activeCompletedIds,
+    unlockedLevelIds: unlockedMapLevelIds,
+    allowFreeJump,
+  })
 
   return (
     <main className="village-scene">
@@ -135,6 +145,8 @@ export function GameVillage({
         strictCurrentLevel={hasFixedStudentCurrent}
         unlockedLevelIds={unlockedMapLevelIds}
         messages={messages}
+        uiLocale={uiLocale}
+        userId={session.user.id}
       />
 
       {ctaLevel ? (
@@ -149,6 +161,25 @@ export function GameVillage({
           </strong>
         </Link>
       ) : null}
+
+      <MapSnapshotCacheBridge
+        snapshot={{
+          userId: session.user.id,
+          activeChapterId: chapter.chapterId,
+          levels: toMapSnapshotLevelsForCache(levels),
+          progressRecords: progress,
+          stageMenus: stageMenus.map((menu) => ({
+            items: menu.items.map((item) => ({ levelId: item.levelId })),
+          })),
+          navigation: {
+            role: userRole,
+            canFreeJump: allowFreeJump,
+            currentMapLevelId: currentLevelIdOverride,
+          },
+        }}
+      />
+      <LevelRoutePrefetcher hrefs={levelPrefetchHrefs} />
+      <InstantLevelOverlay uiLocale={uiLocale} userId={session.user.id} />
     </main>
   )
 }
@@ -168,9 +199,10 @@ function buildChapterMenuItems(input: {
   const currentIndex = input.currentChapterId
     ? orderedChapters.findIndex((chapter) => chapter.chapterId === input.currentChapterId)
     : -1
-  const startIndex = Math.max(0, currentIndex)
-  const visibleChapters = orderedChapters.slice(startIndex, startIndex + 2)
-  const hasPendingChapters = orderedChapters.length > startIndex + visibleChapters.length
+  const currentOrFirstIndex = Math.max(0, currentIndex)
+  const visibleEndIndex = Math.min(orderedChapters.length, currentOrFirstIndex + 2)
+  const visibleChapters = orderedChapters.slice(0, visibleEndIndex)
+  const hasPendingChapters = orderedChapters.length > visibleEndIndex
   const items: ChapterMenuItem[] = visibleChapters.map((chapter) => ({ type: 'chapter', chapter }))
 
   if (hasPendingChapters) {
@@ -197,4 +229,46 @@ function compareLevelPosition(a: Level, b: Level): number {
     a.chapterId.localeCompare(b.chapterId) ||
     a.id.localeCompare(b.id)
   )
+}
+
+function buildLevelPrefetchHrefs({
+  activeLevels,
+  currentLevelId,
+  completedLevelIds,
+  unlockedLevelIds,
+  allowFreeJump,
+}: {
+  activeLevels: Level[]
+  currentLevelId: string | null
+  completedLevelIds: Set<string>
+  unlockedLevelIds: string[]
+  allowFreeJump: boolean
+}) {
+  const unlockedIds = new Set(unlockedLevelIds)
+  const hrefs: string[] = []
+
+  function pushLevel(levelId: string | null | undefined) {
+    if (!levelId) return
+    const href = `/level/${levelId}`
+    if (!hrefs.includes(href)) hrefs.push(href)
+  }
+
+  pushLevel(currentLevelId)
+  for (const level of activeLevels) {
+    if (allowFreeJump || completedLevelIds.has(level.id) || unlockedIds.has(level.id)) pushLevel(level.id)
+    if (hrefs.length >= 18) break
+  }
+
+  return hrefs
+}
+
+function toMapSnapshotLevelsForCache(levels: Level[]) {
+  return levels.map((level) => ({
+    id: level.id,
+    chapterId: level.chapterId,
+    order: level.order,
+    title: level.title,
+    knowledgePoint: level.knowledgePoint,
+    difficulty: level.difficulty,
+  }))
 }

@@ -5,6 +5,7 @@ import type { TodayNewsArticleCard, UiLocale } from '@spcg/shared/types'
 import type { Session } from 'next-auth'
 import { useEffect, useState } from 'react'
 import { Map, Newspaper } from 'lucide-react'
+import { MeInstantLink } from '@/components/MeInstantLink'
 import { TodayNewsModal } from '@/components/TodayNewsModal'
 import { UserAccountMenu } from '@/components/UserAccountMenu'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
@@ -57,15 +58,17 @@ export function TopbarAccountActions({
         </Link>
       ) : null}
       {showProgressButton ? (
-        <Link
+        <MeInstantLink
           className="topbar-action-button"
           data-tooltip={messages.common.progress}
           href="/me"
+          userId={session?.user?.id ?? null}
+          uiLocale={uiLocale}
           aria-label={messages.common.progress}
           title={messages.common.progress}
         >
           <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-star.svg" alt="" />
-        </Link>
+        </MeInstantLink>
       ) : null}
       {showTodayNews ? (
         <>

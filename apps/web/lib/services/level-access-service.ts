@@ -1,6 +1,8 @@
 import type { Level, Progress, StudentUserType, UserRole } from '@spcg/shared/types'
-import type { LessonStageProblemMenu } from '@/lib/repositories/problem-set-repository'
+import type { LessonStageAccessSummary, LessonStageProblemMenu } from '@/lib/repositories/problem-set-repository'
 import { isDatabaseConfigured } from '@/lib/repositories/database-repository'
+import { publishedLevelExists } from '@/lib/repositories/level-repository'
+import { listPublishedLessonStageAccessSummaries } from '@/lib/repositories/problem-set-repository'
 import {
   getStudentCurrentLevel,
   upsertStudentCurrentLevel,
@@ -8,13 +10,13 @@ import {
 import { getUserRole } from '@/lib/repositories/user-repository'
 import {
   getAllLevelsForUser,
-  getLevelByIdForUser,
   listLessonStageMenusForLevels,
   getMainlineLevelsForUser,
 } from '@/lib/services/level-service'
 import { getProgressForUser } from '@/lib/services/progress-service'
 import { ServiceError } from '@/lib/services/errors'
 import { getLevelEntitlementAccess } from '@/lib/services/entitlement-service'
+import { getStageLevelUnlockState } from '@/lib/stage-unlock'
 
 export type LevelAccessResult = {
   role: UserRole
@@ -221,6 +223,24 @@ async function getStudentLevelAccessFromState(input: {
     }
   }
 
+  if (targetStage) {
+    const stageLevelUnlock = getStageLevelUnlockState(targetStage.items, levelId, state.passedLevelIds)
+    if (!stageLevelUnlock.unlocked) {
+      return {
+        role,
+        allowed: false,
+        canFreeJump: false,
+        currentMapLevelId,
+        currentEntryLevelId,
+        redirectLevelId: stageLevelUnlock.redirectLevelId ?? currentEntryLevelId ?? currentMapLevelId,
+        reason: stageLevelUnlock.reason,
+        upgradeRequired: false,
+        requiredUserType: null,
+        userType: entitlementAccess.userType,
+      }
+    }
+  }
+
   if (state.passedLevelIds.has(levelId)) {
     return allowStudentAccess(role, currentMapLevelId, currentEntryLevelId)
   }
@@ -270,20 +290,17 @@ export async function setStudentCurrentLevel(input: {
     throw new ServiceError('bad_request', '只能设置学生账号的当前关卡。', 400)
   }
 
-  const level = await getLevelByIdForUser(input.levelId, {
-    userId: input.studentUserId,
-    allowMockFallback: false,
-  })
-  if (!level) throw new ServiceError('not_found', '关卡不存在或未发布。', 404)
+  const levelExists = await publishedLevelExists(input.levelId)
+  if (!levelExists) throw new ServiceError('not_found', '关卡不存在或未发布。', 404)
 
   await upsertStudentCurrentLevel({
     userId: input.studentUserId,
-    levelId: level.id,
+    levelId: input.levelId,
     assignedBy: input.assignedBy ?? null,
     reason: input.reason ?? null,
   })
 
-  const summary = await getStudentCurrentLevelSummary(input.studentUserId)
+  const summary = await getStudentCurrentLevelSummaryLightweight(input.studentUserId)
   if (!summary) throw new ServiceError('internal_error', '当前关卡已保存，但读取失败。', 500)
   return summary
 }
@@ -309,6 +326,37 @@ export async function getStudentCurrentLevelSummary(studentUserId: string): Prom
     chapterId: level?.chapterId ?? '',
     spcgLevel: stage?.spcgLevel ?? Number(level?.difficulty.spcgLevel ?? 0),
     stageNo: stage?.stageNo ?? null,
+    source: stored ? 'teacher_set' : 'progress',
+    assignedBy: stored?.assignedBy ?? null,
+    updatedAt: stored?.updatedAt ?? null,
+  }
+}
+
+export async function getStudentCurrentLevelSummaryLightweight(studentUserId: string): Promise<StudentCurrentLevelSummary | null> {
+  if (!studentUserId || !isDatabaseConfigured()) return null
+
+  const [progress, stored, stages] = await Promise.all([
+    getProgressForUser({ userId: studentUserId, allowMockFallback: false }),
+    getStudentCurrentLevel(studentUserId),
+    listPublishedLessonStageAccessSummaries({ track: 'A' }),
+  ])
+  if (stages.length === 0) return null
+
+  const passedLevelIds = new Set(progress.filter((item) => item.passed).map((item) => item.levelId))
+  const currentStage = findCurrentLightweightStage(stages, passedLevelIds, stored?.levelId ?? null)
+  if (!currentStage) return null
+
+  const representative = currentStage.items[0]
+  if (!representative) return null
+
+  return {
+    studentUserId,
+    levelId: representative.levelId,
+    entryLevelId: getFirstOpenLightweightStageLevelId(currentStage, passedLevelIds),
+    title: currentStage.title,
+    chapterId: representative.chapterId,
+    spcgLevel: currentStage.spcgLevel,
+    stageNo: currentStage.stageNo,
     source: stored ? 'teacher_set' : 'progress',
     assignedBy: stored?.assignedBy ?? null,
     updatedAt: stored?.updatedAt ?? null,
@@ -436,7 +484,32 @@ function findCurrentStage(
   return { stage: stages[safeIndex] ?? null, index: safeIndex }
 }
 
+function findCurrentLightweightStage(
+  stages: LessonStageAccessSummary[],
+  passedLevelIds: Set<string>,
+  storedLevelId: string | null,
+): LessonStageAccessSummary | null {
+  if (stages.length === 0) return null
+
+  const storedIndex = storedLevelId
+    ? stages.findIndex((stage) => stage.items.some((item) => item.levelId === storedLevelId))
+    : -1
+  let index = Math.max(0, storedIndex)
+
+  while (index < stages.length && isLightweightStageMainlineComplete(stages[index]!, passedLevelIds)) {
+    index += 1
+  }
+
+  return stages[Math.min(index, stages.length - 1)] ?? null
+}
+
 function isStageMainlineComplete(stage: StageAccess, passedLevelIds: Set<string>) {
+  const displayItems = stage.items.slice(0, 5)
+  const requiredPassCount = Math.max(1, Math.min(3, displayItems.length))
+  return displayItems.filter((item) => passedLevelIds.has(item.levelId)).length >= requiredPassCount
+}
+
+function isLightweightStageMainlineComplete(stage: LessonStageAccessSummary, passedLevelIds: Set<string>) {
   const displayItems = stage.items.slice(0, 5)
   const requiredPassCount = Math.max(1, Math.min(3, displayItems.length))
   return displayItems.filter((item) => passedLevelIds.has(item.levelId)).length >= requiredPassCount
@@ -445,6 +518,11 @@ function isStageMainlineComplete(stage: StageAccess, passedLevelIds: Set<string>
 function getFirstOpenStageLevelId(stage: StageAccess, passedLevelIds: Set<string>) {
   const displayItems = stage.items.slice(0, 5)
   return displayItems.find((item) => !passedLevelIds.has(item.levelId))?.levelId ?? stage.representativeLevelId
+}
+
+function getFirstOpenLightweightStageLevelId(stage: LessonStageAccessSummary, passedLevelIds: Set<string>) {
+  const displayItems = stage.items.slice(0, 5)
+  return displayItems.find((item) => !passedLevelIds.has(item.levelId))?.levelId ?? stage.items[0]?.levelId ?? ''
 }
 
 function findFallbackCurrentLevelId(levels: Level[], progress: Progress[]): string | null {

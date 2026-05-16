@@ -320,6 +320,7 @@ async function finishSubmission(
 
   try {
     await client.query('BEGIN')
+    const storedVerdict = stripCaseResultStdout(verdict)
     await client.query(
       `
       UPDATE submissions
@@ -329,7 +330,7 @@ async function finishSubmission(
       [
         submission.id,
         status,
-        toJsonb(verdict),
+        toJsonb(storedVerdict),
         resolvedLanguage,
         toJsonb(
           buildJudgeProgress({
@@ -343,7 +344,7 @@ async function finishSubmission(
       ],
     )
 
-    const score = calculateSubmissionScore(submission, verdict)
+    const score = calculateSubmissionScore(submission, storedVerdict)
     await client.query(
       `
       UPDATE submissions
@@ -354,10 +355,10 @@ async function finishSubmission(
     )
 
     if (submission.assessment_attempt_id) {
-      await updateAssessmentAttemptItem(client, submission, verdict, score)
+      await updateAssessmentAttemptItem(client, submission, storedVerdict, score)
       if (submission.assessment_phase === 'final') {
-        const previousProgress = await updateProgress(client, submission, verdict)
-        if (verdict.result === 'AC') {
+        const previousProgress = await updateProgress(client, submission, storedVerdict)
+        if (storedVerdict.result === 'AC') {
           await grantAcceptedSubmissionReward(client, submission)
           await grantRepairSuccessReward(client, submission, previousProgress)
         }
@@ -368,8 +369,8 @@ async function finishSubmission(
       return
     }
 
-    const previousProgress = await updateProgress(client, submission, verdict)
-    if (verdict.result === 'AC') {
+    const previousProgress = await updateProgress(client, submission, storedVerdict)
+    if (storedVerdict.result === 'AC') {
       await grantAcceptedSubmissionReward(client, submission)
       await grantRepairSuccessReward(client, submission, previousProgress)
     }
@@ -380,6 +381,15 @@ async function finishSubmission(
     throw error
   } finally {
     client.release()
+  }
+}
+
+function stripCaseResultStdout(verdict: Verdict): Verdict {
+  if (!verdict.caseResults) return verdict
+
+  return {
+    ...verdict,
+    caseResults: verdict.caseResults.map(({ stdout, ...caseResult }) => caseResult),
   }
 }
 

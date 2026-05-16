@@ -17,22 +17,24 @@ export default async function ResetPasswordPage({ searchParams }: ResetPasswordP
 
   return (
     <main className="login-scene">
-      <form className="login-panel" action={resetPasswordAction}>
-        <img className="login-logo" src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/logo-spcg.svg" alt="SPCG" />
-        <h1>{messages.auth.resetPasswordTitle}</h1>
-        <p className="login-hint">{messages.auth.resetPasswordBody}</p>
-        {tokenInvalid ? <p className="login-error">{tokenStatus === 'expired' ? messages.auth.resetTokenExpired : messages.auth.resetTokenInvalid}</p> : null}
-        {params?.error ? <p className="login-error">{params.error}</p> : null}
-        <input name="token" type="hidden" value={token} />
-        <input name="password" type="password" placeholder={messages.auth.password} autoComplete="new-password" minLength={8} required disabled={tokenInvalid} />
-        <input name="confirmPassword" type="password" placeholder={messages.auth.confirmPassword} autoComplete="new-password" minLength={8} required disabled={tokenInvalid} />
-        <button className="game-start-button" type="submit" disabled={tokenInvalid}>
-          {messages.auth.resetPassword}
-        </button>
+      <section className="login-panel">
+        <form className="login-form" action={resetPasswordAction}>
+          <img className="login-logo" src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/logo-spcg.svg" alt="SPCG" />
+          <h1>{messages.auth.resetPasswordTitle}</h1>
+          <p className="login-hint">{messages.auth.resetPasswordBody}</p>
+          {tokenInvalid ? <p className="login-error">{tokenStatus === 'expired' ? messages.auth.resetTokenExpired : messages.auth.resetTokenInvalid}</p> : null}
+          {params?.error ? <p className="login-error">{params.error}</p> : null}
+          <input name="token" type="hidden" value={token} />
+          <input name="password" type="password" placeholder={messages.auth.password} autoComplete="new-password" minLength={8} required disabled={tokenInvalid} />
+          <input name="confirmPassword" type="password" placeholder={messages.auth.confirmPassword} autoComplete="new-password" minLength={8} required disabled={tokenInvalid} />
+          <button className="game-start-button" type="submit" disabled={tokenInvalid}>
+            {messages.auth.resetPassword}
+          </button>
+        </form>
         <Link className="login-link" href="/auth/forgot-password">
           {messages.auth.requestNewResetLink}
         </Link>
-      </form>
+      </section>
     </main>
   )
 }

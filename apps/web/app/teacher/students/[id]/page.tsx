@@ -7,7 +7,7 @@ import {
   getTeacherStudentSharedTeachers,
   getTeacherStudentCurrentLevel,
   getTeacherStudentProgress,
-  getTeacherStudents,
+  getTeacherStudentSummary,
   getTeacherStudentSubmissions,
 } from '@/lib/services/teacher-service'
 import { getParentsForTeacherStudent } from '@/lib/services/parent-service'
@@ -36,6 +36,8 @@ import {
 } from '../../actions'
 import { StatementMarkdown } from '@/components/StatementMarkdown'
 import { BehaviorAnalysisGenerateButton } from './BehaviorAnalysisGenerateButton'
+import { CurrentLevelDrawerLink } from './CurrentLevelDrawerLink'
+import { CurrentLevelSubmitButton } from './CurrentLevelSubmitButton'
 import { GrowthReportAutoRefresh } from './GrowthReportAutoRefresh'
 import { GrowthReportGenerateButton } from './GrowthReportGenerateButton'
 import {
@@ -54,6 +56,15 @@ type TeacherStudentDetailPageProps = {
 }
 
 type StudentDetailTab = 'overview' | 'progress' | 'submissions' | 'assessments' | 'rewards' | 'parents' | 'behavior' | 'settings'
+type StudentProgressList = Awaited<ReturnType<typeof getTeacherStudentProgress>>
+type StudentSubmissionList = Awaited<ReturnType<typeof getTeacherStudentSubmissions>>
+type LessonStageMenuList = Awaited<ReturnType<typeof getTeacherLessonStageMenus>>
+type SharedTeacherList = Awaited<ReturnType<typeof getTeacherStudentSharedTeachers>>
+type ParentBindingList = Awaited<ReturnType<typeof getParentsForTeacherStudent>>
+type GrowthReportList = Awaited<ReturnType<typeof getTeacherStudentGrowthReportDetails>>
+type BehaviorAnalysisList = Awaited<ReturnType<typeof getTeacherStudentBehaviorAnalyses>>
+type AssessmentHistoryList = Awaited<ReturnType<typeof listRankedAssessmentHistoryForUser>>
+type InventoryList = Awaited<ReturnType<typeof requireUserInventory>>
 
 export default async function TeacherStudentDetailPage({ params, searchParams }: TeacherStudentDetailPageProps) {
   const { id } = await params
@@ -67,43 +78,70 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
   const growthReportError = readParam(query.growthReportError)
   const growthReportMessage = readParam(query.growthReportMessage)
   const growthReportId = readParam(query.growthReportId)
+  const currentLevelStatus = readParam(query.currentLevelStatus)
+  const currentLevelMessage = readParam(query.currentLevelMessage)
   const session = await requireTeacherSession(`/teacher/students/${id}`)
+  const student = await getTeacherStudentSummary({
+    teacherUserId: session.user.id,
+    studentUserId: id,
+  })
+  if (!student) notFound()
+
+  const needsStageMenus = activeTab === 'progress' || drawer === 'current-level'
+  const needsProgress = activeTab === 'progress'
+  const needsSubmissions = activeTab === 'overview' || activeTab === 'submissions'
+  const needsAssessments = activeTab === 'assessments'
+  const needsRewards = activeTab === 'rewards'
+  const needsParents = activeTab === 'parents'
+  const needsGrowthReports = activeTab === 'overview' || activeTab === 'parents'
+  const needsBehaviorAnalyses = activeTab === 'overview' || activeTab === 'behavior'
+  const needsSharedTeachers = activeTab === 'settings'
+  const submissionLimit = activeTab === 'submissions' ? 50 : 8
+
   const [
-    students,
+    currentStudyLevel,
+    wallet,
+    entitlement,
     progress,
     submissions,
     stageMenus,
-    currentStudyLevel,
-    wallet,
     inventory,
     assessmentHistory,
     sharedTeachers,
     parents,
     growthReports,
     behaviorAnalyses,
-    entitlement,
   ] = await Promise.all([
-    getTeacherStudents(session.user.id),
-    getTeacherStudentProgress({ teacherUserId: session.user.id, studentUserId: id }),
-    getTeacherStudentSubmissions({ teacherUserId: session.user.id, studentUserId: id, limit: 50 }),
-    getTeacherLessonStageMenus(session.user.id),
     getTeacherStudentCurrentLevel({ teacherUserId: session.user.id, studentUserId: id }),
     requireWalletSummary(id).catch(() => null),
-    requireUserInventory(id).catch(() => []),
-    listRankedAssessmentHistoryForUser({ userId: id, limit: 8 }).catch(() => []),
-    getTeacherStudentSharedTeachers({ teacherUserId: session.user.id, studentUserId: id }).catch(() => []),
-    getParentsForTeacherStudent({ teacherUserId: session.user.id, studentUserId: id }).catch(() => []),
-    getTeacherStudentGrowthReportDetails({ teacherUserId: session.user.id, studentUserId: id, limit: 8 }).catch(() => []),
-    getTeacherStudentBehaviorAnalyses({ teacherUserId: session.user.id, studentUserId: id, limit: 8 }).catch(() => []),
     getUserEntitlement(id).catch(() => null),
+    needsProgress
+      ? getTeacherStudentProgress({ teacherUserId: session.user.id, studentUserId: id })
+      : Promise.resolve([] as StudentProgressList),
+    needsSubmissions
+      ? getTeacherStudentSubmissions({ teacherUserId: session.user.id, studentUserId: id, limit: submissionLimit })
+      : Promise.resolve([] as StudentSubmissionList),
+    needsStageMenus ? getTeacherLessonStageMenus(session.user.id) : Promise.resolve([] as LessonStageMenuList),
+    needsRewards ? requireUserInventory(id).catch(() => [] as InventoryList) : Promise.resolve([] as InventoryList),
+    needsAssessments ? listRankedAssessmentHistoryForUser({ userId: id, limit: 8 }).catch(() => [] as AssessmentHistoryList) : Promise.resolve([] as AssessmentHistoryList),
+    needsSharedTeachers
+      ? getTeacherStudentSharedTeachers({ teacherUserId: session.user.id, studentUserId: id }).catch(() => [] as SharedTeacherList)
+      : Promise.resolve([] as SharedTeacherList),
+    needsParents
+      ? getParentsForTeacherStudent({ teacherUserId: session.user.id, studentUserId: id }).catch(() => [] as ParentBindingList)
+      : Promise.resolve([] as ParentBindingList),
+    needsGrowthReports
+      ? getTeacherStudentGrowthReportDetails({ teacherUserId: session.user.id, studentUserId: id, limit: 8 }).catch(() => [] as GrowthReportList)
+      : Promise.resolve([] as GrowthReportList),
+    needsBehaviorAnalyses
+      ? getTeacherStudentBehaviorAnalyses({ teacherUserId: session.user.id, studentUserId: id, limit: 8 }).catch(() => [] as BehaviorAnalysisList)
+      : Promise.resolve([] as BehaviorAnalysisList),
   ])
-  const student = students.find((item) => item.id === id)
-  if (!student) notFound()
 
   const progressByLevelId = new Map(progress.map((item) => [item.levelId, item]))
   const stageRows = stageMenus.map((menu) => buildStageRow(menu, progressByLevelId))
-  const pendingRepair = progress.filter((item) => !item.passed && item.attemptCount > 0).length
-  const repairedSuccess = progress.filter((item) => item.passed && item.attemptCount > 1).length
+  const pendingRepair = student.pendingRepairCount
+  const repairedSuccess = student.repairedSuccessCount
   const recentErrorTypes = summarizeRecentErrors(submissions)
   const canManage = student.accessLevel === 'owner'
   const baseHref = `/teacher/students/${student.id}?tab=${activeTab}`
@@ -113,7 +151,7 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
   const selectedGrowthReport = growthReportId
     ? growthReports.find((report) => report.id === growthReportId) ?? null
     : null
-  const hasPendingGrowthReport = growthReports.some((report) => report.status === 'pending')
+  const hasPendingGrowthReport = activeTab === 'parents' && growthReports.some((report) => report.status === 'pending')
 
   return (
     <section className="teacher-page">
@@ -177,12 +215,12 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
       <TeacherTabs
         tabs={[
           { href: `/teacher/students/${student.id}?tab=overview`, label: '概览', active: activeTab === 'overview' },
-          { href: `/teacher/students/${student.id}?tab=progress`, label: '关卡进度', count: stageRows.length, active: activeTab === 'progress' },
-          { href: `/teacher/students/${student.id}?tab=submissions`, label: '提交记录', count: submissions.length, active: activeTab === 'submissions' },
-          { href: `/teacher/students/${student.id}?tab=assessments`, label: '考试记录', count: assessmentHistory.length, active: activeTab === 'assessments' },
+          { href: `/teacher/students/${student.id}?tab=progress`, label: '关卡进度', count: activeTab === 'progress' ? stageRows.length : undefined, active: activeTab === 'progress' },
+          { href: `/teacher/students/${student.id}?tab=submissions`, label: '提交记录', count: activeTab === 'submissions' ? submissions.length : undefined, active: activeTab === 'submissions' },
+          { href: `/teacher/students/${student.id}?tab=assessments`, label: '考试记录', count: activeTab === 'assessments' ? assessmentHistory.length : undefined, active: activeTab === 'assessments' },
           { href: `/teacher/students/${student.id}?tab=rewards`, label: '奖励成长', active: activeTab === 'rewards' },
-          { href: `/teacher/students/${student.id}?tab=parents`, label: '家长与报告', count: parents.length, active: activeTab === 'parents' },
-          { href: `/teacher/students/${student.id}?tab=behavior`, label: '行为分析', count: behaviorAnalyses.length, active: activeTab === 'behavior' },
+          { href: `/teacher/students/${student.id}?tab=parents`, label: '家长与报告', count: activeTab === 'parents' ? parents.length : undefined, active: activeTab === 'parents' },
+          { href: `/teacher/students/${student.id}?tab=behavior`, label: '行为分析', count: activeTab === 'behavior' ? behaviorAnalyses.length : undefined, active: activeTab === 'behavior' },
           { href: `/teacher/students/${student.id}?tab=settings`, label: '设置', active: activeTab === 'settings' },
         ]}
       />
@@ -194,7 +232,7 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
               <SummaryRow label="当前关卡" value={currentStudyLevel?.title ?? '-'} />
               <SummaryRow label="最近错误" value={recentErrorTypes || '暂无明显错误'} />
               <SummaryRow label="提交总数" value={student.submissionCount} />
-              <SummaryRow label="家长绑定" value={`${parents.length} 位`} />
+              <SummaryRow label="家长绑定" value={`${student.parentCount} 位`} />
               <SummaryRow label="成长报告" value={`${growthReports.length} 份`} />
               <SummaryRow label="行为分析" value={`${behaviorAnalyses.length} 份`} />
             </div>
@@ -523,7 +561,7 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
             {canManage ? (
               <div className="teacher-row-actions">
                 <Link className="teacher-button" href={`${baseHref}&drawer=edit-profile`}>编辑资料</Link>
-                <Link className="teacher-button secondary" href={`${baseHref}&drawer=current-level`}>设置当前关卡</Link>
+                <CurrentLevelDrawerLink href={`${baseHref}&drawer=current-level`} closeHref={baseHref} />
                 <Link className="teacher-button secondary" href={`${baseHref}&drawer=user-type`}>设置用户类型</Link>
               </div>
             ) : null}
@@ -565,6 +603,8 @@ export default async function TeacherStudentDetailPage({ params, searchParams }:
         userType: entitlement?.storedUserType ?? entitlement?.userType ?? 'experience',
         entitlementSource: entitlement?.entitlementSource ?? null,
         growthReportError,
+        currentLevelStatus,
+        currentLevelMessage,
       })}
     </section>
   )
@@ -597,6 +637,8 @@ function renderDrawer(input: {
   userType: string
   entitlementSource: string | null
   growthReportError: string | null
+  currentLevelStatus: string | null
+  currentLevelMessage: string | null
 }) {
   if (!input.drawer) return null
   if (input.drawer === 'edit-profile') {
@@ -626,10 +668,23 @@ function renderDrawer(input: {
     )
   }
   if (input.drawer === 'current-level') {
+    const currentLevelSaved = input.currentLevelStatus === 'saved'
+    const currentLevelError = input.currentLevelStatus === 'error'
     return (
       <TeacherDrawer title="设置当前关卡" closeHref={input.closeHref}>
         <form action={setTeacherStudentCurrentLevelAction} className="teacher-form-grid">
           <input name="studentUserId" type="hidden" value={input.studentId} />
+          <input name="returnTo" type="hidden" value={input.closeHref} />
+          {currentLevelSaved ? (
+            <p className="teacher-inline-success" role="status">
+              {input.currentLevelMessage ?? '当前关卡已保存。'}
+            </p>
+          ) : null}
+          {currentLevelError ? (
+            <p className="teacher-inline-warning" role="alert">
+              {input.currentLevelMessage ?? '当前关卡保存失败，请稍后重试。'}
+            </p>
+          ) : null}
           <label>
             <span>当前关卡</span>
             <select name="levelId" defaultValue={input.currentLevelId} required>
@@ -645,7 +700,7 @@ function renderDrawer(input: {
               })}
             </select>
           </label>
-          <button className="teacher-button" disabled={input.levelOptions.length === 0} type="submit">保存当前关卡</button>
+          <CurrentLevelSubmitButton disabled={input.levelOptions.length === 0} />
         </form>
       </TeacherDrawer>
     )

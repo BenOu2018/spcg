@@ -1,4 +1,4 @@
-import type { JudgeProgress, Language, ResolvedLanguage, SubmissionErrorAnalysis, Verdict } from '@spcg/shared/types'
+import type { JudgeProgress, Language, ResolvedLanguage, SubmissionErrorAnalysis, Verdict, VerdictCaseResult } from '@spcg/shared/types'
 import { query, queryOne } from '@/lib/db'
 
 export type SubmissionStatus = 'pending' | 'judging' | 'done' | 'error'
@@ -70,6 +70,16 @@ export type UserSubmissionDetailItem = UserRecentSubmissionItem & {
   errorAnalysis: SubmissionErrorAnalysis | null
 }
 
+export type HiddenCaseRevealSubmission = {
+  id: string
+  userId: string
+  levelId: string
+  status: SubmissionStatus
+  verdict: Verdict | null
+  caseResults: VerdictCaseResult[] | null
+  assessmentAttemptId: string | null
+}
+
 type SubmissionRow = {
   id: string
   status: SubmissionStatus
@@ -133,6 +143,16 @@ type UserSubmissionDetailRow = UserRecentSubmissionRow & {
   judge_progress: JudgeProgress | null
   judge_mode: 'fast' | 'full' | null
   error_analysis: SubmissionErrorAnalysis | null
+}
+
+type HiddenCaseRevealSubmissionRow = {
+  id: string
+  user_id: string
+  level_id: string
+  status: SubmissionStatus
+  verdict: Verdict | null
+  case_results: VerdictCaseResult[] | null
+  assessment_attempt_id: string | null
 }
 
 export type JudgeQueueStats = {
@@ -214,6 +234,32 @@ export async function getSubmissionForUser(submissionId: string, userId: string)
   )
 
   return row ? mapSubmissionSummary(row) : null
+}
+
+export async function getHiddenCaseRevealSubmissionForUser(
+  submissionId: string,
+  userId: string,
+): Promise<HiddenCaseRevealSubmission | null> {
+  const row = await queryOne<HiddenCaseRevealSubmissionRow>(
+    `
+    SELECT id, user_id, level_id, status, verdict, case_results, assessment_attempt_id
+    FROM submissions
+    WHERE id = $1 AND user_id = $2
+    `,
+    [submissionId, userId],
+  )
+
+  return row
+    ? {
+        id: row.id,
+        userId: row.user_id,
+        levelId: row.level_id,
+        status: row.status,
+        verdict: row.verdict,
+        caseResults: row.case_results,
+        assessmentAttemptId: row.assessment_attempt_id,
+      }
+    : null
 }
 
 export async function listSubmissionHistoryForUser(input: {

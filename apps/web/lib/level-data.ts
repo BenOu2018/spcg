@@ -99,11 +99,18 @@ export async function getMapLearningDataForUser(userId: string, chapterId?: stri
 }
 
 export async function getProgrammingLevelPageDataForUser(userId: string, levelId: string) {
-  const [level, levels, progressRecords] = await Promise.all([
-    getLevelByIdForUserId(levelId, userId),
+  const [allLevels, levels, progressRecords, directStageMenu, hintsAccess] = await Promise.all([
+    getAllLevelsForUser({
+      userId,
+      allowMockFallback: true,
+    }),
     getMainlineLevelsForUserId(userId),
     getProgressRecordsForUserId(userId),
+    getLessonStageMenu(levelId),
+    getFeatureAccess({ userId, feature: 'hints' }),
   ])
+  const allLevelById = new Map(allLevels.map((item) => [item.id, item]))
+  const level = allLevelById.get(levelId) ?? null
 
   if (!level) {
     return {
@@ -113,37 +120,34 @@ export async function getProgrammingLevelPageDataForUser(userId: string, levelId
       stageMenu: null,
       stageLevels: [],
       access: null,
-      hintsAccess: null,
+      hintsAccess,
     }
   }
 
   const stageMenus = await getLessonStageMenus(levels.map((item) => item.id))
-  const directStageMenu = stageMenus.find((menu) => menu.items.some((item) => item.levelId === levelId)) ?? (await getLessonStageMenu(levelId))
+  const resolvedDirectStageMenu = directStageMenu ?? stageMenus.find((menu) => menu.items.some((item) => item.levelId === levelId)) ?? null
   const accessStageMenus =
-    directStageMenu && !stageMenus.some((menu) => menu.problemSetId === directStageMenu.problemSetId)
-      ? [...stageMenus, directStageMenu]
+    resolvedDirectStageMenu && !stageMenus.some((menu) => menu.problemSetId === resolvedDirectStageMenu.problemSetId)
+      ? [...stageMenus, resolvedDirectStageMenu]
       : stageMenus
-  const stageLevels = directStageMenu
-    ? (
-        await Promise.all(directStageMenu.items.map((item) => getLevelByIdForUserId(item.levelId, userId)))
-      ).filter((item): item is NonNullable<typeof item> => Boolean(item))
+  const stageLevels = resolvedDirectStageMenu
+    ? resolvedDirectStageMenu.items
+        .map((item) => allLevelById.get(item.levelId))
+        .filter((item): item is NonNullable<typeof item> => Boolean(item))
     : []
-  const [access, hintsAccess] = await Promise.all([
-    getLevelAccessForUserFromData({
-      userId,
-      levelId,
-      levels,
-      progress: progressRecords,
-      stageMenus: accessStageMenus,
-    }),
-    getFeatureAccess({ userId, feature: 'hints' }),
-  ])
+  const access = await getLevelAccessForUserFromData({
+    userId,
+    levelId,
+    levels,
+    progress: progressRecords,
+    stageMenus: accessStageMenus,
+  })
 
   return {
     level,
     levels,
     progressRecords,
-    stageMenu: directStageMenu,
+    stageMenu: resolvedDirectStageMenu,
     stageLevels,
     access,
     hintsAccess,

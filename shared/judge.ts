@@ -30,6 +30,8 @@ export type MockExecutionResult = {
   errorDetail?: string
 }
 
+const MAX_VERDICT_STDOUT_CHARS = 4000
+
 export function aggregateJudgeResults(
   results: JudgeCaseResult[],
   expected: TestCase[],
@@ -95,14 +97,18 @@ export function aggregateJudgeResults(
       result = caseResult
       failedCaseIndex = i
     }
-    caseResults.push({
+    const verdictCaseResult: NonNullable<Verdict['caseResults']>[number] = {
       index: i + 1,
       visibility: expected[i]?.visibility ?? 'hidden',
       passed: casePassed,
       result: caseResult,
       runtimeMs: caseRuntimeMs,
       memoryKb: caseMemoryKb,
-    })
+    }
+    if (!casePassed && current && typeof current.stdout === 'string') {
+      verdictCaseResult.stdout = truncateJudgeOutput(current.stdout)
+    }
+    caseResults.push(verdictCaseResult)
     if (!casePassed && !options.runAllCases) break
   }
 
@@ -124,10 +130,13 @@ export function mockJudgeSubmission(input: MockJudgeInput): Verdict {
   let result: Verdict['result'] = 'AC'
   let errorDetail: string | undefined
   let maxRuntimeMs = 0
+  const caseResults: NonNullable<Verdict['caseResults']> = []
 
   for (let i = 0; i < input.cases.length; i++) {
     const testCase = input.cases[i]
     const execution = mockExecuteCpp(input.code, testCase?.input ?? '', input.timeLimitMs)
+    let caseResult = execution.result
+    let casePassed = false
 
     maxRuntimeMs = Math.max(maxRuntimeMs, execution.maxRuntimeMs)
 
@@ -138,13 +147,26 @@ export function mockJudgeSubmission(input: MockJudgeInput): Verdict {
       }
       errorDetail = execution.errorDetail
     } else if (normalizeOutput(execution.stdout) !== normalizeOutput(testCase?.expectedOutput ?? '')) {
+      caseResult = 'WA'
       if (result === 'AC') {
         result = 'WA'
         failedCaseIndex = i
       }
     } else {
+      casePassed = true
       passedCases++
     }
+
+    const verdictCaseResult: NonNullable<Verdict['caseResults']>[number] = {
+      index: i + 1,
+      visibility: testCase?.visibility ?? 'hidden',
+      passed: casePassed,
+      result: caseResult,
+      runtimeMs: execution.maxRuntimeMs,
+      memoryKb: null,
+    }
+    if (!casePassed) verdictCaseResult.stdout = truncateJudgeOutput(execution.stdout)
+    caseResults.push(verdictCaseResult)
 
     if (result !== 'AC' && !input.runAllCases) break
   }
@@ -156,6 +178,7 @@ export function mockJudgeSubmission(input: MockJudgeInput): Verdict {
     maxRuntimeMs,
     failedCaseIndex,
     childFriendlyMessage: input.childMessage(result),
+    caseResults,
     ...(errorDetail ? { errorDetail } : {}),
   }
 }
@@ -207,6 +230,11 @@ export function mockExecuteCpp(code: string, stdin: string, timeLimitMs = 1000):
 
 export function normalizeOutput(value: string): string {
   return value.replace(/\r\n/g, '\n').trim()
+}
+
+function truncateJudgeOutput(value: string): string {
+  if (value.length <= MAX_VERDICT_STDOUT_CHARS) return value
+  return `${value.slice(0, MAX_VERDICT_STDOUT_CHARS)}\n...`
 }
 
 function readJudgeStatusText(result: JudgeCaseResult): string {

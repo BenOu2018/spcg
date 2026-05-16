@@ -47,6 +47,7 @@ export type TeacherStudentSummary = {
   todayAcceptedCount: number
   todayCoinDelta: number
   pendingRepairCount: number
+  repairedSuccessCount: number
   parentCount: number
   isOnline: boolean
   linkedAt: string
@@ -187,6 +188,7 @@ type TeacherStudentRow = {
   today_accepted_count: string | number
   today_coin_delta: string | number
   pending_repair_count: string | number
+  repaired_success_count: string | number
   parent_count: string | number
   is_online: boolean
   linked_at: Date | string
@@ -576,6 +578,7 @@ export async function listTeacherStudents(teacherUserId: string): Promise<Teache
       COALESCE(submission_stats.today_accepted_count, 0) AS today_accepted_count,
       COALESCE(reward_stats.today_coin_delta, 0) AS today_coin_delta,
       COALESCE(progress_stats.pending_repair_count, 0) AS pending_repair_count,
+      COALESCE(progress_stats.repaired_success_count, 0) AS repaired_success_count,
       COALESCE(parent_stats.parent_count, 0) AS parent_count,
       (
         u.last_sign_in_at >= NOW() - INTERVAL '15 minutes'
@@ -597,7 +600,8 @@ export async function listTeacherStudents(teacherUserId: string): Promise<Teache
     LEFT JOIN LATERAL (
       SELECT
         COUNT(*) FILTER (WHERE pr.passed = TRUE) AS passed_count,
-        COUNT(*) FILTER (WHERE pr.passed = FALSE AND pr.attempt_count > 0) AS pending_repair_count
+        COUNT(*) FILTER (WHERE pr.passed = FALSE AND pr.attempt_count > 0) AS pending_repair_count,
+        COUNT(*) FILTER (WHERE pr.passed = TRUE AND pr.attempt_count > 1) AS repaired_success_count
       FROM progress pr
       WHERE pr.user_id = u.id
     ) progress_stats ON TRUE
@@ -630,6 +634,109 @@ export async function listTeacherStudents(teacherUserId: string): Promise<Teache
   )
 
   return rows.map(mapTeacherStudentRow)
+}
+
+export async function getTeacherStudentSummary(input: {
+  teacherUserId: string
+  studentUserId: string
+  allowAdminAccess?: boolean
+}): Promise<TeacherStudentSummary | null> {
+  const row = await queryOne<TeacherStudentRow>(
+    `
+    SELECT
+      u.id,
+      u.username,
+      u.email,
+      COALESCE(p.display_name, u.display_name, u.username) AS display_name,
+      p.avatar_url,
+      p.age,
+      p.real_name,
+      p.id_card_number,
+      p.parent_email,
+      p.phone_number,
+      p.phone_verified_at,
+      COALESCE(p.student_enrollment_type, 'online') AS student_enrollment_type,
+      COALESCE(ur.role, 'student') AS role,
+      COALESCE(uas.account_status, 'active') AS account_status,
+      COALESCE(relation.access_level, 'owner') AS access_level,
+      relation.teacher_note,
+      COALESCE(progress_stats.passed_count, 0) AS passed_count,
+      COALESCE(submission_stats.submission_count, 0) AS submission_count,
+      COALESCE(submission_stats.today_submission_count, 0) AS today_submission_count,
+      COALESCE(submission_stats.today_accepted_count, 0) AS today_accepted_count,
+      COALESCE(reward_stats.today_coin_delta, 0) AS today_coin_delta,
+      COALESCE(progress_stats.pending_repair_count, 0) AS pending_repair_count,
+      COALESCE(progress_stats.repaired_success_count, 0) AS repaired_success_count,
+      COALESCE(parent_stats.parent_count, 0) AS parent_count,
+      (
+        u.last_sign_in_at >= NOW() - INTERVAL '15 minutes'
+        OR EXISTS (
+          SELECT 1
+          FROM submissions recent_s
+          WHERE recent_s.user_id = u.id
+            AND recent_s.created_at >= NOW() - INTERVAL '15 minutes'
+        )
+      ) AS is_online,
+      COALESCE(relation.created_at, u.created_at) AS linked_at,
+      relation.shared_by,
+      relation.shared_at
+    FROM users u
+    LEFT JOIN profiles p ON p.user_id = u.id
+    LEFT JOIN user_roles ur ON ur.user_id = u.id
+    LEFT JOIN user_admin_states uas ON uas.user_id = u.id
+    LEFT JOIN LATERAL (
+      SELECT ts.access_level, ts.teacher_note, ts.created_at, ts.shared_by, ts.shared_at
+      FROM teacher_students ts
+      WHERE ts.student_user_id = u.id
+        AND ts.status = 'active'
+        AND ($3::boolean OR ts.teacher_user_id = $1)
+      ORDER BY
+        CASE
+          WHEN ts.teacher_user_id = $1 THEN 0
+          WHEN ts.access_level = 'owner' THEN 1
+          ELSE 2
+        END,
+        ts.created_at DESC
+      LIMIT 1
+    ) relation ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(*) FILTER (WHERE pr.passed = TRUE) AS passed_count,
+        COUNT(*) FILTER (WHERE pr.passed = FALSE AND pr.attempt_count > 0) AS pending_repair_count,
+        COUNT(*) FILTER (WHERE pr.passed = TRUE AND pr.attempt_count > 1) AS repaired_success_count
+      FROM progress pr
+      WHERE pr.user_id = u.id
+    ) progress_stats ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(*) AS submission_count,
+        COUNT(*) FILTER (WHERE s.created_at >= date_trunc('day', NOW())) AS today_submission_count,
+        COUNT(DISTINCT s.level_id) FILTER (
+          WHERE s.created_at >= date_trunc('day', NOW())
+            AND s.verdict->>'result' = 'AC'
+        ) AS today_accepted_count
+      FROM submissions s
+      WHERE s.user_id = u.id
+    ) submission_stats ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(rl.coin_delta) FILTER (WHERE rl.coin_delta > 0), 0) AS today_coin_delta
+      FROM reward_ledger rl
+      WHERE rl.user_id = u.id
+        AND rl.created_at >= date_trunc('day', NOW())
+    ) reward_stats ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*) AS parent_count
+      FROM parent_students ps
+      WHERE ps.student_user_id = u.id AND ps.status = 'active'
+    ) parent_stats ON TRUE
+    WHERE u.id = $2
+      AND COALESCE(ur.role, 'student') = 'student'
+      AND ($3::boolean OR relation.access_level IS NOT NULL)
+    `,
+    [input.teacherUserId, input.studentUserId, Boolean(input.allowAdminAccess)],
+  )
+
+  return row ? mapTeacherStudentRow(row) : null
 }
 
 export async function listStudentProgressForTeacher(input: {
@@ -999,6 +1106,7 @@ function mapTeacherStudentRow(row: TeacherStudentRow): TeacherStudentSummary {
     todayAcceptedCount: toNumber(row.today_accepted_count),
     todayCoinDelta: toNumber(row.today_coin_delta),
     pendingRepairCount: toNumber(row.pending_repair_count),
+    repairedSuccessCount: toNumber(row.repaired_success_count),
     parentCount: toNumber(row.parent_count),
     isOnline: Boolean(row.is_online),
     linkedAt: toIsoString(row.linked_at),

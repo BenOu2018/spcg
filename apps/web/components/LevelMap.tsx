@@ -1,12 +1,15 @@
 import Link from 'next/link'
 import type { CSSProperties } from 'react'
-import type { Level, Progress } from '@spcg/shared/types'
+import type { Level, Progress, UiLocale } from '@spcg/shared/types'
 import { getGameChapter, type GameMapNodePosition } from '@spcg/shared/game-chapters'
 import { buildRankedAssessmentRoute, buildRankedAssessmentTitle } from '@spcg/shared/ranked-assessment'
+import { LevelNodeLink } from '@/components/LevelNodeLink'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
 
+export type MapLevel = Pick<Level, 'id' | 'chapterId' | 'order' | 'title' | 'knowledgePoint' | 'difficulty'>
+
 type LevelMapProps = {
-  levels: Level[]
+  levels: MapLevel[]
   progress: Progress[]
   stageMenus?: StageProgressMenu[]
   large?: boolean
@@ -18,6 +21,8 @@ type LevelMapProps = {
   strictCurrentLevel?: boolean
   unlockedLevelIds?: string[]
   messages?: StudentUiMessages
+  uiLocale?: UiLocale
+  userId?: string
 }
 
 const EXAM_NODE_POSITION = {
@@ -57,6 +62,8 @@ export function LevelMap({
   strictCurrentLevel = false,
   unlockedLevelIds = [],
   messages = fallbackMessages,
+  uiLocale = 'zh-CN',
+  userId = '',
 }: LevelMapProps) {
   const orderedLevels = [...levels].sort((a, b) => a.order - b.order)
   const chapter = getGameChapter(orderedLevels[0]?.chapterId)
@@ -147,15 +154,17 @@ export function LevelMap({
         }
 
         return (
-          <Link
-            aria-label={nodeLabel}
+          <LevelNodeLink
+            ariaLabel={nodeLabel}
             className={`level-node ${state}${showTooltip ? ' show-tooltip' : ''}`}
             href={`/level/${level.id}`}
             key={level.id}
             style={style}
+            uiLocale={uiLocale}
+            userId={userId}
           >
             {nodeContent}
-          </Link>
+          </LevelNodeLink>
         )
       })}
       {showExamNode ? (
@@ -203,7 +212,7 @@ function formatLevelState(state: string, messages: StudentUiMessages): string {
 }
 
 function buildRoutePositions(
-  levels: Level[],
+  levels: MapLevel[],
   configuredPositions: GameMapNodePosition[] = [],
   chapterId?: string,
 ): MapPoint[] {
@@ -222,7 +231,7 @@ function buildRoutePositions(
   })
 }
 
-function buildGeneratedRoutePositions(levels: Level[]): MapPoint[] {
+function buildGeneratedRoutePositions(levels: MapLevel[]): MapPoint[] {
   if (levels.length === 1) return [{ id: levels[0]!.id, x: 0.12, y: 0.78 }]
 
   return levels.map((level, index) => {
@@ -254,7 +263,7 @@ function buildRouteSegments(nodePositions: MapPoint[], configuredSegments?: stri
 }
 
 function getLevelState(
-  level: Level,
+  level: MapLevel,
   currentLevelId: string | null,
   passedIds: Set<string>,
   freeJump: boolean,

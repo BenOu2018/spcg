@@ -123,6 +123,35 @@ export async function listPublicLevels(): Promise<Level[]> {
   return rows.map(mapLevelPublicRow)
 }
 
+export async function publishedLevelExists(id: string): Promise<boolean> {
+  const rows = await query<{ id: string }>(
+    `
+    SELECT id
+    FROM levels
+    WHERE id = $1 AND status = 'published'
+    LIMIT 1
+    `,
+    [id],
+  )
+
+  return Boolean(rows[0])
+}
+
+export async function getPublishedLevelTestCases(id: string): Promise<TestCase[] | null> {
+  const rows = await query<{ test_cases: TestCase[] | null }>(
+    `
+    SELECT test_cases
+    FROM levels
+    WHERE id = $1 AND status = 'published'
+    LIMIT 1
+    `,
+    [id],
+  )
+
+  const row = rows[0]
+  return row ? row.test_cases ?? [] : null
+}
+
 export async function listInternalLevelTestSummaries(): Promise<LevelTestSummary[]> {
   const rows = await query<LevelInternalRow>(
     `

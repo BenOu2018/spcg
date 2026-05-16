@@ -1,12 +1,10 @@
 import type { CSSProperties } from 'react'
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
+import { LevelPageCacheBridge } from '@/components/LevelPageCacheBridge'
 import { ProgrammingLevelExperience } from '@/components/ProgrammingLevelExperience'
 import { requireUser } from '@/lib/auth-guard'
-import { getCanShowPricingMenu } from '@/lib/services/account-menu-service'
-import { getLessonStageMenu, getProgrammingLevelPageDataForUser } from '@/lib/level-data'
-import { getStudentUiMessages } from '@/lib/student-ui'
-import { getRequestUiLocale } from '@/lib/student-ui-server'
+import { getLevelPagePayloadForSession } from '@/lib/services/level-page-payload-service'
 
 type LevelPageProps = {
   params: Promise<{ id: string }> | { id: string }
@@ -23,58 +21,34 @@ export default async function LevelPage({ params, searchParams }: LevelPageProps
   const query = searchParams ? await searchParams : {}
   const explicitStageSelection = query.stageSelect === '1'
   const session = await requireUser(`/level/${id}${explicitStageSelection ? '?stageSelect=1' : ''}`)
-  const [uiLocale, canShowPricingMenu] = await Promise.all([
-    getRequestUiLocale(session.user.id),
-    getCanShowPricingMenu(session.user.id),
-  ])
-  const messages = getStudentUiMessages(uiLocale)
-  const { level, levels, progressRecords, stageMenu, stageLevels, access, hintsAccess } = await getProgrammingLevelPageDataForUser(session.user.id, id)
-
-  if (!level) notFound()
-  if (!access) redirect('/map')
-  if (!access.allowed) {
-    if (access.upgradeRequired) {
-      return <LevelUpgradeRequired reason={access.reason ?? '当前用户类型无法访问该关卡。'} />
-    }
-    redirect(access.redirectLevelId ? `/level/${access.redirectLevelId}` : '/map')
-  }
-  const passedLevelIds = new Set(progressRecords.filter((progress) => progress.passed).map((progress) => progress.levelId))
-  const nextStageLevelId = getProgressAwareStageLevelId({
-    currentLevelId: level.id,
-    passedLevelIds,
-    stageItems: stageMenu?.items ?? null,
+  const result = await getLevelPagePayloadForSession({
+    explicitStageSelection,
+    levelId: id,
+    session,
   })
-  const isCurrentStudyStage =
-    stageMenu?.items.some((item) => item.levelId === access.currentMapLevelId || item.levelId === access.currentEntryLevelId) ??
-    false
-  if (
-    !access.canFreeJump &&
-    isCurrentStudyStage &&
-    !explicitStageSelection &&
-    nextStageLevelId &&
-    nextStageLevelId !== level.id
-  ) {
-    redirect(`/level/${nextStageLevelId}`)
-  }
 
-  const displayLevel = hintsAccess?.allowed ? level : { ...level, hints: [] }
-  const displayStageLevels = hintsAccess?.allowed ? stageLevels : stageLevels.map((item) => ({ ...item, hints: [] }))
+  if (result.status === 'not-found') notFound()
+  if (result.status === 'redirect') redirect(result.href)
+  if (result.status === 'upgrade-required') return <LevelUpgradeRequired reason={result.reason} />
+  const payload = result.viewPayload
 
   return (
     <main className="programming-scene" style={PROGRAMMING_SCENE_BACKGROUND_STYLE}>
       <ProgrammingLevelExperience
-        level={displayLevel}
-        levels={levels}
-        stageLevels={displayStageLevels}
-        userId={session.user.id}
-        session={session}
-        stageMenu={stageMenu}
-        progressRecords={progressRecords}
-        canViewHints={hintsAccess?.allowed ?? false}
-        hintsUpgradeMessage={hintsAccess?.reason ?? undefined}
-        messages={messages}
-        canShowPricingMenu={canShowPricingMenu}
+        level={payload.level}
+        levels={payload.levels}
+        stageLevels={payload.stageLevels}
+        userId={payload.userId}
+        session={payload.session}
+        stageMenu={payload.stageMenu}
+        progressRecords={payload.progressRecords}
+        canViewHints={payload.canViewHints}
+        hintsUpgradeMessage={payload.hintsUpgradeMessage}
+        messages={payload.messages}
+        canShowPricingMenu={payload.canShowPricingMenu}
+        canFreeJump={payload.canFreeJump}
       />
+      <LevelPageCacheBridge payload={result.cachePayload} />
     </main>
   )
 }
@@ -96,24 +70,4 @@ function LevelUpgradeRequired({ reason }: { reason: string }) {
       </section>
     </main>
   )
-}
-
-type StageMenuItem = NonNullable<Awaited<ReturnType<typeof getLessonStageMenu>>>['items'][number]
-
-function getProgressAwareStageLevelId({
-  currentLevelId,
-  passedLevelIds,
-  stageItems,
-}: {
-  currentLevelId: string
-  passedLevelIds: Set<string>
-  stageItems: StageMenuItem[] | null
-}) {
-  if (!stageItems || stageItems.length === 0) return null
-
-  const orderedItems = stageItems.slice().sort((a, b) => a.position - b.position).slice(0, 5)
-  const currentItem = orderedItems.find((item) => item.levelId === currentLevelId)
-  if (!currentItem || !passedLevelIds.has(currentItem.levelId)) return null
-
-  return orderedItems.find((item) => !passedLevelIds.has(item.levelId))?.levelId ?? null
 }

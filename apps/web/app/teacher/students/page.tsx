@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { requireTeacherSession } from '@/lib/teacher-auth'
 import { getTeacherStudents } from '@/lib/services/teacher-service'
+import { STUDENT_USERNAME_RULE_TITLE } from '@/lib/user-identity'
 import { addTeacherStudentAction, createTeacherStudentAction, removeTeacherStudentAction } from '../actions'
 import {
   TeacherDrawer,
@@ -172,6 +173,11 @@ export default async function TeacherStudentsPage({ searchParams }: TeacherStude
 
       {filters.drawer === 'create' ? (
         <TeacherDrawer title="新建学生" description="创建学生账号并自动加入你的学生列表。" closeHref={baseHref}>
+          {filters.createError ? (
+            <p className="teacher-inline-warning" role="alert">
+              {filters.createError}
+            </p>
+          ) : null}
           <form action={createTeacherStudentAction} className="teacher-form-grid">
             <label>
               <span>显示名</span>
@@ -179,7 +185,15 @@ export default async function TeacherStudentsPage({ searchParams }: TeacherStude
             </label>
             <label>
               <span>用户名</span>
-              <input name="username" required placeholder="toby01" minLength={3} maxLength={24} />
+              <input
+                name="username"
+                required
+                placeholder="toby01"
+                minLength={2}
+                maxLength={24}
+                autoCapitalize="none"
+                title={STUDENT_USERNAME_RULE_TITLE}
+              />
             </label>
             <label>
               <span>临时密码</span>
@@ -227,6 +241,7 @@ function readFilters(params: Record<string, string | string[] | undefined>) {
     access: access === 'owner' || access === 'viewer' ? access : '',
     status: status === 'online' || status === 'offline' ? status : '',
     drawer: drawer === 'create' || drawer === 'add-existing' ? drawer : '',
+    createError: readParam(params.createError) ?? '',
     page: Number.isInteger(pageValue) ? pageValue : 1,
   }
 }

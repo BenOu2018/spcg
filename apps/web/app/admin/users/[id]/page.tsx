@@ -6,6 +6,7 @@ import { getAdminSubmissionHistory } from '@/lib/services/submission-service'
 import { requireRewardHistory, requireWalletSummary } from '@/lib/services/wallet-service'
 import { getUserEntitlement, STUDENT_USER_TYPE_OPTIONS } from '@/lib/services/entitlement-service'
 import { STUDENT_ENROLLMENT_TYPE_OPTIONS } from '@/lib/student-enrollment'
+import { STUDENT_USERNAME_RULE_TITLE } from '@/lib/user-identity'
 import { AdminDrawer, AdminPageHeader, AdminTabs } from '../../components/AdminChrome'
 import { AdminSubmissionTable } from '../../components/AdminSubmissionTable'
 import { deleteAdminUser, resetUserProgress, setAdminStudentUserType, setUserStatus, updateAdminUser } from '../actions'
@@ -279,7 +280,14 @@ export default async function AdminUserDetailPage({ params, searchParams }: Admi
             <input name="userId" type="hidden" value={user.id} />
             <label>
               <span>Username</span>
-              <input name="username" required defaultValue={user.username} minLength={3} maxLength={24} />
+              <input
+                name="username"
+                required
+                defaultValue={user.username}
+                minLength={2}
+                maxLength={24}
+                title={STUDENT_USERNAME_RULE_TITLE}
+              />
             </label>
             <label>
               <span>Display name</span>

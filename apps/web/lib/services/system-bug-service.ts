@@ -42,8 +42,8 @@ export type SubmitSystemBugResult =
 
 const MAX_DESCRIPTION_LENGTH = 2000
 const MAX_CODE_LENGTH = 200_000
-const TEACHER_BUG_REPORT_RATE_LIMIT_SECONDS = 300
-const STUDENT_BUG_REPORT_RATE_LIMIT_SECONDS = 1800
+const TEACHER_BUG_REPORT_RATE_LIMIT_SECONDS = 60
+const STUDENT_BUG_REPORT_RATE_LIMIT_SECONDS = 300
 
 const validStatuses = new Set<SystemBugStatus>(['open', 'triaged', 'resolved', 'ignored'])
 

@@ -1,12 +1,7 @@
-import { spawnSync } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { mockExecuteCpp, type JudgeCaseResult, type MockExecutionResult } from '@spcg/shared/judge'
 import {
   DEFAULT_CPP_LANGUAGE,
   getCompilerOptions,
-  getCppStandard,
   getJudge0LanguageId,
   getLanguageLabel,
   type ResolvedLanguage,
@@ -20,36 +15,68 @@ type ExecuteCodeInput = {
   memoryLimitMb: number
 }
 
+type ExecuteCodeBatchInput = Omit<ExecuteCodeInput, 'stdin'> & {
+  stdins: string[]
+}
+
+export type CodeRunEngine = 'judge0' | 'mock'
+
+export type ExecuteCodeBatchResult = {
+  engine: CodeRunEngine
+  results: MockExecutionResult[]
+}
+
 const DEFAULT_MIN_MEMORY_LIMIT_KB = 0
-const LOCAL_RUN_MAX_BUFFER = 16 * 1024 * 1024
 
 export async function executeCode(input: ExecuteCodeInput): Promise<MockExecutionResult> {
+  const batch = await executeCodeBatch({ ...input, stdins: [input.stdin] })
+  return batch.results[0] ?? {
+    result: 'Judge Error',
+    stdout: '',
+    maxRuntimeMs: 0,
+    errorDetail: 'Run did not return a result.',
+  }
+}
+
+export async function executeCodeBatch(input: ExecuteCodeBatchInput): Promise<ExecuteCodeBatchResult> {
   const baseUrl = process.env.JUDGE0_BASE_URL
   const mode = process.env.JUDGE0_MODE
   const language = input.language ?? DEFAULT_CPP_LANGUAGE
 
-  if (mode === 'mock' || !baseUrl) {
-    return executeMockCode({ ...input, language })
-  }
-
-  try {
-    const response = await fetch(`${trimTrailingSlash(baseUrl)}/submissions?base64_encoded=true&wait=true`, {
-      method: 'POST',
-      headers: buildJudge0Headers({
-        'Content-Type': 'application/json',
-      }),
-      body: JSON.stringify(buildPayload({ ...input, language })),
-    })
-
-    if (!response.ok) {
-      throw new Error(`Judge0 run request failed: ${response.status} ${await response.text()}`)
+  if (mode === 'mock') {
+    return {
+      engine: 'mock',
+      results: input.stdins.map((stdin) => executeMockCode({ ...input, language, stdin })),
     }
-
-    return toExecutionResult(decodeJudge0Result((await response.json()) as JudgeCaseResult), input.timeLimitMs)
-  } catch (error) {
-    if (process.env.SPCG_LOCAL_RUN_FALLBACK === 'false') throw error
-    return executeLocalCode({ ...input, language })
   }
+
+  if (!baseUrl) {
+    return {
+      engine: 'judge0',
+      results: input.stdins.map(() => buildJudgeError('Judge0 is not configured.')),
+    }
+  }
+
+  const results = await Promise.all(
+    input.stdins.map(async (stdin) => {
+      const response = await fetch(`${trimTrailingSlash(baseUrl)}/submissions?base64_encoded=true&wait=true`, {
+        method: 'POST',
+        headers: buildJudge0Headers({
+          'Content-Type': 'application/json',
+        }),
+        body: JSON.stringify(buildPayload({ ...input, language, stdin })),
+        signal: AbortSignal.timeout(readJudge0RunTimeoutMs(input.timeLimitMs)),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Judge0 run request failed: ${response.status} ${await response.text()}`)
+      }
+
+      return toExecutionResult(decodeJudge0Result((await response.json()) as JudgeCaseResult), input.timeLimitMs)
+    }),
+  )
+
+  return { engine: 'judge0', results }
 }
 
 function buildPayload(input: ExecuteCodeInput & { language: ResolvedLanguage }) {
@@ -74,6 +101,12 @@ function buildPayload(input: ExecuteCodeInput & { language: ResolvedLanguage }) 
   }
 }
 
+function readJudge0RunTimeoutMs(timeLimitMs: number): number {
+  const configured = Number(process.env.JUDGE0_RUN_TIMEOUT_MS ?? process.env.SPCG_JUDGE0_RUN_TIMEOUT_MS)
+  if (Number.isFinite(configured) && configured > 0) return Math.round(configured)
+  return Math.max(2500, Math.min(5000, timeLimitMs + 2000))
+}
+
 function executeMockCode(input: ExecuteCodeInput & { language: ResolvedLanguage }): MockExecutionResult {
   if (input.language === 'python3') {
     return {
@@ -87,148 +120,13 @@ function executeMockCode(input: ExecuteCodeInput & { language: ResolvedLanguage 
   return mockExecuteCpp(input.code, input.stdin, input.timeLimitMs)
 }
 
-async function executeLocalCode(input: ExecuteCodeInput & { language: ResolvedLanguage }): Promise<MockExecutionResult> {
-  if (input.language === 'python3') return executeLocalPython(input)
-  return executeLocalNative(input)
-}
-
-async function executeLocalNative(input: ExecuteCodeInput & { language: ResolvedLanguage }): Promise<MockExecutionResult> {
-  const compiler =
-    input.language === 'c' ? findExecutable(['gcc', 'clang', 'cc']) : findExecutable(['g++', 'clang++', 'c++'])
-  if (!compiler) {
-    return {
-      result: 'Judge Error',
-      stdout: '',
-      maxRuntimeMs: 0,
-      errorDetail: `${getLanguageLabel(input.language)} compiler not found for local Run fallback.`,
-    }
+function buildJudgeError(message: string): MockExecutionResult {
+  return {
+    result: 'Judge Error',
+    stdout: '',
+    maxRuntimeMs: 0,
+    errorDetail: message,
   }
-
-  const tempDir = await mkdtemp(join(tmpdir(), 'spcg-run-'))
-  const sourcePath = join(tempDir, input.language === 'c' ? 'main.c' : 'main.cpp')
-  const binaryPath = join(tempDir, 'main')
-
-  try {
-    await writeFile(sourcePath, input.code)
-    if (input.language !== 'c') {
-      await mkdir(join(tempDir, 'bits'), { recursive: true })
-      await writeFile(join(tempDir, 'bits', 'stdc++.h'), buildBitsStdCppShim())
-    }
-
-    const compileArgs =
-      input.language === 'c'
-        ? ['-O2', sourcePath, '-o', binaryPath]
-        : [`-std=${getCppStandard(input.language)}`, '-O2', '-I', tempDir, sourcePath, '-o', binaryPath]
-    const compile = spawnSync(compiler, compileArgs, {
-      encoding: 'utf8',
-      timeout: 30_000,
-      maxBuffer: LOCAL_RUN_MAX_BUFFER,
-    })
-
-    if (compile.error || compile.status !== 0) {
-      return {
-        result: 'CE',
-        stdout: '',
-        maxRuntimeMs: 0,
-        errorDetail: compile.stderr || compile.stdout || compile.error?.message || 'Compile failed.',
-      }
-    }
-
-    return runLocalExecutable(binaryPath, [], input.stdin, input.timeLimitMs)
-  } finally {
-    await rm(tempDir, { recursive: true, force: true })
-  }
-}
-
-async function executeLocalPython(input: ExecuteCodeInput & { language: ResolvedLanguage }): Promise<MockExecutionResult> {
-  const python = findExecutable(['python3', 'python'])
-  if (!python) {
-    return {
-      result: 'Judge Error',
-      stdout: '',
-      maxRuntimeMs: 0,
-      errorDetail: 'Python3 executable not found for local Run fallback.',
-    }
-  }
-
-  const tempDir = await mkdtemp(join(tmpdir(), 'spcg-run-'))
-  const sourcePath = join(tempDir, 'main.py')
-  try {
-    await writeFile(sourcePath, input.code)
-    return runLocalExecutable(python, [sourcePath], input.stdin, input.timeLimitMs)
-  } finally {
-    await rm(tempDir, { recursive: true, force: true })
-  }
-}
-
-function runLocalExecutable(command: string, args: string[], stdin: string, timeLimitMs: number): MockExecutionResult {
-  const startedAt = Date.now()
-  const run = spawnSync(command, args, {
-    input: stdin,
-    encoding: 'utf8',
-    timeout: Math.max(timeLimitMs + 1000, 5000),
-    maxBuffer: LOCAL_RUN_MAX_BUFFER,
-  })
-  const maxRuntimeMs = Math.max(0, Date.now() - startedAt)
-
-  if (run.error?.message.includes('ETIMEDOUT') || run.signal === 'SIGTERM') {
-    return { result: 'TLE', stdout: run.stdout ?? '', maxRuntimeMs }
-  }
-
-  if (run.error) {
-    return { result: 'Judge Error', stdout: run.stdout ?? '', maxRuntimeMs, errorDetail: run.error.message }
-  }
-
-  if (run.status !== 0) {
-    return {
-      result: 'RE',
-      stdout: run.stdout ?? '',
-      maxRuntimeMs,
-      errorDetail: run.stderr || run.signal || `Process exited with status ${run.status}`,
-    }
-  }
-
-  return { result: 'AC', stdout: run.stdout ?? '', maxRuntimeMs }
-}
-
-function findExecutable(candidates: string[]): string | null {
-  for (const candidate of candidates) {
-    const result = spawnSync(candidate, ['--version'], { stdio: 'ignore' })
-    if (!result.error) return candidate
-  }
-  return null
-}
-
-function buildBitsStdCppShim(): string {
-  return [
-    '#include <algorithm>',
-    '#include <array>',
-    '#include <bitset>',
-    '#include <cassert>',
-    '#include <cctype>',
-    '#include <cerrno>',
-    '#include <climits>',
-    '#include <cmath>',
-    '#include <cstdio>',
-    '#include <cstdlib>',
-    '#include <cstring>',
-    '#include <deque>',
-    '#include <functional>',
-    '#include <iomanip>',
-    '#include <iostream>',
-    '#include <limits>',
-    '#include <map>',
-    '#include <numeric>',
-    '#include <queue>',
-    '#include <set>',
-    '#include <sstream>',
-    '#include <stack>',
-    '#include <string>',
-    '#include <tuple>',
-    '#include <utility>',
-    '#include <vector>',
-    '',
-  ].join('\n')
 }
 
 function toExecutionResult(result: JudgeCaseResult, timeLimitMs: number): MockExecutionResult {

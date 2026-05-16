@@ -4,6 +4,9 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { Session } from 'next-auth'
 import { useEffect, useRef, useState } from 'react'
+import { clearLevelPagePayloadCache } from '@/lib/level-page-payload-cache'
+import { clearMapSnapshots } from '@/lib/map-snapshot-cache'
+import { clearMePagePayloadCache } from '@/lib/me-page-payload-cache'
 
 type UserAccountMenuProps = {
   session: Session | null
@@ -123,6 +126,7 @@ function clearIdeCachesOnUserSwitch(userId: string | null) {
   try {
     const lastUserId = window.localStorage.getItem('spcg:last-user-id')
     if (lastUserId === userId) return
+    const shouldClearMapSnapshots = Boolean(lastUserId && lastUserId !== userId)
 
     const keysToRemove: string[] = []
     for (let index = 0; index < window.localStorage.length; index += 1) {
@@ -131,6 +135,11 @@ function clearIdeCachesOnUserSwitch(userId: string | null) {
       keysToRemove.push(key)
     }
     keysToRemove.forEach((key) => window.localStorage.removeItem(key))
+    if (shouldClearMapSnapshots) {
+      clearMapSnapshots()
+      clearLevelPagePayloadCache()
+      clearMePagePayloadCache()
+    }
     window.localStorage.setItem('spcg:last-user-id', userId)
   } catch {
     // Cache cleanup is best-effort; it must never block rendering the menu.

@@ -5,6 +5,7 @@ import { wakeJudgeWorker } from '@/lib/judge-worker-autostart'
 import { canUserRunAssessmentLevel } from '@/lib/services/assessment-service'
 import { getLevelAccessForUser } from '@/lib/services/level-access-service'
 import { getLevelByIdForUser, getUnlockedLevelSolutionForUser } from '@/lib/services/level-service'
+import { getHiddenCaseRevealStatusForUser, revealHiddenCaseForUser } from '@/lib/services/hidden-case-reveal-service'
 import { explainSubmissionErrorForUser } from '@/lib/services/submission-error-analysis-service'
 import {
   createUserSubmission,
@@ -13,7 +14,7 @@ import {
   type LevelSubmissionHistoryResult,
   type SubmissionPollResult,
 } from '@/lib/services/submission-service'
-import { executeCode } from '@/lib/services/code-runner-service'
+import { executeCodeBatch, type CodeRunEngine } from '@/lib/services/code-runner-service'
 import { RATE_LIMIT_ACTIONS, consumeUserRateLimit } from '@/lib/services/rate-limit-service'
 import { normalizeOutput, type MockExecutionResult } from '@spcg/shared/judge'
 import { normalizeLanguageMode, resolveLanguageMode, type LanguageMode, type ResolvedLanguage } from '@spcg/shared/language-config'
@@ -35,18 +36,20 @@ type RunCodeInput = {
   stdin: string
   languageMode?: LanguageMode
   assessmentAttemptId?: string | null
+  sampleId?: string | null
 }
 
 type SampleRunStatus = Verdict['result'] | 'judging'
 type SampleRunResultMap = Record<string, { status: SampleRunStatus; passed: boolean }>
+type RunCodeEngine = CodeRunEngine | 'error'
 const IDE_ACTION_RATE_LIMIT_SECONDS = 60
-const IDE_ACTION_RATE_LIMIT_MAX_HITS = 2
+const IDE_ACTION_RATE_LIMIT_MAX_HITS = 5
 
 export type RunCodeActionResult = {
   execution: MockExecutionResult
   samples: SampleRunResultMap
   resolvedLanguage: ResolvedLanguage
-  engine: 'judge0' | 'mock' | 'error'
+  engine: RunCodeEngine
   code?: 'rate_limited'
   retryAfterSeconds?: number
 }
@@ -54,7 +57,7 @@ export type RunCodeActionResult = {
 export type RunPublicSamplesActionResult = {
   samples: SampleRunResultMap
   resolvedLanguage: ResolvedLanguage
-  engine: 'judge0' | 'mock' | 'error'
+  engine: RunCodeEngine
 }
 
 export type SubmitCodeActionResult =
@@ -70,7 +73,7 @@ export type SubmitCodeActionResult =
       reason: string
       code?: string
       retryAfterSeconds?: number
-    }
+}
 
 export async function runCodeAction(input: RunCodeInput): Promise<RunCodeActionResult> {
   const session = await auth()
@@ -117,26 +120,20 @@ export async function runCodeAction(input: RunCodeInput): Promise<RunCodeActionR
   }
 
   try {
-    const [execution, samples] = await Promise.all([
-      executeCode({
-        code: input.code,
-        language: resolvedLanguage,
-        stdin: input.stdin,
-        timeLimitMs: level.timeLimitMs,
-        memoryLimitMb: level.memoryLimitMb,
-      }),
-      runVisiblePublicSamplesForLevel({
-        level,
-        code: input.code,
-        resolvedLanguage,
-      }),
-    ])
+    const runResult = await executeCodeBatch({
+      code: input.code,
+      language: resolvedLanguage,
+      stdins: [input.stdin],
+      timeLimitMs: level.timeLimitMs,
+      memoryLimitMb: level.memoryLimitMb,
+    })
+    const execution = runResult.results[0] ?? buildRunError('Run did not return a result.')
 
     return {
-      engine: isJudge0Configured() ? 'judge0' : 'mock',
+      engine: runResult.engine,
       resolvedLanguage,
       execution,
-      samples,
+      samples: buildSingleSampleResult(level.publicCases, input.sampleId ?? null, execution),
       retryAfterSeconds: IDE_ACTION_RATE_LIMIT_SECONDS,
     }
   } catch (error) {
@@ -189,14 +186,19 @@ export async function runPublicSamplesAction(input: SubmitCodeInput): Promise<Ru
     }
   }
 
+  const publicSamples = level.publicCases.slice(0, 2)
+  const runResult = await executeCodeBatch({
+    code: input.code,
+    language: resolvedLanguage,
+    stdins: publicSamples.map((sample) => sample.input),
+    timeLimitMs: level.timeLimitMs,
+    memoryLimitMb: level.memoryLimitMb,
+  })
+
   return {
-    engine: isJudge0Configured() ? 'judge0' : 'mock',
+    engine: runResult.engine,
     resolvedLanguage,
-    samples: await runVisiblePublicSamplesForLevel({
-      level,
-      code: input.code,
-      resolvedLanguage,
-    }),
+    samples: buildSampleResultsFromExecutions(publicSamples, runResult.results),
   }
 }
 
@@ -270,6 +272,22 @@ export async function explainSubmissionErrorAction(input: { submissionId: string
   })
 }
 
+export async function getHiddenCaseRevealStatusAction(input: { submissionId: string }) {
+  const session = await auth()
+  return getHiddenCaseRevealStatusForUser({
+    userId: session?.user?.id,
+    submissionId: input.submissionId,
+  })
+}
+
+export async function revealHiddenCaseAction(input: { submissionId: string }) {
+  const session = await auth()
+  return revealHiddenCaseForUser({
+    userId: session?.user?.id,
+    submissionId: input.submissionId,
+  })
+}
+
 export async function getUnlockedLevelSolutionAction(levelId: string) {
   const session = await auth()
   return getUnlockedLevelSolutionForUser({
@@ -287,31 +305,36 @@ function buildRunError(message: string): MockExecutionResult {
   }
 }
 
-async function runVisiblePublicSamplesForLevel(input: {
-  level: Level
-  code: string
-  resolvedLanguage: ResolvedLanguage
-}): Promise<SampleRunResultMap> {
-  const entries = await Promise.all(
-    input.level.publicCases.slice(0, 2).map(async (sample) => {
-      try {
-        const execution = await executeCode({
-          code: input.code,
-          language: input.resolvedLanguage,
-          stdin: sample.input,
-          timeLimitMs: input.level.timeLimitMs,
-          memoryLimitMb: input.level.memoryLimitMb,
-        })
-        const passed = execution.result === 'AC' && normalizeOutput(execution.stdout) === normalizeOutput(sample.expectedOutput)
-        const status: SampleRunStatus = execution.result === 'AC' ? (passed ? 'AC' : 'WA') : execution.result
-        return [sample.id, { status, passed }] as const
-      } catch {
-        return [sample.id, { status: 'Judge Error' as const, passed: false }] as const
-      }
+function buildSampleResultsFromExecutions(
+  samples: Level['publicCases'],
+  executions: MockExecutionResult[],
+): SampleRunResultMap {
+  return Object.fromEntries(
+    samples.map((sample, index) => {
+      const execution = executions[index]
+      if (!execution) return [sample.id, { status: 'Judge Error' as const, passed: false }] as const
+      const passed = execution.result === 'AC' && normalizeOutput(execution.stdout) === normalizeOutput(sample.expectedOutput)
+      const status: SampleRunStatus = execution.result === 'AC' ? (passed ? 'AC' : 'WA') : execution.result
+      return [sample.id, { status, passed }] as const
     }),
   )
+}
 
-  return Object.fromEntries(entries)
+function buildSingleSampleResult(
+  samples: Level['publicCases'],
+  sampleId: string | null,
+  execution: MockExecutionResult,
+): SampleRunResultMap {
+  if (!sampleId) return {}
+
+  const sample = samples.find((item) => item.id === sampleId)
+  if (!sample) return {}
+
+  const passed = execution.result === 'AC' && normalizeOutput(execution.stdout) === normalizeOutput(sample.expectedOutput)
+  const status: SampleRunStatus = execution.result === 'AC' ? (passed ? 'AC' : 'WA') : execution.result
+  return {
+    [sample.id]: { status, passed },
+  }
 }
 
 async function consumeIdeRunRateLimit(userId: string | null | undefined) {
@@ -329,10 +352,6 @@ async function consumeIdeRunRateLimit(userId: string | null | undefined) {
     windowSeconds: IDE_ACTION_RATE_LIMIT_SECONDS,
     maxHits: IDE_ACTION_RATE_LIMIT_MAX_HITS,
   })
-}
-
-function isJudge0Configured(): boolean {
-  return Boolean(process.env.JUDGE0_BASE_URL) && process.env.JUDGE0_MODE !== 'mock'
 }
 
 async function canRunLevelForUser(input: {

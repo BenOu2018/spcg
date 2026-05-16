@@ -3,6 +3,7 @@ import { isDatabaseConfigured } from '@/lib/repositories/database-repository'
 import {
   addTeacherStudent,
   createStudentAccountForTeacher,
+  getTeacherStudentSummary as getTeacherStudentSummaryRecord,
   getTeacherOverviewStats,
   getTeacherStudentRelation,
   listStudentProgressForTeacher,
@@ -29,9 +30,9 @@ import {
 import { listPublishedLessonStageProblemMenus } from '@/lib/repositories/problem-set-repository'
 import { findUserByIdentifier, getUserRole } from '@/lib/repositories/user-repository'
 import { hashPassword } from '@/lib/password'
-import { isValidUsername, normalizeUsername } from '@/lib/user-identity'
+import { isEmailLikeUsername, isValidStudentUsername, normalizeUsername, STUDENT_USERNAME_INVALID_MESSAGE } from '@/lib/user-identity'
 import {
-  getStudentCurrentLevelSummary,
+  getStudentCurrentLevelSummaryLightweight,
   setStudentCurrentLevel,
   type StudentCurrentLevelSummary,
 } from '@/lib/services/level-access-service'
@@ -89,6 +90,18 @@ export async function getTeacherStudents(userId?: string | null): Promise<Teache
   return listTeacherStudents(teacher.userId)
 }
 
+export async function getTeacherStudentSummary(input: {
+  teacherUserId?: string | null
+  studentUserId: string
+}): Promise<TeacherStudentSummary | null> {
+  const teacher = await requireTeacher(input.teacherUserId)
+  return getTeacherStudentSummaryRecord({
+    teacherUserId: teacher.userId,
+    studentUserId: input.studentUserId,
+    allowAdminAccess: teacher.role === 'admin',
+  })
+}
+
 export async function getTeacherLessonStageMenus(userId?: string | null) {
   await requireTeacher(userId)
   return listPublishedLessonStageProblemMenus({ track: 'A' })
@@ -137,9 +150,14 @@ export async function createStudentForTeacher(input: {
   const teacher = await requireTeacher(input.teacherUserId)
   const username = normalizeUsername(input.username)
   const displayName = input.displayName.trim()
-  if (!isValidUsername(username) || displayName.length === 0 || input.password.length < 8) {
-    throw new ServiceError('bad_request', '学生用户名、姓名或密码不合法。', 400)
+  if (isEmailLikeUsername(username)) {
+    throw new ServiceError('bad_request', '学生用户名不能使用邮箱格式，请将邮箱填入邮箱字段。', 400)
   }
+  if (!isValidStudentUsername(username)) {
+    throw new ServiceError('bad_request', STUDENT_USERNAME_INVALID_MESSAGE, 400)
+  }
+  if (displayName.length === 0) throw new ServiceError('bad_request', '学生姓名不能为空。', 400)
+  if (input.password.length < 8) throw new ServiceError('bad_request', '学生临时密码至少需要 8 位。', 400)
 
   const passwordHash = await hashPassword(input.password)
   let studentUserId = ''
@@ -157,6 +175,9 @@ export async function createStudentForTeacher(input: {
   } catch (error) {
     if (isUniqueTeacherConflict(error)) {
       throw new ServiceError('conflict', '这个用户名已经注册。', 409)
+    }
+    if (isUsernameLengthConstraintError(error)) {
+      throw new ServiceError('bad_request', '学生用户名数据库约束尚未更新，请先运行数据库迁移后再重试。', 400)
     }
     throw error
   }
@@ -319,7 +340,7 @@ export async function getTeacherStudentCurrentLevel(input: {
     teacherUserId: teacher.userId,
     studentUserId: input.studentUserId,
   })
-  return getStudentCurrentLevelSummary(input.studentUserId)
+  return getStudentCurrentLevelSummaryLightweight(input.studentUserId)
 }
 
 export async function setTeacherStudentCurrentLevel(input: {
@@ -430,4 +451,10 @@ function isUniqueTeacherConflict(error: unknown): boolean {
     'code' in error &&
     (error as { code?: string }).code === '23505'
   )
+}
+
+function isUsernameLengthConstraintError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false
+  const pgError = error as { code?: string; constraint?: string }
+  return pgError.code === '23514' && String(pgError.constraint ?? '').toLowerCase() === 'users_username_length'
 }

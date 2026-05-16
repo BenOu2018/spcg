@@ -1,7 +1,14 @@
 import Link from 'next/link'
+import type { UiLocale } from '@spcg/shared/types'
 import { Code2, MapPinned, Trophy, UserCircle2 } from 'lucide-react'
+import { MeInstantLink } from '@/components/MeInstantLink'
 
-export function AppNav() {
+type AppNavProps = {
+  userId?: string | null
+  uiLocale?: UiLocale
+}
+
+export function AppNav({ userId = null, uiLocale = 'zh-CN' }: AppNavProps = {}) {
   return (
     <header className="app-nav">
       <Link className="brand" href="/">
@@ -21,10 +28,10 @@ export function AppNav() {
           <Trophy size={18} />
           榜单
         </Link>
-        <Link href="/me">
+        <MeInstantLink href="/me" userId={userId} uiLocale={uiLocale}>
           <UserCircle2 size={18} />
           进度
-        </Link>
+        </MeInstantLink>
       </nav>
     </header>
   )

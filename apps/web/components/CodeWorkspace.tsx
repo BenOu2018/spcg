@@ -1,15 +1,16 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ForwardedRef } from 'react'
 import { Editor, loader, type BeforeMount, type OnMount } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
 import type { editor as MonacoEditor } from 'monaco-editor'
-import { AlignLeft, ChevronsDown, ChevronsUp, FileCode2, History, RefreshCw, X } from 'lucide-react'
+import { AlignLeft, ChevronsDown, ChevronsUp, FileCode2, History, Maximize2, Minimize2, RefreshCw, X } from 'lucide-react'
 import type { CodeErrorAnalysis, JudgeProgress, Level, Progress, SubmissionErrorAnalysis, Verdict } from '@spcg/shared/types'
 import { normalizeOutput } from '@spcg/shared/judge'
 import { getProblemSetItemDisplayModeLabel } from '@spcg/shared/curriculum'
 import {
+  DEFAULT_CPP_LANGUAGE,
   LANGUAGE_MODES,
   getLanguageLabel,
   getMonacoLanguage,
@@ -20,9 +21,11 @@ import {
 } from '@spcg/shared/language-config'
 import {
   explainSubmissionErrorAction,
+  getHiddenCaseRevealStatusAction,
   getSubmissionHistoryAction,
   getAssessmentSubmissionHistoryAction,
   getSubmissionVerdictAction,
+  revealHiddenCaseAction,
   runCodeAction,
   submitCodeAction,
 } from '@/app/level/actions'
@@ -30,6 +33,7 @@ import { AlgorithmWhiteboardButton, AlgorithmWhiteboardModal } from '@/component
 import { emitBehaviorEvent } from '@/components/behavior-events'
 import { TestResults } from '@/components/TestResults'
 import { getStudentUiMessages, type StudentUiMessages } from '@/lib/student-ui'
+import { isStageLevelUnlocked } from '@/lib/stage-unlock'
 import type { SampleRunResultMap } from '@/components/sample-run'
 
 loader.config({
@@ -41,6 +45,8 @@ loader.config({
 type SubmissionPollResult = Awaited<ReturnType<typeof getSubmissionVerdictAction>>
 type SubmissionHistoryResult = Awaited<ReturnType<typeof getSubmissionHistoryAction>>
 type SubmissionHistoryItem = SubmissionHistoryResult['items'][number]
+type HiddenCaseRevealStatusResult = Awaited<ReturnType<typeof getHiddenCaseRevealStatusAction>>
+type HiddenCaseRevealResult = Awaited<ReturnType<typeof revealHiddenCaseAction>>
 type SubmissionAnalysisState =
   | { status: 'loading'; analysis?: CodeErrorAnalysis; error?: string; cached?: boolean }
   | { status: 'done'; analysis: CodeErrorAnalysis; error?: string; cached?: boolean }
@@ -55,19 +61,31 @@ type IdeEditSummary = {
   lastAt: number | null
 }
 
+type EditorContextMenuState = {
+  x: number
+  y: number
+} | null
+
+type RunSampleStateEvent = {
+  sampleId?: string | null
+}
+
 type CodeWorkspaceProps = {
   level: Level
   userId: string
   initialProgress?: Progress | null
   layoutVersion?: number
   className?: string
+  expanded?: boolean
+  onExpandedChange?: (expanded: boolean) => void
   completionNextHref?: string | null
   completionNextLabel?: string
   completionNextVisible?: boolean
   completionNextAction?: () => void
   completionNextBreathing?: boolean
-  onRunStart?: () => void
-  onRunComplete?: (sampleResults: SampleRunResultMap) => void
+  onRunStart?: (event?: RunSampleStateEvent) => void
+  onRunComplete?: (sampleResults: SampleRunResultMap, event?: RunSampleStateEvent) => void
+  onJudgeBusyChange?: (busy: boolean) => void
   onAccepted?: () => void | Promise<void>
   onStageLevelSelect?: (levelId: string) => void
   stagePath?: StagePath
@@ -80,10 +98,15 @@ type CodeWorkspaceProps = {
   messages?: StudentUiMessages
 }
 
+export type CodeWorkspaceHandle = {
+  runSampleInput: (sampleId: string, input: string) => Promise<void>
+}
+
 type StagePath = {
   title: string
   stageNo: number
   passedLevelIds: string[]
+  canFreeJump?: boolean
   items: Array<{
     levelId: string
     title: string
@@ -143,12 +166,14 @@ function createEmptyEditSummary(): IdeEditSummary {
   }
 }
 
-export function CodeWorkspace({
+function CodeWorkspaceComponent({
   level,
   userId,
   initialProgress = null,
   layoutVersion = 0,
   className,
+  expanded = false,
+  onExpandedChange,
   completionNextHref = null,
   completionNextLabel = '下一题',
   completionNextVisible = false,
@@ -156,6 +181,7 @@ export function CodeWorkspace({
   completionNextBreathing = false,
   onRunStart,
   onRunComplete,
+  onJudgeBusyChange,
   onAccepted,
   onStageLevelSelect,
   stagePath,
@@ -166,7 +192,7 @@ export function CodeWorkspace({
   onAssessmentSubmissionSettled,
   storageScope,
   messages = fallbackMessages,
-}: CodeWorkspaceProps) {
+}: CodeWorkspaceProps, ref: ForwardedRef<CodeWorkspaceHandle>) {
   const draftLevelId = storageScope ? `${storageScope}:${level.id}` : level.id
   const [languageMode, setLanguageMode] = useState<LanguageMode>(() => readCachedLanguageMode(userId, draftLevelId))
   const [editorThemeMode, setEditorThemeMode] = useState<EditorThemeMode>(() => readCachedEditorThemeMode())
@@ -176,7 +202,6 @@ export function CodeWorkspace({
     return readCachedCode(userId, draftLevelId, cachedLanguage) ?? getStarterCodeForLanguage(level, cachedLanguage)
   })
   const [lastRunCode, setLastRunCode] = useState(level.starterCode)
-  const [expanded, setExpanded] = useState(false)
   const [outputExpanded, setOutputExpanded] = useState(false)
   const [resultsMaximized, setResultsMaximized] = useState(false)
   const [status, setStatus] = useState<'idle' | 'judging' | 'done'>('idle')
@@ -190,6 +215,13 @@ export function CodeWorkspace({
   const [sampleProgress, setSampleProgress] = useState<JudgeProgress | null>(null)
   const [lastRemoteSubmissionId, setLastRemoteSubmissionId] = useState<string | null>(null)
   const [analysisBySubmissionId, setAnalysisBySubmissionId] = useState<Record<string, SubmissionAnalysisState>>({})
+  const [hiddenCaseRevealStatus, setHiddenCaseRevealStatus] = useState<HiddenCaseRevealStatusResult | null>(null)
+  const [hiddenCaseReveal, setHiddenCaseReveal] = useState<HiddenCaseRevealResult | null>(null)
+  const [hiddenCaseRevealLoading, setHiddenCaseRevealLoading] = useState(false)
+  const [hiddenCaseRevealError, setHiddenCaseRevealError] = useState('')
+  const [hiddenCaseCopyStatus, setHiddenCaseCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [editorPasteNotice, setEditorPasteNotice] = useState('')
+  const [editorContextMenu, setEditorContextMenu] = useState<EditorContextMenuState>(null)
   const [learningFeedback, setLearningFeedback] = useState<LearningFeedback | null>(null)
   const [repairAttemptCount, setRepairAttemptCount] = useState(0)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -214,9 +246,12 @@ export function CodeWorkspace({
   const editorDisposablesRef = useRef<Array<{ dispose: () => void }>>([])
   const editSummaryRef = useRef<IdeEditSummary>(createEmptyEditSummary())
   const editSummaryTimerRef = useRef<number | null>(null)
+  const hiddenCaseRevealRequestRef = useRef(0)
+  const hiddenCaseCopyTimerRef = useRef<number | null>(null)
+  const editorPasteNoticeTimerRef = useRef<number | null>(null)
   const selectedHistory = historyItems.find((item) => item.id === selectedHistoryId) ?? null
   const selectedHistorySource = selectedHistory?.canViewCode && selectedHistory.code ? selectedHistory : null
-  const resolvedLanguage = useMemo(() => resolveLanguageMode(languageMode, code), [languageMode, code])
+  const editorLanguage = useMemo(() => resolveEditorLanguageMode(languageMode), [languageMode])
   const usesConsole = useMemo(
     () =>
       /\b(?:cin|scanf|input)\b/.test(code) || level.publicCases.some((sample) => sample.input.trim().length > 0),
@@ -226,6 +261,46 @@ export function CodeWorkspace({
   useEffect(() => {
     statusRef.current = status
   }, [status])
+
+  useEffect(() => {
+    onJudgeBusyChange?.(status === 'judging')
+  }, [onJudgeBusyChange, status])
+
+  useEffect(() => {
+    if (!editorContextMenu) return
+
+    const closeMenu = (event: PointerEvent) => {
+      const target = event.target
+      if (target instanceof Element && target.closest('.editor-context-menu')) return
+      setEditorContextMenu(null)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setEditorContextMenu(null)
+    }
+    const close = () => setEditorContextMenu(null)
+
+    document.addEventListener('pointerdown', closeMenu)
+    document.addEventListener('keydown', closeOnEscape)
+    window.addEventListener('blur', close)
+    window.addEventListener('resize', close)
+
+    return () => {
+      document.removeEventListener('pointerdown', closeMenu)
+      document.removeEventListener('keydown', closeOnEscape)
+      window.removeEventListener('blur', close)
+      window.removeEventListener('resize', close)
+    }
+  }, [editorContextMenu])
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      runSampleInput: async (sampleId: string, input: string) => {
+        setConsoleInput(input)
+        await runCode({ sampleId, stdinOverride: input })
+      },
+    }),
+  )
 
   useEffect(() => {
     const startedAt = Date.now()
@@ -242,6 +317,11 @@ export function CodeWorkspace({
 
     return () => {
       flushEditSummary()
+      if (hiddenCaseCopyTimerRef.current !== null) {
+        window.clearTimeout(hiddenCaseCopyTimerRef.current)
+        hiddenCaseCopyTimerRef.current = null
+      }
+      clearEditorPasteNoticeTimer()
       emitBehaviorEvent({
         type: 'ide_session',
         levelId: level.id,
@@ -279,6 +359,9 @@ export function CodeWorkspace({
     setResultsMaximized(false)
     setLastRemoteSubmissionId(null)
     setAnalysisBySubmissionId({})
+    resetHiddenCaseReveal()
+    setEditorPasteNotice('')
+    setEditorContextMenu(null)
     setLearningFeedback(completedVerdict ? buildPreviouslyAcceptedLearningFeedback(level.id, stagePath, onStageLevelSelect) : null)
     setRepairAttemptCount(0)
     setHistoryOpen(false)
@@ -465,7 +548,7 @@ export function CodeWorkspace({
       levelId: level.id,
       levelTitle: level.title,
       language: languageMode,
-      resolvedLanguage,
+      resolvedLanguage: editorLanguage,
       code,
     }
 
@@ -474,7 +557,7 @@ export function CodeWorkspace({
         delete window.__spcgCurrentIdeContext
       }
     }
-  }, [level.id, level.title, languageMode, resolvedLanguage, code])
+  }, [level.id, level.title, languageMode, editorLanguage, code])
 
   useEffect(() => {
     setToolbarRenderKey((current) => current + 1)
@@ -491,7 +574,7 @@ export function CodeWorkspace({
       window.cancelAnimationFrame(animationFrame)
       window.clearTimeout(timeout)
     }
-  }, [expanded, outputExpanded, resultsMaximized, layoutVersion, editorThemeMode, editorFontSize])
+  }, [outputExpanded, resultsMaximized, layoutVersion, editorThemeMode, editorFontSize])
 
   useEffect(() => {
     const readLayoutSnapshot = () => {
@@ -568,6 +651,22 @@ export function CodeWorkspace({
       }),
       editor.onMouseDown(() => {
         setOutputExpanded(false)
+        setEditorContextMenu(null)
+      }),
+      editor.onContextMenu((event) => {
+        event.event.preventDefault()
+        event.event.stopPropagation()
+        setOutputExpanded(false)
+
+        if (event.target.position) {
+          const selection = editor.getSelection()
+          if (!selection?.containsPosition(event.target.position)) {
+            editor.setPosition(event.target.position)
+          }
+        }
+
+        editor.focus()
+        setEditorContextMenu(clampEditorContextMenuPosition(event.event.posx, event.event.posy))
       }),
     ]
     const editorWithPaste = editor as MonacoEditor.IStandaloneCodeEditor & {
@@ -575,6 +674,8 @@ export function CodeWorkspace({
     }
     const pasteDisposable = editorWithPaste.onDidPaste?.(() => {
       markPasteEdit()
+      clearEditorPasteNoticeTimer()
+      setEditorPasteNotice('')
     })
     if (pasteDisposable) nextDisposables.push(pasteDisposable)
     editorDisposablesRef.current = nextDisposables
@@ -638,6 +739,66 @@ export function CodeWorkspace({
     scheduleEditSummaryFlush()
   }
 
+  function showEditorPasteNotice(message: string) {
+    clearEditorPasteNoticeTimer()
+    setEditorPasteNotice(message)
+    editorPasteNoticeTimerRef.current = window.setTimeout(() => {
+      setEditorPasteNotice('')
+      editorPasteNoticeTimerRef.current = null
+    }, 2600)
+  }
+
+  function clearEditorPasteNoticeTimer() {
+    if (editorPasteNoticeTimerRef.current === null) return
+    window.clearTimeout(editorPasteNoticeTimerRef.current)
+    editorPasteNoticeTimerRef.current = null
+  }
+
+  async function runEditorContextMenuCommand(command: 'cut' | 'copy' | 'paste') {
+    setEditorContextMenu(null)
+
+    const editor = editorRef.current
+    const monaco = monacoRef.current
+    if (!editor || !monaco) return
+
+    editor.focus()
+
+    if (command === 'paste') {
+      const clipboardText = await readEditorClipboardText()
+      if (clipboardText.status === 'unsupported') {
+        showEditorPasteNotice(messages.ide.contextPasteBlocked)
+        return
+      }
+      if (clipboardText.status === 'empty') {
+        showEditorPasteNotice(messages.ide.contextPasteEmpty)
+        return
+      }
+
+      editor.trigger('spcg-context-menu', 'paste', {
+        text: clipboardText.text,
+        pasteOnNewLine: false,
+        multicursorText: null,
+        mode: null,
+      })
+      return
+    }
+
+    const selectionText = getEditorSelectionText(editor, monaco)
+    if (!selectionText) return
+
+    const copied = await writeClipboardText(selectionText.text)
+    if (!copied) {
+      showEditorPasteNotice(messages.ide.contextClipboardBlocked)
+      return
+    }
+
+    if (command === 'cut') {
+      editor.pushUndoStop()
+      editor.executeEdits('spcg-context-menu', [{ range: selectionText.range, text: '', forceMoveMarkers: true }])
+      editor.pushUndoStop()
+    }
+  }
+
   function scheduleEditSummaryFlush() {
     clearEditSummaryTimer()
     editSummaryTimerRef.current = window.setTimeout(() => {
@@ -662,7 +823,7 @@ export function CodeWorkspace({
       durationMs: summary.firstAt && summary.lastAt ? Math.max(0, summary.lastAt - summary.firstAt) : null,
       count: summary.changeCount,
       metadata: {
-        language: resolvedLanguage,
+        language: editorLanguage,
         insertedChars: summary.insertedChars,
         deletedChars: summary.deletedChars,
         pasteCount: summary.pasteCount,
@@ -801,13 +962,16 @@ export function CodeWorkspace({
     compileErrorViewZoneIdRef.current = null
   }
 
-  async function runCode() {
-    const runStdin = usesConsole ? consoleInput : ''
-    if (runInFlightRef.current) return
+  async function runCode(options: { sampleId?: string; stdinOverride?: string } = {}) {
+    const runStdin = options.stdinOverride ?? (usesConsole ? consoleInput : '')
+    const runSampleEvent: RunSampleStateEvent = { sampleId: options.sampleId ?? null }
+    if (runInFlightRef.current || submitInFlightRef.current) return
     flushEditSummary()
     const runStartedAt = Date.now()
+    const executionLanguage = resolveLanguageMode(languageMode, code)
     runInFlightRef.current = true
     clearCompileErrorMarker()
+    resetHiddenCaseReveal()
     setActiveJudgeAction('run')
     setStatus('judging')
     setVerdict(null)
@@ -818,17 +982,23 @@ export function CodeWorkspace({
     setOutputExpanded(true)
     setConsoleOutput('')
     setStdoutView('stdout')
-    setDebugInfo([`Action: Run`, `Language: ${getLanguageLabel(resolvedLanguage)}`, 'Status: running'])
+    setDebugInfo([
+      `Action: Run`,
+      `Language: ${getLanguageLabel(executionLanguage)}`,
+      `Engine: ${getPendingRunEngineLabel()}`,
+      'Status: running',
+    ])
     setLastRunCode(code)
-    onRunStart?.()
+    onRunStart?.(runSampleEvent)
     emitBehaviorEvent({
       type: 'ide_run',
       levelId: level.id,
       assessmentAttemptId,
       metadata: {
         phase: 'start',
-        language: resolvedLanguage,
-        stdinMode: usesConsole ? 'custom' : 'none',
+        language: executionLanguage,
+        stdinMode: options.stdinOverride !== undefined ? 'sample' : usesConsole ? 'custom' : 'none',
+        sampleId: options.sampleId ?? null,
       },
     })
 
@@ -839,6 +1009,7 @@ export function CodeWorkspace({
         languageMode,
         stdin: runStdin,
         assessmentAttemptId,
+        sampleId: options.sampleId ?? null,
       })
       const execution = runResult.execution
       const nextVerdict = buildRunVerdict(level, runStdin, execution, pickLocalMessage)
@@ -847,6 +1018,7 @@ export function CodeWorkspace({
       setDebugInfo([
         `Action: Run`,
         `Language: ${getLanguageLabel(runResult.resolvedLanguage)}`,
+        `Engine: ${formatRunEngine(runResult.engine)}`,
         `Status: ${nextVerdict.result}`,
       ])
       setSampleProgress(null)
@@ -863,6 +1035,7 @@ export function CodeWorkspace({
           phase: 'finish',
           language: runResult.resolvedLanguage,
           engine: runResult.engine,
+          sampleId: options.sampleId ?? null,
         },
       })
       if (nextVerdict.result !== 'AC') {
@@ -877,12 +1050,12 @@ export function CodeWorkspace({
           },
         })
       }
-      onRunComplete?.(runResult.samples)
+      onRunComplete?.(runResult.samples, runSampleEvent)
     } catch (error) {
       const message = error instanceof Error ? error.message : '运行失败。'
       const nextVerdict = buildServiceVerdict('Judge Error', message)
       setConsoleOutput('')
-      setDebugInfo([`Action: Run`, `Language: ${getLanguageLabel(resolvedLanguage)}`, `Status: Judge Error`])
+      setDebugInfo([`Action: Run`, `Language: ${getLanguageLabel(executionLanguage)}`, `Status: Judge Error`])
       setSampleProgress(null)
       setVerdict(nextVerdict)
       syncCompileErrorMarkerFromVerdict(nextVerdict)
@@ -895,8 +1068,9 @@ export function CodeWorkspace({
         result: 'Judge Error',
         metadata: {
           phase: 'finish',
-          language: resolvedLanguage,
+          language: executionLanguage,
           engine: 'error',
+          sampleId: options.sampleId ?? null,
         },
       })
       emitBehaviorEvent({
@@ -906,7 +1080,7 @@ export function CodeWorkspace({
         result: 'Judge Error',
         metadata: {
           source: 'run',
-          language: resolvedLanguage,
+          language: executionLanguage,
         },
       })
     } finally {
@@ -919,8 +1093,11 @@ export function CodeWorkspace({
     if (submitInFlightRef.current) return
     flushEditSummary()
     const submitStartedAt = Date.now()
+    const executionLanguage = resolveLanguageMode(languageMode, code)
+    const submitJudgeMode = assessmentAttemptId ? 'fast' : null
     submitInFlightRef.current = true
     clearCompileErrorMarker()
+    resetHiddenCaseReveal()
     setActiveJudgeAction('submit')
     setStatus('judging')
     setVerdict(null)
@@ -931,7 +1108,7 @@ export function CodeWorkspace({
     setLastRunCode(code)
     setConsoleOutput('')
     setStdoutView('stdout')
-    setDebugInfo([`Action: Submit`, `Language: ${getLanguageLabel(resolvedLanguage)}`, 'Status: submitting'])
+    setDebugInfo([`Action: Submit`, `Language: ${getLanguageLabel(executionLanguage)}`, 'Status: submitting'])
     setLearningFeedback(null)
     onRunStart?.()
     emitBehaviorEvent({
@@ -940,8 +1117,8 @@ export function CodeWorkspace({
       assessmentAttemptId,
       metadata: {
         phase: 'start',
-        language: resolvedLanguage,
-        judgeMode: assessmentAttemptId ? 'fast' : 'full',
+        language: executionLanguage,
+        judgeMode: submitJudgeMode ?? 'fast',
       },
     })
 
@@ -952,7 +1129,7 @@ export function CodeWorkspace({
         languageMode,
         assessmentAttemptId,
         assessmentPhase: assessmentAttemptId ? 'realtime' : null,
-        judgeMode: assessmentAttemptId ? 'fast' : null,
+        judgeMode: submitJudgeMode,
         maxScore: assessmentItemMaxScore,
       })
 
@@ -998,6 +1175,7 @@ export function CodeWorkspace({
           },
         })
         onRunComplete?.(buildPublicSampleResultsFromVerdict(level, nextVerdict))
+        void refreshHiddenCaseRevealStatus(remoteSubmission.submissionId, nextVerdict)
         if (assessmentAttemptId) void onAssessmentSubmissionSettled?.()
         if (nextVerdict.result === 'AC') void onAccepted?.()
         refreshHistoryAfterSubmit()
@@ -1006,7 +1184,7 @@ export function CodeWorkspace({
 
       const nextVerdict = buildServiceVerdict('Judge Error', remoteSubmission.reason)
       setConsoleOutput('')
-      setDebugInfo([`Action: Submit`, `Language: ${getLanguageLabel(resolvedLanguage)}`, `Status: Judge Error`])
+      setDebugInfo([`Action: Submit`, `Language: ${getLanguageLabel(executionLanguage)}`, `Status: Judge Error`])
       setJudgeProgress(null)
       setVerdict(nextVerdict)
       syncCompileErrorMarkerFromVerdict(nextVerdict)
@@ -1020,7 +1198,7 @@ export function CodeWorkspace({
         result: 'Judge Error',
         metadata: {
           phase: 'finish',
-          language: resolvedLanguage,
+          language: executionLanguage,
           status: 'rejected',
           reasonCode: remoteSubmission.code,
         },
@@ -1031,7 +1209,7 @@ export function CodeWorkspace({
       const message = error instanceof Error ? error.message : '远程提交失败。'
       const nextVerdict = buildServiceVerdict('Judge Error', message)
       setConsoleOutput('')
-      setDebugInfo([`Action: Submit`, `Language: ${getLanguageLabel(resolvedLanguage)}`, `Status: Judge Error`])
+      setDebugInfo([`Action: Submit`, `Language: ${getLanguageLabel(executionLanguage)}`, `Status: Judge Error`])
       setJudgeProgress(null)
       setVerdict(nextVerdict)
       syncCompileErrorMarkerFromVerdict(nextVerdict)
@@ -1045,7 +1223,7 @@ export function CodeWorkspace({
         result: 'Judge Error',
         metadata: {
           phase: 'finish',
-          language: resolvedLanguage,
+          language: executionLanguage,
           status: 'error',
         },
       })
@@ -1149,7 +1327,7 @@ export function CodeWorkspace({
   }
 
   function formatCurrentCode() {
-    const formattedCode = formatCodeForLanguage(code, resolvedLanguage)
+    const formattedCode = formatCodeForLanguage(code, editorLanguage)
     if (formattedCode === code) {
       editorRef.current?.focus()
       return
@@ -1246,11 +1424,112 @@ export function CodeWorkspace({
     }
   }
 
+  function resetHiddenCaseReveal() {
+    hiddenCaseRevealRequestRef.current += 1
+    setHiddenCaseRevealStatus(null)
+    setHiddenCaseReveal(null)
+    setHiddenCaseRevealLoading(false)
+    setHiddenCaseRevealError('')
+    setHiddenCaseCopyStatus('idle')
+  }
+
+  async function refreshHiddenCaseRevealStatus(submissionId: string, nextVerdict: Verdict) {
+    hiddenCaseRevealRequestRef.current += 1
+    const requestId = hiddenCaseRevealRequestRef.current
+    setHiddenCaseReveal(null)
+    setHiddenCaseRevealError('')
+    setHiddenCaseCopyStatus('idle')
+
+    if (assessmentAttemptId || nextVerdict.result === 'AC' || typeof nextVerdict.failedCaseIndex !== 'number') {
+      setHiddenCaseRevealStatus(null)
+      return
+    }
+
+    try {
+      const result = await getHiddenCaseRevealStatusAction({ submissionId })
+      if (hiddenCaseRevealRequestRef.current !== requestId) return
+      setHiddenCaseRevealStatus(result.available ? result : null)
+    } catch {
+      if (hiddenCaseRevealRequestRef.current !== requestId) return
+      setHiddenCaseRevealStatus(null)
+    }
+  }
+
+  async function revealHiddenCase() {
+    if (!lastRemoteSubmissionId || hiddenCaseRevealLoading) return
+
+    setHiddenCaseRevealLoading(true)
+    setHiddenCaseRevealError('')
+    setHiddenCaseCopyStatus('idle')
+
+    try {
+      const result = await revealHiddenCaseAction({ submissionId: lastRemoteSubmissionId })
+      setHiddenCaseReveal(result)
+      if (result.ok) {
+        setHiddenCaseRevealStatus({
+          ok: true,
+          available: true,
+          submissionId: result.submissionId,
+          levelId: result.levelId,
+          caseIndex: result.caseIndex,
+          caseNumber: result.caseNumber,
+          alreadyRevealed: true,
+          revealedCount: result.revealedCount,
+          remainingReveals: result.remainingReveals,
+        })
+        emitBehaviorEvent({
+          type: 'ide_error',
+          levelId: level.id,
+          submissionId: lastRemoteSubmissionId,
+          assessmentAttemptId,
+          metadata: {
+            source: 'hidden_case_reveal',
+            caseNumber: result.caseNumber,
+            remainingReveals: result.remainingReveals,
+          },
+        })
+      } else {
+        setHiddenCaseRevealStatus(null)
+        setHiddenCaseRevealError(result.reason)
+      }
+    } catch (error) {
+      setHiddenCaseRevealError(error instanceof Error ? error.message : messages.ide.hiddenCaseUnavailable)
+    } finally {
+      setHiddenCaseRevealLoading(false)
+    }
+  }
+
+  async function copyHiddenCaseInput(input: string) {
+    const copied = await writeClipboardText(input)
+    setHiddenCaseCopyStatus(copied ? 'copied' : 'failed')
+    if (hiddenCaseCopyTimerRef.current !== null) window.clearTimeout(hiddenCaseCopyTimerRef.current)
+    hiddenCaseCopyTimerRef.current = window.setTimeout(() => {
+      setHiddenCaseCopyStatus('idle')
+      hiddenCaseCopyTimerRef.current = null
+    }, 1400)
+  }
+
   const currentCanExplain =
     Boolean(lastRemoteSubmissionId) && status === 'done' && canAnalyzeVerdict(verdict)
   const currentAnalysisState = lastRemoteSubmissionId ? analysisBySubmissionId[lastRemoteSubmissionId] : undefined
+  const canRevealHiddenCase = Boolean(hiddenCaseRevealStatus?.available && lastRemoteSubmissionId)
+  const judgeControlsDisabled = status === 'judging'
   const resultSupport = (
     <>
+      {hiddenCaseReveal?.ok ? (
+        <HiddenCaseRevealPanel
+          reveal={hiddenCaseReveal}
+          copyStatus={hiddenCaseCopyStatus}
+          onCopyInput={() => void copyHiddenCaseInput(hiddenCaseReveal.input)}
+          onUseAsStdin={() => {
+            setConsoleInput(hiddenCaseReveal.input)
+            setStdoutView('stdout')
+            setOutputExpanded(true)
+          }}
+          messages={messages}
+        />
+      ) : null}
+      {hiddenCaseRevealError ? <p className="hidden-case-reveal-error">{hiddenCaseRevealError}</p> : null}
       {learningFeedback ? <LearningFeedbackCard feedback={learningFeedback} /> : null}
       {lastRemoteSubmissionId && currentAnalysisState ? (
         <SubmissionAnalysisPanel
@@ -1287,6 +1566,18 @@ export function CodeWorkspace({
       <button type="button" aria-label={messages.ide.formatCode} title={messages.ide.formatCode} data-tooltip={messages.ide.formatCode} onClick={formatCurrentCode}>
         <AlignLeft size={18} strokeWidth={2.4} />
       </button>
+      {onExpandedChange ? (
+        <button
+          type="button"
+          aria-label={expanded ? messages.ide.collapseEditor : messages.ide.expandEditor}
+          aria-pressed={expanded}
+          title={expanded ? messages.ide.collapseEditor : messages.ide.expandEditor}
+          data-tooltip={expanded ? messages.ide.collapseEditor : messages.ide.expandEditor}
+          onClick={() => onExpandedChange(!expanded)}
+        >
+          {expanded ? <Minimize2 size={18} strokeWidth={2.4} /> : <Maximize2 size={18} strokeWidth={2.4} />}
+        </button>
+      ) : null}
       <AlgorithmWhiteboardButton
         label={messages.ide.whiteboard}
         onOpen={() => {
@@ -1299,15 +1590,6 @@ export function CodeWorkspace({
           setWhiteboardOpen(true)
         }}
       />
-      <button
-        type="button"
-        aria-label={expanded ? messages.ide.collapseEditor : messages.ide.expandEditor}
-        title={expanded ? messages.ide.collapseEditor : messages.ide.expandEditor}
-        data-tooltip={expanded ? messages.ide.collapseEditor : messages.ide.expandEditor}
-        onClick={() => setExpanded((value) => !value)}
-      >
-        <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-expand.svg" alt="" />
-      </button>
     </div>
   )
 
@@ -1317,7 +1599,6 @@ export function CodeWorkspace({
       className={[
         'workbench',
         `ide-theme-${editorThemeMode}`,
-        expanded ? 'expanded' : '',
         outputExpanded ? 'output-expanded' : '',
         resultsMaximized ? 'results-maximized' : '',
         historyOpen ? 'history-open' : '',
@@ -1332,7 +1613,7 @@ export function CodeWorkspace({
       <section ref={editorShellRef} className="editor-shell">
         <div className="editor-toolbar">
           <div className="editor-language-control">
-            <span>{getLanguageLabel(resolvedLanguage)} {messages.ide.editor}</span>
+            <span>{formatEditorTitle(editorLanguage, messages)}</span>
             <select
               aria-label={messages.ide.chooseLanguage}
               value={languageMode}
@@ -1366,13 +1647,18 @@ export function CodeWorkspace({
               ))}
             </select>
           </div>
+          {editorPasteNotice ? (
+            <span className="editor-paste-notice" role="status">
+              {editorPasteNotice}
+            </span>
+          ) : null}
         </div>
 
         <Editor
           className="monaco-surface"
           height="100%"
-          language={getMonacoLanguage(resolvedLanguage)}
-          path={`${level.id}.${resolvedLanguage}`}
+          language={getMonacoLanguage(editorLanguage)}
+          path={`${level.id}.${languageMode}`}
           theme={getMonacoThemeName(editorThemeMode)}
           value={code}
           beforeMount={configureEditorThemes}
@@ -1382,6 +1668,7 @@ export function CodeWorkspace({
           options={{
             autoIndent: 'advanced',
             automaticLayout: true,
+            contextmenu: false,
             detectIndentation: false,
             formatOnPaste: true,
             formatOnType: true,
@@ -1400,8 +1687,35 @@ export function CodeWorkspace({
             wordWrap: 'off',
           }}
         />
+        {editorContextMenu ? (
+          <div
+            className="editor-context-menu"
+            role="menu"
+            style={{ left: editorContextMenu.x, top: editorContextMenu.y }}
+            onMouseDown={(event) => event.preventDefault()}
+          >
+            <button type="button" role="menuitem" onClick={() => void runEditorContextMenuCommand('cut')}>
+              {messages.ide.contextCut}
+            </button>
+            <button type="button" role="menuitem" onClick={() => void runEditorContextMenuCommand('copy')}>
+              {messages.ide.contextCopy}
+            </button>
+            <button type="button" role="menuitem" onClick={() => void runEditorContextMenuCommand('paste')}>
+              {messages.ide.contextPaste}
+            </button>
+          </div>
+        ) : null}
         <div className="judge-actions editor-actions">
-          {completionNextVisible && completionNextHref ? (
+          {canRevealHiddenCase ? (
+            <button
+              className="completion-next-button hidden-case-reveal-button"
+              type="button"
+              disabled={hiddenCaseRevealLoading}
+              onClick={() => void revealHiddenCase()}
+            >
+              {hiddenCaseRevealLoading ? messages.ide.revealingHiddenCase : messages.ide.showHiddenCase}
+            </button>
+          ) : completionNextVisible && completionNextHref ? (
             completionNextAction ? (
               <button
                 className={`completion-next-button ${completionNextBreathing ? 'breathing' : ''}`}
@@ -1416,11 +1730,16 @@ export function CodeWorkspace({
               </Link>
             )
           ) : null}
-          <button className="asset-button run" type="button" onClick={runCode} disabled={status === 'judging'}>
+          <button
+            className="asset-button run"
+            type="button"
+            onClick={() => void runCode()}
+            disabled={judgeControlsDisabled}
+          >
             <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-play.svg" alt="" />
             {activeJudgeAction === 'run' ? messages.results.running : messages.ide.run}
           </button>
-          <button className="asset-button submit" type="button" onClick={submitCode} disabled={status === 'judging'}>
+          <button className="asset-button submit" type="button" onClick={submitCode} disabled={judgeControlsDisabled}>
             <img src="/assets/art/backgrounds/ch1-mist-town/programming-ui-kit/icon-star.svg" alt="" />
             {activeJudgeAction === 'submit' || (status === 'judging' && activeJudgeAction !== 'run')
               ? messages.ide.judging
@@ -1586,6 +1905,9 @@ export function CodeWorkspace({
   )
 }
 
+export const CodeWorkspace = forwardRef<CodeWorkspaceHandle, CodeWorkspaceProps>(CodeWorkspaceComponent)
+CodeWorkspace.displayName = 'CodeWorkspace'
+
 function SubmissionAnalysisPanel({
   state,
   fallback,
@@ -1717,6 +2039,77 @@ function LearningFeedbackCard({ feedback }: { feedback: LearningFeedback }) {
   )
 }
 
+function HiddenCaseRevealPanel({
+  reveal,
+  copyStatus,
+  onCopyInput,
+  onUseAsStdin,
+  messages,
+}: {
+  reveal: Extract<HiddenCaseRevealResult, { ok: true }>
+  copyStatus: 'idle' | 'copied' | 'failed'
+  onCopyInput: () => void
+  onUseAsStdin: () => void
+  messages: StudentUiMessages
+}) {
+  const copyLabel =
+    copyStatus === 'copied'
+      ? messages.ide.hiddenCaseCopied
+      : copyStatus === 'failed'
+        ? messages.ide.hiddenCaseCopyFailed
+        : messages.ide.hiddenCaseCopyInput
+
+  return (
+    <section className="hidden-case-reveal-panel" aria-label={messages.ide.hiddenCaseTitle}>
+      <div className="hidden-case-reveal-head">
+        <div>
+          <strong>{messages.ide.hiddenCaseTitle}</strong>
+          <span>
+            #{reveal.caseNumber} · {messages.ide.hiddenCaseRemaining} {reveal.remainingReveals}
+          </span>
+        </div>
+        <div className="hidden-case-reveal-actions">
+          <button type="button" onClick={onCopyInput}>
+            {copyLabel}
+          </button>
+          <button type="button" onClick={onUseAsStdin}>
+            {messages.ide.hiddenCaseUseAsStdin}
+          </button>
+        </div>
+      </div>
+      <div className="hidden-case-reveal-grid">
+        <HiddenCaseRevealBlock title={messages.ide.hiddenCaseInput} value={reveal.input} emptyLabel={messages.task.noInput} />
+        <HiddenCaseRevealBlock title={messages.ide.hiddenCaseExpected} value={reveal.expectedOutput} emptyLabel={messages.task.noInput} />
+        <HiddenCaseRevealBlock
+          title={messages.ide.hiddenCaseActual}
+          value={reveal.actualOutputRecorded ? reveal.actualOutput ?? '' : messages.ide.hiddenCaseActualMissing}
+          emptyLabel={messages.task.noInput}
+          muted={!reveal.actualOutputRecorded}
+        />
+      </div>
+    </section>
+  )
+}
+
+function HiddenCaseRevealBlock({
+  title,
+  value,
+  emptyLabel,
+  muted = false,
+}: {
+  title: string
+  value: string
+  emptyLabel: string
+  muted?: boolean
+}) {
+  return (
+    <div className={muted ? 'hidden-case-reveal-block muted' : 'hidden-case-reveal-block'}>
+      <span>{title}</span>
+      <pre>{value.length > 0 ? value : `(${emptyLabel})`}</pre>
+    </div>
+  )
+}
+
 function buildCompletedProgressVerdict(level: Level, progress: Progress): Verdict {
   const totalCases = Math.max(1, level.publicCases.length + level.hiddenCount)
 
@@ -1804,7 +2197,10 @@ function buildAcceptedLearningFeedback(
   const totalPassed = stagePath.items.filter((item) => passedIds.has(item.levelId)).length
   const nextUnpassed = stagePath.items.find((item) => item.position > (current?.position ?? 0) && !passedIds.has(item.levelId))
   const nextMainline = stagePath.items.find((item) => item.position <= 3 && !passedIds.has(item.levelId))
-  const recommended = nextMainline ?? nextUnpassed
+  const nextUnlockedUnpassed = nextUnpassed && isStageLevelUnlocked(stagePath.items, nextUnpassed.levelId, passedIds, stagePath.canFreeJump ?? false)
+    ? nextUnpassed
+    : undefined
+  const recommended = nextMainline ?? nextUnlockedUnpassed
 
   if (totalPassed >= 5) {
     return {
@@ -1920,6 +2316,16 @@ function buildRepairLearningFeedback(result: Verdict['result'], attemptCount: nu
     body: '已经连续多次没过，适合让 AI 或老师帮你定位“错在哪里”，但仍然由你自己修到 AC。',
     steps: ['点击 AI 分析查看错误位置', '查看题解视频或关键题解，不直接复制代码', '把本次提交和你的思路发给老师'],
   }
+}
+
+function getPendingRunEngineLabel(): string {
+  return 'Judge0'
+}
+
+function formatRunEngine(engine: Awaited<ReturnType<typeof runCodeAction>>['engine']): string {
+  if (engine === 'judge0') return 'Judge0'
+  if (engine === 'mock') return 'Mock'
+  return 'Error'
 }
 
 function buildRunVerdict(
@@ -2052,7 +2458,7 @@ async function pollRemoteSubmission(
       return result
     }
 
-    await sleep(attempt < 5 ? 500 : 1000)
+    await sleep(attempt < 8 ? 250 : attempt < 30 ? 500 : 1000)
   }
 
   return {
@@ -2221,6 +2627,95 @@ function canAnalyzeHistoryItem(item: SubmissionHistoryItem): boolean {
   return item.canViewCode && item.status === 'done' && canAnalyzeVerdict(item.verdict)
 }
 
+async function readEditorClipboardText(): Promise<
+  | { status: 'ready'; text: string }
+  | { status: 'empty' }
+  | { status: 'unsupported' }
+> {
+  try {
+    const text = await navigator.clipboard?.readText?.()
+    if (typeof text !== 'string') return { status: 'unsupported' }
+    if (!text) return { status: 'empty' }
+    return { status: 'ready', text }
+  } catch {
+    return { status: 'unsupported' }
+  }
+}
+
+function getEditorSelectionText(
+  editor: MonacoEditor.IStandaloneCodeEditor,
+  monaco: typeof Monaco,
+): { text: string; range: Monaco.IRange } | null {
+  const model = editor.getModel()
+  const selection = editor.getSelection()
+  const position = editor.getPosition()
+  if (!model || !selection || !position) return null
+
+  if (!selection.isEmpty()) {
+    return {
+      text: model.getValueInRange(selection),
+      range: selection,
+    }
+  }
+
+  const lineNumber = position.lineNumber
+  if (lineNumber < model.getLineCount()) {
+    const range = new monaco.Range(lineNumber, 1, lineNumber + 1, 1)
+    return {
+      text: model.getValueInRange(range),
+      range,
+    }
+  }
+
+  const range = new monaco.Range(lineNumber, 1, lineNumber, model.getLineMaxColumn(lineNumber))
+  return {
+    text: model.getValueInRange(range),
+    range,
+  }
+}
+
+function clampEditorContextMenuPosition(pageX: number, pageY: number): NonNullable<EditorContextMenuState> {
+  const menuWidth = 138
+  const menuHeight = 112
+  const margin = 8
+  const viewportX = pageX - window.scrollX
+  const viewportY = pageY - window.scrollY
+
+  return {
+    x: Math.min(Math.max(margin, viewportX), Math.max(margin, window.innerWidth - menuWidth - margin)),
+    y: Math.min(Math.max(margin, viewportY), Math.max(margin, window.innerHeight - menuHeight - margin)),
+  }
+}
+
+async function writeClipboardText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // Fall through to the legacy textarea copy path.
+  }
+
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    textarea.style.top = '0'
+    document.body.appendChild(textarea)
+    try {
+      textarea.select()
+      return document.execCommand('copy')
+    } finally {
+      document.body.removeChild(textarea)
+    }
+  } catch {
+    return false
+  }
+}
+
 function shortSubmissionId(id: string): string {
   return id.slice(0, 8)
 }
@@ -2352,6 +2847,16 @@ function encodeCachePart(value: string): string {
 
 function canReadCachedDrafts(userId: string): boolean {
   return window.localStorage.getItem('spcg:last-user-id') === userId
+}
+
+function resolveEditorLanguageMode(languageMode: LanguageMode): ResolvedLanguage {
+  return languageMode === 'auto' ? DEFAULT_CPP_LANGUAGE : languageMode
+}
+
+function formatEditorTitle(language: ResolvedLanguage, messages: StudentUiMessages): string {
+  if (language === 'python3') return `Python3${messages.ide.editor}`
+  if (language === 'c') return `C${messages.ide.editor}`
+  return `C++${messages.ide.editor}`
 }
 
 function formatCodeForLanguage(source: string, language: ResolvedLanguage): string {

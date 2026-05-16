@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Trophy } from 'lucide-react'
 import type { GameChapter } from '@spcg/shared/game-chapters'
 import type { Level } from '@spcg/shared/types'
@@ -14,9 +15,10 @@ export type ChapterMenuItem =
 type GameMapMenusProps = {
   chapterMenuItems: ChapterMenuItem[]
   currentChapter: GameChapter
-  levels: Level[]
+  levels: Array<Pick<Level, 'id' | 'order' | 'title' | 'knowledgePoint'>>
   currentLevelId?: string
   messages?: StudentUiMessages
+  trailingContent?: ReactNode
 }
 
 type OpenMenu = 'chapter' | 'level' | null
@@ -29,6 +31,7 @@ export function GameMapMenus({
   levels,
   currentLevelId,
   messages = fallbackMessages,
+  trailingContent,
 }: GameMapMenusProps) {
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -158,6 +161,7 @@ export function GameMapMenus({
         <Trophy size={18} strokeWidth={2.6} aria-hidden="true" />
         <span>榜</span>
       </Link>
+      {trailingContent}
     </div>
   )
 }

@@ -392,6 +392,7 @@ export type VerdictCaseResult = {
   result: Verdict['result']
   runtimeMs: number
   memoryKb?: number | null
+  stdout?: string | null
 }
 
 export type JudgeProgress = {
